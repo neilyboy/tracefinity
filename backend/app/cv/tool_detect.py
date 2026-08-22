@@ -97,23 +97,16 @@ def detect_tools(rectified: np.ndarray, scale_mm_per_px: float) -> list[ToolOutl
         if len(outer_mm) < 3:
             continue
 
-        # Find holes (inner contours of this outer contour)
-        holes_mm: list[list[Point]] = []
-        child = hierarchy[i][2]
-        while child != -1:
-            child_cnt = contours[child]
-            child_area = cv2.contourArea(child_cnt)
-            if child_area > min_area_px * 0.1:
-                hole_mm = _smooth_simplify_contour(child_cnt, scale_mm_per_px)
-                if len(hole_mm) >= 3:
-                    holes_mm.append(hole_mm)
-            child = hierarchy[child][0]
+        # NOTE: We do NOT detect holes inside tools. Tool pockets are solid
+        # depressions — the tool sits in a pocket shaped like its outline.
+        # Detecting holes would create a "doughnut" effect where the center
+        # of the tool isn't cut out, which is wrong for tool storage.
 
         outlines.append(
             ToolOutline(
                 id=str(uuid.uuid4())[:8],
                 outer=outer_mm,
-                holes=holes_mm,
+                holes=[],  # no holes — solid pockets
             )
         )
 
@@ -232,17 +225,19 @@ def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float) -> list[Po
         return []
 
     # Resample to high density for smooth Gaussian smoothing
-    pts_px = _resample_contour(pts_px, num_points=max(500, len(pts_px)))
+    pts_px = _resample_contour(pts_px, num_points=max(800, len(pts_px)))
 
     # Gaussian smooth — removes per-pixel jaggedness from the mask boundary.
-    pts_px = _gaussian_smooth_2d(pts_px, sigma=3.0)
+    # Higher sigma = smoother curves, but too high loses detail.
+    pts_px = _gaussian_smooth_2d(pts_px, sigma=4.0)
 
     # Convert to mm
     pts_mm = pts_px * scale_mm_per_px
 
     # Curvature-based simplification: keep points where curvature is high
     # (corners, curves) and decimate where curvature is low (straight edges).
-    target_pts = min(target_max, max(24, len(pts_mm) // 8))
+    # More points = smoother curves in the frontend bezier rendering.
+    target_pts = min(target_max, max(30, len(pts_mm) // 6))
     pts_mm = _simplify_by_curvature(pts_mm, target_pts=target_pts)
 
     # Remove any points that ended up too close together

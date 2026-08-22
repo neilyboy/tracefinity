@@ -47,6 +47,8 @@ export default function BinParamsPanel() {
         <Toggle label="Screw holes (M3)" checked={p.screw_holes} onChange={(v) => setParams({ screw_holes: v })} />
         <Toggle label="Scoop (finger cutout)" checked={p.scoop} onChange={(v) => setParams({ scoop: v })} />
         {p.scoop && <NumInput label="Scoop depth (mm)" value={p.scoop_depth_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ scoop_depth_mm: v })} />}
+        <Toggle label="Finger scoop (tool edge notch)" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
+        {p.finger_scoop && <NumInput label="Finger scoop Ø (mm)" value={p.finger_scoop_diameter_mm} step={1} min={5} max={40} onChange={(v) => setParams({ finger_scoop_diameter_mm: v })} />}
         <Toggle label="Stacking lip" checked={p.lip} onChange={(v) => setParams({ lip: v })} />
         <Toggle label="Label tab" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
       </Section>

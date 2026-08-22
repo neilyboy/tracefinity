@@ -32,6 +32,8 @@ export interface BinParams {
   screw_holes: boolean
   scoop: boolean
   scoop_depth_mm: number
+  finger_scoop: boolean
+  finger_scoop_diameter_mm: number
   tabs: 'none' | 'split' | 'aligned'
   lip: boolean
   label_tab: boolean
@@ -87,6 +89,8 @@ export const DEFAULT_PARAMS: BinParams = {
   screw_holes: false,
   scoop: true,
   scoop_depth_mm: 8.0,
+  finger_scoop: true,
+  finger_scoop_diameter_mm: 20.0,
   tabs: 'none',
   lip: true,
   label_tab: false,
