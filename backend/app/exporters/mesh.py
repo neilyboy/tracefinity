@@ -9,25 +9,25 @@ import trimesh
 
 def export_stl(solid) -> bytes:
     """Export a build123d Solid/Compound to STL bytes."""
-    # build123d can export STL directly via OCP tessellation.
-    # Use build123d's export_stl if available, else tessellate via trimesh.
+    from build123d import export_stl
+
+    fd, path = tempfile.mkstemp(suffix=".stl")
+    os.close(fd)
     try:
-        from build123d import export_stl
-
-        fd, path = tempfile.mkstemp(suffix=".stl")
-        os.close(fd)
-        try:
-            export_stl(solid, path)
-            with open(path, "rb") as f:
-                return f.read()
-        finally:
+        success = export_stl(solid, path)
+        with open(path, "rb") as f:
+            data = f.read()
+    finally:
+        if os.path.exists(path):
             os.unlink(path)
-    except (ImportError, Exception):
-        pass
 
-    # Fallback: tessellate via trimesh using the solid's mesh.
-    mesh = _solid_to_trimesh(solid)
-    return mesh.export(file_type="stl")
+    if len(data) == 0:
+        raise RuntimeError(
+            "STL export produced 0 bytes — the model may be empty. "
+            "Check that tool pockets don't cover the entire bin area "
+            "and pocket depth is less than bin height."
+        )
+    return data
 
 
 def export_3mf(solid) -> bytes:

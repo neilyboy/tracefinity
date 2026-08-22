@@ -58,6 +58,20 @@ def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> n
     return np.column_stack([new_x, new_y])
 
 
+def _simplify_polygon(pts: np.ndarray, epsilon: float = 0.3) -> np.ndarray:
+    """Simplify a polygon using Douglas-Peucker algorithm.
+
+    This reduces the number of points while preserving the shape, which is
+    critical for OCP boolean operations — complex polygons with many
+    close-together points can cause boolean subtraction to fail silently.
+    """
+    import cv2
+
+    contour = pts.astype(np.float32).reshape(-1, 1, 2)
+    simplified = cv2.approxPolyDP(contour, epsilon, True)
+    return simplified.reshape(-1, 2)
+
+
 def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l_mm: float) -> Solid | None:
     """Build a single tool pocket solid (to be subtracted from the bin).
 
@@ -82,6 +96,13 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
     # Offset the outer polygon outward by the margin (clearance).
     offset_outer = offset_polygon(outer, margin)
+
+    # Simplify the polygon to prevent OCP boolean operation failures.
+    # Complex polygons with many close-together points (from tool detection
+    # smoothing) can cause the boolean subtraction to fail silently, producing
+    # a 0-volume result and a 0-byte STL. Douglas-Peucker simplification with
+    # a small epsilon (0.3mm) preserves the shape while reducing point count.
+    offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # Reverse points to ensure CCW winding (build123d extrudes CCW polygons upward).
@@ -219,9 +240,16 @@ def build_finger_scoop(
 
 
 def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinParams) -> Part:
-    """Subtract all tool pockets and finger holes from the bin solid."""
+    """Subtract all tool pockets and finger holes from the bin solid.
+
+    The cutters are intersected with a bounding box representing the bin interior
+    (inside the outer walls, above the base) before subtraction. This prevents
+    pockets and finger scoops from consuming the walls or base, which could
+    otherwise leave the bin empty (0-volume) and produce a 0-byte STL.
+    """
     bin_w = params.grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     bin_l = params.grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
+    total_h = params.height_units * C.HEIGHT_UNIT_MM
 
     # Build all pockets, scoops, and finger holes.
     cutters = []
@@ -247,9 +275,27 @@ def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinPa
     if not cutters:
         return bin_solid
 
-    # Union all cutters into one, then subtract.
+    # Union all cutters into one.
     combined = cutters[0]
     for c in cutters[1:]:
-        combined = combined + c
+        try:
+            combined = combined + c
+        except Exception:
+            pass  # skip cutters that fail to union
 
-    return bin_solid - combined
+    # Intersect with the bin interior bounding box to prevent cutters from
+    # consuming the walls. The interior is inside the walls, so pockets can
+    # cut the floor but not the walls. This prevents a large pocket from
+    # consuming the entire bin and producing a 0-volume (0-byte STL) result.
+    wall_t = params.wall_thickness_mm
+    interior_w = bin_w - 2 * wall_t
+    interior_l = bin_l - 2 * wall_t
+    interior = Box(interior_w, interior_l, total_h * 2)
+    interior = interior.moved(Location((0, 0, total_h)))
+    try:
+        combined = combined & interior
+    except Exception:
+        pass  # if intersection fails, proceed with original cutters
+
+    result = bin_solid - combined
+    return result

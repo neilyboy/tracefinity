@@ -3,21 +3,23 @@ import { useEditor } from '../editor/useEditorState'
 import { clientToSvgMm, snapToGrid, snapFine } from '../editor/vertexDrag'
 import { GRID_UNIT_MM } from '../editor/constants'
 import { smoothClosedPath } from '../utils/smoothPath'
-import type { Point } from '../types'
+import type { Point, FingerHole } from '../types'
 
 export default function SvgEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
   const {
     design, selectedToolId, selectTool, updateVertex, moveTool,
-    addVertex, deleteVertex, deleteTool, pushHistory,
+    addVertex, deleteVertex, deleteTool, pushHistory, updateTool,
   } = useEditor()
 
   const [drag, setDrag] = useState<{
-    type: 'vertex' | 'tool'
+    type: 'vertex' | 'tool' | 'fingerHole'
     toolId: string
     vertexIdx?: number
+    fingerHoleIdx?: number
     startMm: Point
     startVertices: Point[]
+    startHole?: FingerHole
   } | null>(null)
 
   const lastMoveRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
@@ -27,6 +29,7 @@ export default function SvgEditor() {
 
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [zoom, setZoom] = useState(1)
+  const [placingFingerHole, setPlacingFingerHole] = useState(false)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -86,6 +89,17 @@ export default function SvgEditor() {
         moveTool(drag.toolId, incDx, incDy)
         lastMoveRef.current = { dx: sdx, dy: sdy }
       }
+    } else if (drag.type === 'fingerHole' && drag.fingerHoleIdx !== undefined && drag.startHole) {
+      const newPos = {
+        x: snapFine(drag.startHole.x + dx, snapEnabled ? 0.5 : 0.01),
+        y: snapFine(drag.startHole.y + dy, snapEnabled ? 0.5 : 0.01),
+      }
+      const tool = design.outlines.find((o) => o.id === drag.toolId)
+      if (tool) {
+        const holes = [...(tool.finger_holes ?? [])]
+        holes[drag.fingerHoleIdx] = { ...holes[drag.fingerHoleIdx], x: newPos.x, y: newPos.y }
+        updateTool(drag.toolId, { finger_holes: holes })
+      }
     }
   }
 
@@ -103,6 +117,37 @@ export default function SvgEditor() {
     e.stopPropagation()
     const mm = toMm(e.clientX, e.clientY)
     addVertex(toolId, afterIdx, { x: snapFine(mm.x, 0.5), y: snapFine(mm.y, 0.5) })
+  }
+
+  const handlePlaceFingerHole = (e: React.MouseEvent) => {
+    if (!placingFingerHole || !selectedToolId) return
+    e.stopPropagation()
+    suppressClickRef.current = true
+    const mm = toMm(e.clientX, e.clientY)
+    const tool = design.outlines.find((o) => o.id === selectedToolId)
+    if (!tool) return
+    const newHole: FingerHole = {
+      x: snapFine(mm.x, 0.5),
+      y: snapFine(mm.y, 0.5),
+      radius_mm: 15.0,
+      depth_mm: null,
+    }
+    updateTool(tool.id, { finger_holes: [...(tool.finger_holes ?? []), newHole] })
+    setPlacingFingerHole(false)
+    pushHistory()
+  }
+
+  const handleFingerHolePointerDown = (e: React.PointerEvent, toolId: string, holeIdx: number) => {
+    e.stopPropagation()
+    suppressClickRef.current = true
+    const tool = design.outlines.find((o) => o.id === toolId)
+    if (!tool) return
+    const hole = tool.finger_holes?.[holeIdx]
+    if (!hole) return
+    const mm = toMm(e.clientX, e.clientY)
+    setDrag({ type: 'fingerHole', toolId, fingerHoleIdx: holeIdx, startMm: mm, startVertices: [], startHole: { ...hole } })
+    selectTool(toolId)
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -123,12 +168,22 @@ export default function SvgEditor() {
         <button onClick={() => setSnapEnabled(!snapEnabled)} style={toolBtn(snapEnabled)}>
           {snapEnabled ? '🧲 Snap ON' : '🧲 Snap OFF'}
         </button>
+        <button
+          onClick={() => setPlacingFingerHole(!placingFingerHole)}
+          disabled={!selectedToolId}
+          style={toolBtn(placingFingerHole)}
+          title="Click to place a finger hole on the selected tool"
+        >
+          {placingFingerHole ? '👆 Click on tool...' : '◯ Finger Hole'}
+        </button>
         <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))} style={toolBtn(false)}>−</button>
         <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
         <button onClick={() => setZoom((z) => Math.min(4, z + 0.2))} style={toolBtn(false)}>+</button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#52525b' }}>
-          Drag vertices to edit · Double-click edge to add vertex · Del to remove tool
+          {placingFingerHole
+            ? 'Click anywhere on the selected tool to place a finger hole'
+            : 'Drag vertices to edit · Double-click edge to add vertex · Del to remove tool'}
         </span>
       </div>
 
@@ -137,10 +192,17 @@ export default function SvgEditor() {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${viewW} ${viewH}`}
-          style={{ width: viewW * zoom * 3, height: viewH * zoom * 3, maxWidth: '100%' }}
+          style={{
+            width: viewW * zoom * 3, height: viewH * zoom * 3, maxWidth: '100%',
+            cursor: placingFingerHole ? 'crosshair' : 'default',
+          }}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          onClick={() => {
+          onClick={(e) => {
+            if (placingFingerHole) {
+              handlePlaceFingerHole(e)
+              return
+            }
             if (suppressClickRef.current) {
               suppressClickRef.current = false
               return
@@ -215,6 +277,24 @@ export default function SvgEditor() {
                     onPointerDown={(e) => handleVertexPointerDown(e, tool.id, vi)}
                     onDoubleClick={(e) => { e.stopPropagation(); deleteVertex(tool.id, vi) }}
                   />
+                ))}
+
+                {/* Finger holes (draggable circles) */}
+                {(tool.finger_holes ?? []).map((hole, hi) => (
+                  <g key={`fh${hi}`}>
+                    <circle
+                      cx={pad + hole.x} cy={pad + hole.y} r={hole.radius_mm}
+                      fill="rgba(252,165,165,0.15)" stroke={isSelected ? '#fca5a5' : '#71717a'}
+                      strokeWidth={0.3} strokeDasharray="1,1"
+                      style={{ cursor: isSelected ? 'grab' : 'default', pointerEvents: isSelected ? 'all' : 'none' }}
+                      onPointerDown={isSelected ? (e) => handleFingerHolePointerDown(e, tool.id, hi) : undefined}
+                    />
+                    <circle
+                      cx={pad + hole.x} cy={pad + hole.y} r={1}
+                      fill="#fca5a5" stroke="#0f1115" strokeWidth={0.3}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  </g>
                 ))}
 
                 {/* Invisible thick path for easy tool selection/dragging */}

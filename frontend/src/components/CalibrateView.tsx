@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { rectifyWithCorners } from '../api/client'
 import type { Point } from '../types'
@@ -25,6 +25,7 @@ export default function CalibrateView() {
   const [cornersMoved, setCornersMoved] = useState(false)  // tracks if user dragged any corner
   const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const magnifierRef = useRef<HTMLCanvasElement>(null)
 
   // Convert client coordinates to image pixel coordinates.
   const clientToImagePx = useCallback((clientX: number, clientY: number): Point => {
@@ -74,6 +75,54 @@ export default function CalibrateView() {
     }
     setDragIdx(null)
   }
+
+  // Draw zoomed-in magnifier view of the area around the active corner.
+  // This helps users position corners precisely on the paper edge.
+  const ZOOM = 4
+  const MAG_SIZE = 200
+  useEffect(() => {
+    if (dragIdx === null || !imgRef.current || !magnifierRef.current) return
+    const canvas = magnifierRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const corner = corners[dragIdx]
+    const img = imgRef.current
+
+    // Source region: a small area around the corner in image pixel coords
+    const srcSize = MAG_SIZE / ZOOM
+    const sx = corner.x - srcSize / 2
+    const sy = corner.y - srcSize / 2
+
+    // Clear canvas
+    ctx.clearRect(0, 0, MAG_SIZE, MAG_SIZE)
+
+    // Draw zoomed image region
+    ctx.imageSmoothingEnabled = false
+    try {
+      ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, MAG_SIZE, MAG_SIZE)
+    } catch {
+      // Image may not be fully loaded
+      return
+    }
+
+    // Draw crosshair at center (where the corner is)
+    ctx.strokeStyle = '#a78bfa'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(MAG_SIZE / 2 - 12, MAG_SIZE / 2)
+    ctx.lineTo(MAG_SIZE / 2 + 12, MAG_SIZE / 2)
+    ctx.moveTo(MAG_SIZE / 2, MAG_SIZE / 2 - 12)
+    ctx.lineTo(MAG_SIZE / 2, MAG_SIZE / 2 + 12)
+    ctx.stroke()
+
+    // Draw corner circle
+    ctx.strokeStyle = '#fca5a5'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(MAG_SIZE / 2, MAG_SIZE / 2, 8, 0, Math.PI * 2)
+    ctx.stroke()
+  }, [dragIdx, corners, imgSize])
 
   const handleConfirm = async () => {
     // If paper was auto-detected and user didn't change corners, go straight to trace.
@@ -204,6 +253,37 @@ export default function CalibrateView() {
           )
         })}
       </div>
+
+      {/* Magnifier showing zoomed-in view of the corner being dragged */}
+      {dragIdx !== null && (
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          width: 200,
+          height: 200,
+          border: '3px solid #a78bfa',
+          borderRadius: 8,
+          overflow: 'hidden',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          background: '#18181b',
+          zIndex: 100,
+        }}>
+          <canvas
+            ref={magnifierRef}
+            width={200}
+            height={200}
+            style={{ display: 'block' }}
+          />
+          <div style={{
+            position: 'absolute', top: 4, left: 8, color: '#a78bfa',
+            fontSize: 11, textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+            pointerEvents: 'none',
+          }}>
+            {['TL', 'TR', 'BR', 'BL'][dragIdx]} · {ZOOM}× zoom
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 12 }}>
         <button

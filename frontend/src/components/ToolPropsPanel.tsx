@@ -97,13 +97,16 @@ export default function ToolPropsPanel() {
       </Field>
 
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        Finger Holes
+        Finger Holes — click on tool in editor to place
       </div>
       <button onClick={handleAddFingerHole} style={{ ...btnStyle, width: '100%', marginBottom: 8 }}>
-        + Add Finger Hole
+        + Add Finger Hole at Center
       </button>
       {(tool.finger_holes ?? []).map((hole, i) => (
         <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 10, color: '#52525b', minWidth: 60 }}>
+            ({hole.x.toFixed(0)}, {hole.y.toFixed(0)})
+          </span>
           <input
             type="number" value={hole.radius_mm} step={1} min={3} max={40}
             onChange={(e) => {
