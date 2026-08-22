@@ -40,6 +40,8 @@ export default function BinParamsPanel() {
         <NumInput label="Default depth (mm)" value={p.pocket_depth_mm} step={0.5} min={1} max={100} onChange={(v) => setParams({ pocket_depth_mm: v })} />
         <NumInput label="Default margin (mm)" value={p.tool_margin_mm} step={0.1} min={0} max={10} onChange={(v) => setParams({ tool_margin_mm: v })} />
         <NumInput label="Corner radius (mm)" value={p.pocket_corner_radius_mm} step={0.5} min={0} max={20} onChange={(v) => setParams({ pocket_corner_radius_mm: v })} />
+        <NumInput label="Cutout chamfer (mm)" value={p.cutout_chamfer_mm} step={0.1} min={0} max={3} onChange={(v) => setParams({ cutout_chamfer_mm: v })} />
+        <NumInput label="Bottom radius (mm)" value={p.pocket_bottom_radius_mm} step={0.5} min={0} max={10} onChange={(v) => setParams({ pocket_bottom_radius_mm: v })} />
       </Section>
 
       <Section title="Features">
@@ -47,10 +49,23 @@ export default function BinParamsPanel() {
         <Toggle label="Screw holes (M3)" checked={p.screw_holes} onChange={(v) => setParams({ screw_holes: v })} />
         <Toggle label="Scoop (finger cutout)" checked={p.scoop} onChange={(v) => setParams({ scoop: v })} />
         {p.scoop && <NumInput label="Scoop depth (mm)" value={p.scoop_depth_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ scoop_depth_mm: v })} />}
-        <Toggle label="Finger scoop (tool edge notch)" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
+        <Toggle label="Finger scoop (auto tool edge)" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
         {p.finger_scoop && <NumInput label="Finger scoop Ø (mm)" value={p.finger_scoop_diameter_mm} step={1} min={5} max={40} onChange={(v) => setParams({ finger_scoop_diameter_mm: v })} />}
         <Toggle label="Stacking lip" checked={p.lip} onChange={(v) => setParams({ lip: v })} />
         <Toggle label="Label tab" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
+        {p.label_tab && (
+          <>
+            <input
+              type="text"
+              placeholder="Label text..."
+              value={p.label_text}
+              onChange={(e) => setParams({ label_text: e.target.value })}
+              style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #3f3f46', background: '#18181b', color: '#e4e4e7', fontSize: 13, marginTop: 4 }}
+            />
+            <NumInput label="Font size (mm)" value={p.label_font_size_mm} step={0.5} min={3} max={20} onChange={(v) => setParams({ label_font_size_mm: v })} />
+            <NumInput label="Label depth (mm)" value={p.label_depth_mm} step={0.1} min={0.2} max={3} onChange={(v) => setParams({ label_depth_mm: v })} />
+          </>
+        )}
       </Section>
 
       <Section title="Tabs">

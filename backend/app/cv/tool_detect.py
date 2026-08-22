@@ -339,3 +339,40 @@ def _remove_close_points(pts: np.ndarray, min_dist_mm: float = 1.0) -> np.ndarra
         if dist < min_dist_mm:
             result = result[:-1]
     return np.array(result, dtype=np.float64)
+
+
+def auto_rotate_angle(outer: list[Point]) -> float:
+    """Find the rotation angle that minimizes the bounding box area.
+
+    This aligns the tool's principal axis with the nearest coordinate axis
+    (0°, 90°, 180°, or 270°), making the tool straight up-and-down or
+    left-and-right. Like Tooltrace.ai's auto-rotate feature.
+
+    Returns the rotation angle in degrees (0-90).
+    """
+    pts = np.array([[p.x, p.y] for p in outer])
+    if len(pts) < 3:
+        return 0.0
+
+    cx = float(np.mean(pts[:, 0]))
+    cy = float(np.mean(pts[:, 1]))
+
+    best_angle = 0.0
+    best_area = float('inf')
+
+    # Try angles from 0 to 90 degrees in 1-degree steps
+    for angle in range(0, 91):
+        angle_rad = np.radians(angle)
+        cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+        dx = pts[:, 0] - cx
+        dy = pts[:, 1] - cy
+        new_x = dx * cos_a - dy * sin_a
+        new_y = dx * sin_a + dy * cos_a
+        w = new_x.max() - new_x.min()
+        h = new_y.max() - new_y.min()
+        area = w * h
+        if area < best_area:
+            best_area = area
+            best_angle = float(angle)
+
+    return best_angle

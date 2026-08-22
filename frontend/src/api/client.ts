@@ -59,6 +59,20 @@ export async function detectToolAtPoint(
   return res.json()
 }
 
+export async function autoRotateTool(outer: Point[]): Promise<number> {
+  const res = await fetch(`${API}/auto-rotate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outer }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Auto-rotate failed')
+  }
+  const data = await res.json()
+  return data.rotation_deg
+}
+
 export async function saveDesign(design: Design): Promise<Design> {
   const res = await fetch(`${API}/designs`, {
     method: 'PUT',

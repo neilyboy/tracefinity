@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from ..config import PAPER_SIZES_MM, settings
 from ..cv.pipeline import run_trace, run_rectify_with_corners
-from ..cv.tool_detect import detect_tool_at_point
+from ..cv.tool_detect import auto_rotate_angle, detect_tool_at_point
 from ..schemas import ManualRectifyRequest, Point, ToolOutline
 
 router = APIRouter()
@@ -98,3 +98,21 @@ async def detect_at_point(req: ClickDetectRequest):
         raise HTTPException(status_code=400, detail="No tool detected at that point.")
 
     return outline
+
+
+class AutoRotateRequest(BaseModel):
+    """Request to auto-rotate a tool outline to align with axes."""
+    outer: list[Point]
+
+
+@router.post("/auto-rotate", response_model=None)
+async def auto_rotate_tool(req: AutoRotateRequest):
+    """Find the rotation angle that minimizes the bounding box.
+
+    Like Tooltrace.ai's auto-rotate: finds the angle that aligns the tool's
+    principal axis with the nearest coordinate axis (0°, 90°, 180°, or 270°).
+    """
+    if len(req.outer) < 3:
+        raise HTTPException(status_code=400, detail="Need at least 3 points.")
+    angle = auto_rotate_angle(req.outer)
+    return {"rotation_deg": angle}

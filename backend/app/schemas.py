@@ -15,6 +15,14 @@ class Point(BaseModel):
     y: float
 
 
+class FingerHole(BaseModel):
+    """A user-placed finger hole (spherical pocket for lifting tools out)."""
+    x: float  # position in mm relative to paper origin
+    y: float
+    radius_mm: float = 15.0  # default 15mm radius (Tooltrace.ai default)
+    depth_mm: float | None = None  # None = use bin pocket depth
+
+
 class ToolOutline(BaseModel):
     """A single traced tool, coordinates in millimetres relative to the paper origin."""
 
@@ -26,6 +34,10 @@ class ToolOutline(BaseModel):
     margin_mm: float | None = None
     pocket_depth_mm: float | None = None
     visible: bool = True
+    # Rotation angle in degrees (user can rotate tool to align with axes)
+    rotation_deg: float = 0.0
+    # User-placed finger holes for this tool
+    finger_holes: list[FingerHole] = Field(default_factory=list)
 
 
 class BinParams(BaseModel):
@@ -56,6 +68,10 @@ class BinParams(BaseModel):
     tabs: Literal["none", "split", "aligned"] = "none"
     lip: bool = True
     label_tab: bool = False
+    # Label text (rendered as embossed text on the bin)
+    label_text: str = ""
+    label_font_size_mm: float = Field(6.0, gt=0)
+    label_depth_mm: float = Field(0.6, gt=0)
     # Dividers: list of (x_unit_fraction, y_unit_fraction) creating compartment walls.
     # Simplified: number of compartments along x and y.
     compartments_x: int = Field(1, ge=1, le=10)
@@ -64,6 +80,12 @@ class BinParams(BaseModel):
     foam_thickness_mm: float = Field(10.0, gt=0)
     # Rounded corners on pockets (mm radius)
     pocket_corner_radius_mm: float = Field(2.0, ge=0)
+    # Chamfer on the top edge of each pocket (mm). 0 = sharp edge.
+    # Creates a beveled edge at the top of the pocket for easier tool insertion.
+    cutout_chamfer_mm: float = Field(0.0, ge=0, le=3.0)
+    # Rounded bottom radius for pockets (mm). 0 = flat bottom.
+    # Creates a rounded transition from the pocket walls to the floor.
+    pocket_bottom_radius_mm: float = Field(0.0, ge=0)
 
 
 class Design(BaseModel):

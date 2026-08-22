@@ -220,11 +220,12 @@ def _refine_corners_by_edges(gray: np.ndarray, corners: np.ndarray, contour: np.
 
         lines.append((center_pt, line_dir))
 
-    # Compute intersections of adjacent lines
+    # Compute intersections of adjacent lines.
+    # Corner i = intersection of edge (i-1)%4 and edge i.
     refined = np.zeros((4, 2), dtype=np.float32)
     for i in range(4):
-        p1, d1 = lines[i]
-        p2, d2 = lines[(i + 1) % 4]
+        p1, d1 = lines[(i - 1) % 4]
+        p2, d2 = lines[i]
         refined[i] = _line_intersection(p1, d1, p2, d2)
 
     return refined
@@ -444,6 +445,105 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
     best = _fix_corners_by_aspect_ratio(best, paper_size)
 
     return scale_back(best)
+
+
+def _refine_edges_by_gradient(gray: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    """Refine each edge by finding the paper-to-background brightness boundary.
+
+    For each edge, we search perpendicular to the edge (from outside inward)
+    for the point where brightness transitions from dark (countertop) to
+    bright (paper). This is the actual paper boundary.
+
+    We then recompute corner positions from the refined edge lines.
+    """
+    ordered = order_corners(corners)
+    h_img, w_img = gray.shape
+
+    # Smooth the grayscale image for stable brightness measurements
+    smooth = cv2.GaussianBlur(gray, (9, 9), 0)
+
+    # Determine paper brightness from the center of the detected quad
+    centroid = ordered.mean(axis=0)
+    cx, cy = int(centroid[0]), int(centroid[1])
+    r = 20
+    paper_brightness = float(smooth[
+        max(0, cy - r):min(h_img, cy + r),
+        max(0, cx - r):min(w_img, cx + r)
+    ].mean())
+    # Threshold: 75% of paper brightness is the paper boundary
+    brightness_threshold = paper_brightness * 0.75
+
+    lines = []  # Each: (point_on_line, direction)
+
+    for i in range(4):
+        p1 = ordered[i]
+        p2 = ordered[(i + 1) % 4]
+        edge_len = np.linalg.norm(p2 - p1)
+        if edge_len < 1e-6:
+            lines.append((p1, np.array([1.0, 0.0])))
+            continue
+
+        edge_dir = (p2 - p1) / edge_len
+        # Normal to edge — points outward (away from paper center)
+        normal = np.array([edge_dir[1], -edge_dir[0]])
+        mid = (p1 + p2) / 2
+        if np.dot(normal, mid - centroid) < 0:
+            normal = -normal
+
+        # For each sample point along the edge, search from OUTSIDE IN
+        # to find where brightness crosses the threshold (paper boundary).
+        # Starting from outside ensures we find the paper edge, not tool edges.
+        search_radius = max(int(edge_len * 0.08), 30)
+        boundary_pts = []
+
+        for t in np.linspace(0.1, 0.9, 15):
+            base_pt = p1 * (1 - t) + p2 * t
+            # Search from far outside inward
+            found = False
+            for d in range(search_radius, -search_radius, -2):
+                pt = base_pt + normal * d
+                px, py = int(pt[0]), int(pt[1])
+                if not (0 <= px < w_img and 0 <= py < h_img):
+                    continue
+                if float(smooth[py, px]) >= brightness_threshold:
+                    boundary_pts.append(pt.copy())
+                    found = True
+                    break
+            if not found:
+                # Keep the original position
+                boundary_pts.append(base_pt.copy())
+
+        # Use the boundary points to find WHERE the edge is (the center point),
+        # but keep the original edge DIRECTION (paper edges are straight).
+        boundary_arr = np.array(boundary_pts)
+        center_pt = boundary_arr.mean(axis=0)
+        lines.append((center_pt, edge_dir))
+
+    # Recompute corners from line intersections.
+    # Edges are ordered: [top, right, bottom, left] (edge i goes from corner i to corner (i+1)%4).
+    # Corner i is the intersection of edge (i-1)%4 and edge i.
+    #   TL (0) = left(3) ∩ top(0)
+    #   TR (1) = top(0) ∩ right(1)
+    #   BR (2) = right(1) ∩ bottom(2)
+    #   BL (3) = bottom(2) ∩ left(3)
+    refined = np.zeros((4, 2), dtype=np.float32)
+    for i in range(4):
+        p1, d1 = lines[(i - 1) % 4]
+        p2, d2 = lines[i]
+        refined[i] = _line_intersection(p1, d1, p2, d2)
+
+    # Validate: each refined corner should be close to the original
+    # (within 20% of the average adjacent edge length).
+    # If refinement moved corners too far, it probably found wrong edges.
+    for i in range(4):
+        e1_len = np.linalg.norm(ordered[(i + 1) % 4] - ordered[i])
+        e2_len = np.linalg.norm(ordered[i] - ordered[(i - 1) % 4])
+        max_move = min(e1_len, e2_len) * 0.20
+        dist = np.linalg.norm(refined[i] - ordered[i])
+        if dist > max_move:
+            return ordered  # refinement too aggressive, keep original
+
+    return refined
 
 
 def _fix_corner_by_parallelogram(gray: np.ndarray, corners: np.ndarray, paper_size: str) -> np.ndarray:

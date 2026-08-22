@@ -9,6 +9,13 @@ export interface Point {
   y: number
 }
 
+export interface FingerHole {
+  x: number
+  y: number
+  radius_mm: number
+  depth_mm: number | null
+}
+
 export interface ToolOutline {
   id: string
   outer: Point[]
@@ -17,6 +24,8 @@ export interface ToolOutline {
   margin_mm: number | null
   pocket_depth_mm: number | null
   visible: boolean
+  rotation_deg: number
+  finger_holes: FingerHole[]
 }
 
 export interface BinParams {
@@ -37,10 +46,15 @@ export interface BinParams {
   tabs: 'none' | 'split' | 'aligned'
   lip: boolean
   label_tab: boolean
+  label_text: string
+  label_font_size_mm: number
+  label_depth_mm: number
   compartments_x: number
   compartments_y: number
   foam_thickness_mm: number
   pocket_corner_radius_mm: number
+  cutout_chamfer_mm: number
+  pocket_bottom_radius_mm: number
 }
 
 export interface Design {
@@ -94,8 +108,13 @@ export const DEFAULT_PARAMS: BinParams = {
   tabs: 'none',
   lip: true,
   label_tab: false,
+  label_text: '',
+  label_font_size_mm: 6.0,
+  label_depth_mm: 0.6,
   compartments_x: 1,
   compartments_y: 1,
   foam_thickness_mm: 10.0,
   pocket_corner_radius_mm: 2.0,
+  cutout_chamfer_mm: 0.0,
+  pocket_bottom_radius_mm: 0.0,
 }

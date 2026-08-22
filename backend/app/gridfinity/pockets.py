@@ -11,29 +11,51 @@ Key design principles (matching Tooltrace.ai behavior):
    inside the tool outline (no doughnut effect). The tool sits in a
    solid pocket shaped like its outline.
 
-3. **Finger scoops**: A cylindrical cutout at one end of each tool pocket
-   so you can reach in and grab the tool. Default 20mm diameter, going
-   through the full pocket depth. This makes it easy to lift tools out.
+3. **Cutout chamfer**: A beveled edge at the top of each pocket for easier
+   tool insertion. Configurable from 0 (sharp) to 3mm.
 
-4. **Margin**: The pocket is slightly larger than the tool outline to
+4. **Rounded bottom**: A rounded transition from the pocket walls to the
+   floor. Configurable radius, 0 = flat bottom.
+
+5. **Finger holes**: User-placed spherical pockets at the edge of tools
+   for lifting tools out. Default 15mm radius (Tooltrace.ai default).
+   Users can place these wherever they want on each tool.
+
+6. **Margin**: The pocket is slightly larger than the tool outline to
    provide clearance for inserting/removing the tool.
 """
 from __future__ import annotations
 
 import numpy as np
 from build123d import (
+    Box,
     Cylinder,
     Location,
     Part,
     Polygon,
     Sketch,
     Solid,
+    Sphere,
     extrude,
+    fillet,
 )
 
-from ..schemas import BinParams, ToolOutline
+from ..schemas import BinParams, FingerHole, ToolOutline
 from ..utils.geometry import offset_polygon, to_np
 from . import constants as C
+
+
+def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> np.ndarray:
+    """Rotate points around a center by angle in degrees."""
+    if abs(angle_deg) < 0.01:
+        return pts
+    angle_rad = np.radians(angle_deg)
+    cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+    dx = pts[:, 0] - cx
+    dy = pts[:, 1] - cy
+    new_x = cx + dx * cos_a - dy * sin_a
+    new_y = cy + dx * sin_a + dy * cos_a
+    return np.column_stack([new_x, new_y])
 
 
 def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l_mm: float) -> Solid | None:
@@ -52,6 +74,12 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     margin = outline.margin_mm if outline.margin_mm is not None else params.tool_margin_mm
     pocket_depth = outline.pocket_depth_mm if outline.pocket_depth_mm is not None else params.pocket_depth_mm
 
+    # Apply rotation if specified
+    cx = float(np.mean(outer[:, 0]))
+    cy = float(np.mean(outer[:, 1]))
+    if abs(outline.rotation_deg) > 0.01:
+        outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
+
     # Offset the outer polygon outward by the margin (clearance).
     offset_outer = offset_polygon(outer, margin)
 
@@ -66,40 +94,86 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     sketch = Sketch() + outer_face
 
     # Extrude to create the pocket solid.
-    # The pocket starts at the TOP of the bin walls and goes DOWN by pocket_depth.
-    # The bin walls go up to total_h (height_units * HEIGHT_UNIT_MM).
-    # The lip (if present) sits above that and we don't cut through it.
-    # We add a small extra (2mm) above total_h to ensure clean cuts at the top surface.
     total_h = params.height_units * C.HEIGHT_UNIT_MM
-    extrude_depth = pocket_depth + 2.0  # small overshoot for clean top cut
+    # Extra height for chamfer + clean top cut
+    chamfer_extra = max(params.cutout_chamfer_mm, 2.0)
+    extrude_depth = pocket_depth + chamfer_extra
 
     # Extrude upward (+Z) from the sketch plane (Z=0) to Z=extrude_depth.
     pocket = extrude(sketch, amount=extrude_depth)
 
+    # Apply chamfer on the top edge of the pocket (if enabled).
+    # The top edges are the edges at the top of the extrusion.
+    if params.cutout_chamfer_mm > 0:
+        try:
+            bb = pocket.bounding_box()
+            top_z = bb.max.Z
+            top_edges = [e for e in pocket.edges() if abs(e.center().Z - top_z) < 0.01]
+            if top_edges:
+                pocket = pocket.chamfer(params.cutout_chamfer_mm, None, top_edges)
+        except Exception:
+            pass  # chamfer can fail on complex geometries — skip if so
+
+    # Apply rounded bottom (if enabled).
+    # The bottom edges are at the bottom of the extrusion.
+    if params.pocket_bottom_radius_mm > 0:
+        try:
+            bb = pocket.bounding_box()
+            bottom_z = bb.min.Z
+            bottom_edges = [e for e in pocket.edges() if abs(e.center().Z - bottom_z) < 0.01]
+            if bottom_edges:
+                pocket = pocket.fillet(params.pocket_bottom_radius_mm, bottom_edges)
+        except Exception:
+            pass  # fillet can fail on complex geometries — skip if so
+
     # Position the pocket in bin-local coordinates.
-    # Outlines are in paper coords (origin top-left, y down).
-    # Bin coords: origin at bin center, x right, y forward, z up.
     translate_x = -bin_w_mm / 2
     translate_y = -bin_l_mm / 2
 
     # After extrude(+depth), the solid spans z=[0, extrude_depth].
-    # We want the pocket top at total_h + 2 (slightly above wall top for clean cut),
+    # We want the pocket top at total_h + chamfer_extra (above wall top for clean cut),
     # and the pocket bottom at total_h - pocket_depth.
-    # So we move it by (total_h - pocket_depth) — the bottom of the pocket.
     pocket_bottom_z = total_h - pocket_depth
     pocket = pocket.moved(Location((translate_x, translate_y, pocket_bottom_z)))
 
     return pocket
 
 
+def build_finger_hole(
+    hole: FingerHole, params: BinParams, bin_w_mm: float, bin_l_mm: float
+) -> Solid | None:
+    """Build a spherical finger hole at a user-specified position.
+
+    A finger hole is a spherical pocket that cuts into the bin at the edge
+    of a tool, making it easy to lift the tool out. The user places these
+    wherever they want.
+    """
+    pocket_depth = hole.depth_mm if hole.depth_mm is not None else params.pocket_depth_mm
+    total_h = params.height_units * C.HEIGHT_UNIT_MM
+
+    # Convert to bin-local coords
+    x_local = hole.x - bin_w_mm / 2
+    y_local = hole.y - bin_l_mm / 2
+
+    # Build a sphere that cuts through the top of the bin
+    # The sphere center is at the pocket floor level, so the top half
+    # cuts into the bin material above the floor.
+    radius = hole.radius_mm
+    sphere = Sphere(radius)
+    # Position: center at the pocket floor level
+    floor_z = total_h - pocket_depth
+    sphere = sphere.moved(Location((x_local, y_local, floor_z)))
+
+    return sphere
+
+
 def build_finger_scoop(
     outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l_mm: float
 ) -> Solid | None:
-    """Build a cylindrical finger scoop at one end of a tool pocket.
+    """Build an automatic finger scoop at the far end of a tool pocket.
 
-    The scoop is a cylinder that cuts through the bin wall at the edge of
-    the tool pocket, making it easy to reach in and grab the tool.
-    Default diameter is 20mm (matching Tooltrace.ai).
+    This is the auto-placed scoop (when finger_scoop is enabled).
+    Users can also place custom finger holes via the finger_holes field.
     """
     outer = to_np(outline.outer)
     if len(outer) < 3:
@@ -108,12 +182,13 @@ def build_finger_scoop(
     pocket_depth = outline.pocket_depth_mm if outline.pocket_depth_mm is not None else params.pocket_depth_mm
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
-    # Find the centroid of the tool outline
+    # Apply rotation if specified
     cx = float(np.mean(outer[:, 0]))
     cy = float(np.mean(outer[:, 1]))
+    if abs(outline.rotation_deg) > 0.01:
+        outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
     # Find the point on the outline farthest from the centroid
-    # (this is typically one end of the tool — a good place for a scoop)
     dists = np.sqrt((outer[:, 0] - cx) ** 2 + (outer[:, 1] - cy) ** 2)
     far_idx = int(np.argmax(dists))
     far_pt = outer[far_idx]
@@ -126,11 +201,8 @@ def build_finger_scoop(
         return None
     ux, uy = dx / dist, dy / dist
 
-    # Place the scoop just past the far end of the tool, half inside and
-    # half outside the tool outline. This creates a finger notch at the edge.
     margin = outline.margin_mm if outline.margin_mm is not None else params.tool_margin_mm
     scoop_radius = params.finger_scoop_diameter_mm / 2
-    # Position: at the far edge of the tool + margin, shifted slightly outward
     scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
     scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
 
@@ -138,23 +210,20 @@ def build_finger_scoop(
     scoop_x_local = scoop_x - bin_w_mm / 2
     scoop_y_local = scoop_y - bin_l_mm / 2
 
-    # Build a cylinder oriented along Z, spanning the full pocket depth
-    # plus a bit extra to cut through the top surface cleanly.
-    scoop_height = pocket_depth + 5.0
-    scoop = Cylinder(scoop_radius, scoop_height)
-    # Position: center of cylinder at the scoop point, z centered in the pocket
-    scoop_z = total_h - pocket_depth / 2
-    scoop = scoop.moved(Location((scoop_x_local, scoop_y_local, scoop_z)))
+    # Build a sphere for a smoother finger scoop
+    sphere = Sphere(scoop_radius)
+    floor_z = total_h - pocket_depth
+    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, floor_z)))
 
-    return scoop
+    return sphere
 
 
 def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinParams) -> Part:
-    """Subtract all tool pockets and finger scoops from the bin solid."""
+    """Subtract all tool pockets and finger holes from the bin solid."""
     bin_w = params.grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     bin_l = params.grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
 
-    # Build all pockets and scoops, union them first (better boolean performance).
+    # Build all pockets, scoops, and finger holes.
     cutters = []
     for outline in outlines:
         if not outline.visible:
@@ -162,11 +231,18 @@ def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinPa
         pocket = build_pocket(outline, params, bin_w, bin_l)
         if pocket is not None:
             cutters.append(pocket)
-        # Add finger scoop if enabled
+
+        # Auto finger scoop if enabled
         if getattr(params, 'finger_scoop', True):
             scoop = build_finger_scoop(outline, params, bin_w, bin_l)
             if scoop is not None:
                 cutters.append(scoop)
+
+        # User-placed finger holes
+        for hole in outline.finger_holes:
+            fh = build_finger_hole(hole, params, bin_w, bin_l)
+            if fh is not None:
+                cutters.append(fh)
 
     if not cutters:
         return bin_solid
