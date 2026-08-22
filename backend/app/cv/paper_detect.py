@@ -114,46 +114,144 @@ def _is_valid_paper_quad(
     return True
 
 
-def _refine_corner(gray: np.ndarray, corner: np.ndarray, search_radius: int = 30) -> np.ndarray:
-    """Refine a corner position by finding the strongest edge response nearby.
+def _edge_brightness_score(gray: np.ndarray, corners: np.ndarray) -> float:
+    """Score how well the quad matches the paper (bright, consistent brightness).
 
-    Looks in a small window around the corner for the point with the highest
-    gradient magnitude (strongest edge), which is likely the true paper corner.
+    Samples points along each edge and computes the mean brightness.
+    A quad that correctly outlines the paper will have high, consistent
+    brightness at all edges. A quad that includes shadows will have
+    low brightness at some edges.
+
+    Returns a score 0.0-1.0 where 1.0 means perfectly bright, consistent edges.
     """
-    cx, cy = int(corner[0]), int(corner[1])
     h, w = gray.shape
-    x0 = max(0, cx - search_radius)
-    x1 = min(w, cx + search_radius + 1)
-    y0 = max(0, cy - search_radius)
-    y1 = min(h, cy + search_radius + 1)
+    ordered = order_corners(corners)
+    edge_brightnesses = []
 
-    window = gray[y0:y1, x0:x1]
-    if window.size < 4:
-        return corner
-
-    # Compute gradient magnitude.
-    gx = cv2.Sobel(window, cv2.CV_64F, 1, 0, ksize=3)
-    gy = cv2.Sobel(window, cv2.CV_64F, 0, 1, ksize=3)
-    mag = np.sqrt(gx ** 2 + gy ** 2)
-
-    # Find the strongest edge point in the window.
-    # Weight towards the center to avoid jumping to unrelated edges.
-    yy, xx = np.mgrid[0:mag.shape[0], 0:mag.shape[1]]
-    dist_from_center = np.sqrt((xx - search_radius) ** 2 + (yy - search_radius) ** 2)
-    # Penalize points far from the original corner.
-    score = mag - 0.5 * dist_from_center
-    best_idx = np.unravel_index(np.argmax(score), score.shape)
-    best_y, best_x = best_idx
-
-    return np.array([x0 + best_x, y0 + best_y], dtype=np.float32)
-
-
-def _refine_corners(gray: np.ndarray, corners: np.ndarray, search_radius: int = 30) -> np.ndarray:
-    """Refine all 4 corners by snapping to the strongest nearby edge."""
-    refined = np.zeros_like(corners)
     for i in range(4):
-        refined[i] = _refine_corner(gray, corners[i], search_radius)
+        p1 = ordered[i]
+        p2 = ordered[(i + 1) % 4]
+        # Sample 10 points along this edge
+        brightnesses = []
+        for t in np.linspace(0.1, 0.9, 10):
+            px = p1[0] * (1 - t) + p2[0] * t
+            py = p1[1] * (1 - t) + p2[1] * t
+            ix, iy = int(px), int(py)
+            if 0 <= ix < w and 0 <= iy < h:
+                brightnesses.append(float(gray[iy, ix]))
+        if brightnesses:
+            edge_brightnesses.append(np.mean(brightnesses))
+
+    if not edge_brightnesses:
+        return 0.5
+
+    mean_brightness = np.mean(edge_brightnesses)
+    min_brightness = np.min(edge_brightnesses)
+
+    # Score based on mean brightness (paper should be bright > 100)
+    # and consistency (min edge should be close to mean).
+    # Normalize: brightness 0-255, target ~120+ for dim paper.
+    brightness_score = min(1.0, mean_brightness / 120.0)
+    # Penalize edges that are much darker than the mean (shadows).
+    consistency_score = min_brightness / max(mean_brightness, 1.0)
+
+    return brightness_score * consistency_score
+
+
+def _refine_corners_by_edges(gray: np.ndarray, corners: np.ndarray, contour: np.ndarray) -> np.ndarray:
+    """Refine corners by fitting lines to the contour edges and computing intersections.
+
+    This is more robust than brightness-based refinement because it uses the
+    actual contour shape to determine where the paper edges are, even in
+    shadows or uneven lighting.
+
+    For each of the 4 edges (TL-TR, TR-BR, BR-BL, BL-TL), we:
+    1. Find contour points near that edge
+    2. Fit a line using least squares (RANSAC-like, rejecting outliers)
+    3. Compute the 4 intersections of adjacent lines
+    """
+    ordered = order_corners(corners)
+    pts = contour.reshape(-1, 2).astype(np.float64)
+
+    if len(pts) < 8:
+        return ordered
+
+    lines = []  # Each line: (point, direction)
+    for i in range(4):
+        p1 = ordered[i]
+        p2 = ordered[(i + 1) % 4]
+        # Edge midpoint and length
+        mid = (p1 + p2) / 2
+        edge_len = np.linalg.norm(p2 - p1)
+        if edge_len < 1e-6:
+            lines.append((mid, np.array([1.0, 0.0])))
+            continue
+
+        # Edge direction
+        edge_dir = (p2 - p1) / edge_len
+        # Normal to edge (points inward toward paper center)
+        normal = np.array([-edge_dir[1], edge_dir[0]])
+
+        # Find contour points near this edge (within 15% of edge length)
+        threshold = edge_len * 0.15
+        # Distance from each contour point to the edge line
+        vecs = pts - mid
+        # Project onto normal (perpendicular distance from edge line)
+        dists = np.abs(vecs[:, 0] * normal[0] + vecs[:, 1] * normal[1])
+        # Project onto edge direction (to ensure point is between the corners)
+        projections = vecs[:, 0] * edge_dir[0] + vecs[:, 1] * edge_dir[1]
+        in_range = (projections > -edge_len * 0.1) & (projections < edge_len * 1.1)
+
+        # Filter: close to the edge line AND between the corners
+        mask = (dists < threshold) & in_range
+        nearby = pts[mask]
+
+        if len(nearby) < 5:
+            lines.append((mid, edge_dir))
+            continue
+
+        # Fit a line using least squares.
+        # Use PCA: the principal component is the line direction.
+        center_pt = nearby.mean(axis=0)
+        centered = nearby - center_pt
+        # SVD to find principal direction
+        _, _, vh = np.linalg.svd(centered, full_matrices=False)
+        line_dir = vh[0]  # Principal component
+
+        lines.append((center_pt, line_dir))
+
+    # Compute intersections of adjacent lines
+    refined = np.zeros((4, 2), dtype=np.float32)
+    for i in range(4):
+        p1, d1 = lines[i]
+        p2, d2 = lines[(i + 1) % 4]
+        refined[i] = _line_intersection(p1, d1, p2, d2)
+
     return refined
+
+
+def _line_intersection(p1: np.ndarray, d1: np.ndarray, p2: np.ndarray, d2: np.ndarray) -> np.ndarray:
+    """Compute the intersection of two lines (point + direction)."""
+    # Line 1: p1 + t * d1
+    # Line 2: p2 + s * d2
+    # Solve: p1 + t * d1 = p2 + s * d2
+    # t * d1 - s * d2 = p2 - p1
+    # [d1x, -d2x] [t]   [p2x - p1x]
+    # [d1y, -d2y] [s] = [p2y - p1y]
+    A = np.array([[d1[0], -d2[0]], [d1[1], -d2[1]]])
+    b = p2 - p1
+    det = A[0, 0] * A[1, 1] - A[0, 1] * A[1, 0]
+    if abs(det) < 1e-6:
+        # Lines are parallel — return the midpoint
+        return ((p1 + p2) / 2).astype(np.float32)
+    params = np.linalg.solve(A, b)
+    intersection = p1 + params[0] * d1
+    return intersection.astype(np.float32)
+
+
+def _refine_corners(gray: np.ndarray, corners: np.ndarray, search_radius: int = 50) -> np.ndarray:
+    """Refine all 4 corners (placeholder — real refinement is done by _refine_corners_by_edges)."""
+    return corners
 
 
 def _try_approx_quad(contour: np.ndarray) -> np.ndarray | None:
@@ -203,13 +301,15 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
     img_area = small.shape[0] * small.shape[1]
     img_mean_brightness = float(gray.mean())
 
-    candidates: list[tuple[float, np.ndarray, int]] = []  # (area, corners, priority)
+    candidates: list[tuple[float, np.ndarray, int, np.ndarray]] = []  # (area, corners, priority, contour)
 
-    def add_candidate(quad: np.ndarray, priority: int = 0) -> None:
+    def add_candidate(quad: np.ndarray, contour: np.ndarray = None, priority: int = 0) -> None:
         ordered = order_corners(quad)
         if _is_valid_paper_quad(gray, ordered, img_area, paper_size):
             area = cv2.contourArea(ordered.astype(np.float32))
-            candidates.append((area, ordered, priority))
+            if contour is None:
+                contour = np.array(ordered, dtype=np.int32).reshape(-1, 1, 2)
+            candidates.append((area, ordered, priority, contour))
 
     def scale_back(corners_small: np.ndarray) -> np.ndarray:
         return corners_small / scale_factor
@@ -293,31 +393,192 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
         return None
 
     # Score each candidate: combine area (bigger is better) with aspect ratio
-    # quality (closer to expected is better). This prevents a candidate with
-    # a wrong corner (larger area but worse aspect ratio) from winning.
+    # quality (closer to expected is better) and edge brightness consistency
+    # (paper should be uniformly bright inside the quad, not include dark shadows).
     expected_ar = _expected_aspect_ratio(paper_size)
 
     def score_candidate(area: float, corners: np.ndarray, priority: int) -> tuple:
         ar = _quad_aspect_ratio(corners)
         ar_err = min(abs(ar / expected_ar - 1.0), abs(ar * expected_ar - 1.0))
-        # Score = (priority, area * (1 - ar_err * 3)). Priority is primary sort key.
-        return (priority, area * max(0.1, 1.0 - ar_err * 3.0))
+        # Check brightness consistency: sample points along each edge and
+        # in the interior. A good paper quad has bright, consistent brightness.
+        # A quad that includes shadows will have low brightness at edges.
+        edge_brightness = _edge_brightness_score(gray, corners)
+        # Score = (priority, area * (1 - ar_err * 3) * edge_brightness)
+        return (priority, area * max(0.1, 1.0 - ar_err * 3.0) * edge_brightness)
 
     candidates.sort(key=lambda x: score_candidate(x[0], x[1], x[2]), reverse=True)
     best = candidates[0][1]
+    best_contour = candidates[0][3]
 
-    # Refine corners by snapping to strongest nearby edges.
-    # This fixes cases where the quad approximation got 3/4 corners right
-    # but one is slightly off (e.g. due to a shadow or crease).
-    search_r = max(20, int(min(gray.shape) * 0.03))
-    refined = _refine_corners(gray, best, search_radius=search_r)
-    # Verify the refined corners are still valid (not worse than original).
+    # Refine corners by fitting lines to the contour edges.
+    # Only use the refinement if it improves the aspect ratio (makes it closer
+    # to the expected paper aspect ratio). This prevents the refinement from
+    # making things worse when the contour is noisy.
+    refined = _refine_corners_by_edges(gray, best, best_contour)
     if _is_valid_paper_quad(gray, refined, img_area, paper_size):
+        expected_ar = _expected_aspect_ratio(paper_size)
+        best_ar_err = min(
+            abs(_quad_aspect_ratio(best) / expected_ar - 1.0),
+            abs(_quad_aspect_ratio(best) * expected_ar - 1.0),
+        )
+        refined_ar_err = min(
+            abs(_quad_aspect_ratio(refined) / expected_ar - 1.0),
+            abs(_quad_aspect_ratio(refined) * expected_ar - 1.0),
+        )
+        # Only use refined if it has better aspect ratio AND similar area
         refined_area = cv2.contourArea(refined.astype(np.float32))
-        if refined_area > candidates[0][0] * 0.85:
+        if refined_ar_err < best_ar_err and refined_area > candidates[0][0] * 0.80:
             best = refined
 
+    # Fix wrong corners using the parallelogram constraint + brightness.
+    # If 3 of 4 corners are correct but one is off (e.g., due to a shadow),
+    # the parallelogram prediction (BR = TR + BL - TL) gives a better corner.
+    # We replace a corner if it's in a dark area (past the paper edge) and
+    # the prediction is brighter (on the paper).
+    best = _fix_corner_by_parallelogram(gray, best, paper_size)
+
+    # Fix perspective skew using the known paper aspect ratio.
+    # When the camera isn't perpendicular to the paper, opposite edges
+    # have different lengths. We use the known paper dimensions to correct.
+    best = _fix_corners_by_aspect_ratio(best, paper_size)
+
     return scale_back(best)
+
+
+def _fix_corner_by_parallelogram(gray: np.ndarray, corners: np.ndarray, paper_size: str) -> np.ndarray:
+    """Fix a wrong corner using the parallelogram constraint and brightness.
+
+    If 3 of 4 corners are correct but one is off (e.g., due to a shadow),
+    we compute the 4th corner using the parallelogram assumption:
+    BR = TR + (BL - TL). For each corner, if the current corner is in a dark
+    area (past the paper edge) and the prediction is brighter (on the paper),
+    we use the prediction.
+    """
+    ordered = order_corners(corners)
+    h_img, w_img = gray.shape
+
+    best = ordered.copy()
+
+    for i in range(4):
+        TL, TR, BR, BL = ordered[0], ordered[1], ordered[2], ordered[3]
+        predictions = [TR + BL - BR, TL + BR - BL, TR + BL - TL, TL + BR - TR]
+        predicted = predictions[i]
+
+        def corner_brightness(pt):
+            px, py = int(pt[0]), int(pt[1])
+            if not (0 <= px < w_img and 0 <= py < h_img):
+                return 0.0
+            r = 15
+            y0, y1 = max(0, py - r), min(h_img, py + r + 1)
+            x0, x1 = max(0, px - r), min(w_img, px + r + 1)
+            return float(gray[y0:y1, x0:x1].mean())
+
+        curr_b = corner_brightness(ordered[i])
+        pred_b = corner_brightness(predicted)
+
+        px, py = int(predicted[0]), int(predicted[1])
+        in_bounds = 0 <= px < w_img and 0 <= py < h_img
+
+        if in_bounds and curr_b < 100 and pred_b > curr_b + 15:
+            best = best.copy()
+            best[i] = predicted
+
+    return best
+
+
+def _fix_corners_by_aspect_ratio(corners: np.ndarray, paper_size: str) -> np.ndarray:
+    """Correct perspective skew using the known paper aspect ratio.
+
+    When the camera isn't perpendicular to the paper, opposite edges
+    have different lengths (perspective foreshortening). We use the known
+    paper dimensions to detect and correct this.
+
+    Strategy: The longer of two opposite edges is closer to the true length.
+    We adjust the shorter edge's corners outward along the edge direction
+    to match the longer edge, preserving the known aspect ratio.
+    """
+    ordered = order_corners(corners)
+    TL, TR, BR, BL = ordered[0], ordered[1], ordered[2], ordered[3]
+
+    paper_w_mm, paper_h_mm = PAPER_SIZES_MM[paper_size]
+    expected_ar = paper_w_mm / paper_h_mm  # e.g., 0.7727 for Letter
+
+    # Current edge lengths
+    top = float(np.linalg.norm(TR - TL))
+    bottom = float(np.linalg.norm(BR - BL))
+    left = float(np.linalg.norm(BL - TL))
+    right = float(np.linalg.norm(BR - TR))
+
+    if top < 1e-6 or bottom < 1e-6 or left < 1e-6 or right < 1e-6:
+        return corners
+
+    # Check if opposite edges differ significantly (>3%)
+    tb_ratio = max(top, bottom) / min(top, bottom)
+    lr_ratio = max(left, right) / min(left, right)
+
+    if tb_ratio < 1.03 and lr_ratio < 1.03:
+        # No significant skew — nothing to fix
+        return corners
+
+    best = ordered.copy()
+
+    # Correct top/bottom skew: make the shorter edge match the longer
+    # by moving the shorter edge's corners outward along the edge direction.
+    if tb_ratio >= 1.03:
+        if top < bottom:
+            # Top is shorter — extend TL and TR outward
+            scale = bottom / top
+            mid_top = (TL + TR) / 2
+            TL_new = mid_top + (TL - mid_top) * scale
+            TR_new = mid_top + (TR - mid_top) * scale
+            best[0] = TL_new
+            best[1] = TR_new
+        else:
+            # Bottom is shorter — extend BL and BR outward
+            scale = top / bottom
+            mid_bot = (BL + BR) / 2
+            BL_new = mid_bot + (BL - mid_bot) * scale
+            BR_new = mid_bot + (BR - mid_bot) * scale
+            best[3] = BL_new
+            best[2] = BR_new
+
+    # Recompute edges after top/bottom correction
+    TL, TR, BR, BL = best[0], best[1], best[2], best[3]
+    left = float(np.linalg.norm(BL - TL))
+    right = float(np.linalg.norm(BR - TR))
+
+    # Correct left/right skew
+    if lr_ratio >= 1.03:
+        if left < right:
+            scale = right / left
+            mid_left = (TL + BL) / 2
+            TL_new = mid_left + (TL - mid_left) * scale
+            BL_new = mid_left + (BL - mid_left) * scale
+            best[0] = TL_new
+            best[3] = BL_new
+        else:
+            scale = left / right
+            mid_right = (TR + BR) / 2
+            TR_new = mid_right + (TR - mid_right) * scale
+            BR_new = mid_right + (BR - mid_right) * scale
+            best[1] = TR_new
+            best[2] = BR_new
+
+    # Verify the correction improved things
+    TL, TR, BR, BL = best[0], best[1], best[2], best[3]
+    new_top = float(np.linalg.norm(TR - TL))
+    new_bottom = float(np.linalg.norm(BR - BL))
+    new_left = float(np.linalg.norm(BL - TL))
+    new_right = float(np.linalg.norm(BR - TR))
+    new_tb = max(new_top, new_bottom) / min(new_top, new_bottom) if min(new_top, new_bottom) > 0 else 999
+    new_lr = max(new_left, new_right) / min(new_left, new_right) if min(new_left, new_right) > 0 else 999
+
+    # Only accept if it improved
+    if new_tb <= tb_ratio and new_lr <= lr_ratio:
+        return best
+    else:
+        return corners
 
 
 def rectify_paper(image: np.ndarray, corners: np.ndarray, paper_size: str) -> tuple[np.ndarray, float]:

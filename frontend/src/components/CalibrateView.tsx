@@ -22,6 +22,7 @@ export default function CalibrateView() {
   )
   const [imgSize, setImgSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [cornersMoved, setCornersMoved] = useState(false)  // tracks if user dragged any corner
   const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -57,6 +58,7 @@ export default function CalibrateView() {
   const handleCornerPointerDown = (e: React.PointerEvent, idx: number) => {
     e.stopPropagation()
     setDragIdx(idx)
+    setCornersMoved(true)  // user is adjusting corners
     ;(e.target as Element).setPointerCapture(e.pointerId)
   }
 
@@ -75,12 +77,12 @@ export default function CalibrateView() {
 
   const handleConfirm = async () => {
     // If paper was auto-detected and user didn't change corners, go straight to trace.
-    if (paperDetected && design.paper_corners_px.length === 4) {
+    if (paperDetected && design.paper_corners_px.length === 4 && !cornersMoved) {
       setView('trace')
       return
     }
 
-    // Manual corners: call the rectify endpoint.
+    // User adjusted corners (or auto-detection failed): re-rectify with user's corners.
     setLoading(true)
     setError(null)
     try {

@@ -14,19 +14,24 @@ const FORMATS: { fmt: ExportFormat; label: string; icon: string; desc: string }[
 export default function ExportBar() {
   const { design, setName, pushHistory } = useEditor()
   const [exporting, setExporting] = useState<string | null>(null)
+  const [exportStatus, setExportStatus] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(design.id)
 
   const handleExport = async (fmt: ExportFormat) => {
     setExporting(fmt)
+    const is3D = fmt === 'stl' || fmt === '3mf' || fmt === 'step'
+    setExportStatus(is3D ? 'Generating 3D model...' : 'Exporting...')
     try {
       const blob = await exportDesign(design, fmt)
       const filename = `${design.name || 'tracefinity'}.${fmt}`
+      setExportStatus('Downloading...')
       downloadBlob(blob, filename)
     } catch (e) {
       useEditor.getState().setError(e instanceof Error ? e.message : 'Export failed')
     } finally {
       setExporting(null)
+      setExportStatus('')
     }
   }
 
@@ -91,6 +96,16 @@ export default function ExportBar() {
           {exporting === f.fmt && ' ...'}
         </button>
       ))}
+      {exporting && (
+        <span style={{ fontSize: 12, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="spinner" style={{
+            display: 'inline-block', width: 12, height: 12,
+            border: '2px solid #3f3f46', borderTopColor: '#a78bfa',
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+          }} />
+          {exportStatus}
+        </span>
+      )}
     </div>
   )
 }

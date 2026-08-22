@@ -26,6 +26,7 @@ def generate_gridfinity(design: Design) -> Solid:
         label_tab=p.label_tab,
         compartments_x=p.compartments_x,
         compartments_y=p.compartments_y,
+        pocket_depth_mm=p.pocket_depth_mm,
     )
     bin_solid = subtract_pockets(bin_solid, design.outlines, p)
     return bin_solid

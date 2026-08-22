@@ -1,21 +1,29 @@
 """Build a Gridfinity bin solid using build123d.
 
-This module creates the base bin (without tool pockets). Pockets are
-applied separately in pockets.py.
+This creates a proper Gridfinity-compatible bin with:
+- Per-cell stacking socket base (chamfered profile that slots into baseplates)
+- Magnet holes in each cell corner
+- Solid floor for tool pockets
+- Walls with stacking lip
+- Tool pockets cut into the floor
 """
 from __future__ import annotations
 
 from build123d import (
     Axis,
     Box,
+    BuildPart,
+    BuildSketch,
     Cylinder,
     Location,
     Part,
     Plane,
-    Sketch,
+    Rectangle,
     Solid,
-    Vector,
     extrude,
+    fillet,
+    chamfer,
+    loft,
 )
 
 from . import constants as C
@@ -37,44 +45,45 @@ def build_bin(
     label_tab: bool = False,
     compartments_x: int = 1,
     compartments_y: int = 1,
+    pocket_depth_mm: float = 15.0,
 ) -> Solid:
     """Build a gridfinity bin solid (without tool pockets).
 
-    Args:
-        grid_w: width in grid units (42mm each)
-        grid_l: length in grid units
-        height_units: height in 7mm units (includes the 4mm base)
-    Returns:
-        A build123d Solid.
+    The bin has the proper Gridfinity base profile with per-cell chamfered
+    sockets, magnet holes, a solid floor, walls, and stacking lip.
     """
-    bin_w = grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
-    bin_l = grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
+    bin_w = grid_w * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
+    bin_l = grid_l * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
     total_h = height_units * C.HEIGHT_UNIT_MM
 
-    # --- Base (stacking socket) ---
-    # The socket is a 4mm tall block with a smaller top that slots into baseplates.
-    # Simplified: a box with chamfered/rounded top edges forming the socket profile.
-    base = Box(bin_w, bin_l, C.BASE_HEIGHT_MM)
-    # Round the top edges of the socket slightly (simplified profile).
-    # In a full impl this would use the exact gridfinity socket curve.
+    # --- Per-cell stacking socket base ---
+    base = _build_per_cell_socket_base(grid_w, grid_l)
 
-    # --- Walls + compartment cavity ---
-    wall_h = total_h - C.BASE_HEIGHT_MM
-    if wall_h > 0:
+    # --- Solid floor ---
+    # A solid block above the base that tool pockets will be cut into.
+    floor_h = max(pocket_depth_mm, C.FLOOR_THICKNESS)
+    floor_h = min(floor_h, total_h - C.BASE_HEIGHT_MM)
+    if floor_h < 1.0:
+        floor_h = 1.0
+
+    floor = Box(bin_w, bin_l, floor_h)
+    floor = floor.moved(Location((0, 0, C.BASE_HEIGHT_MM + floor_h / 2)))
+
+    # --- Walls above the floor ---
+    wall_h = total_h - C.BASE_HEIGHT_MM - floor_h
+    if wall_h > 0.5:
         walls_outer = Box(bin_w, bin_l, wall_h)
-        # Position walls above base
-        walls_outer = walls_outer.moved(Location((0, 0, C.BASE_HEIGHT_MM + wall_h / 2)))
-        # Subtract inner cavity
+        walls_outer = walls_outer.moved(Location((0, 0, C.BASE_HEIGHT_MM + floor_h + wall_h / 2)))
         inner_w = bin_w - 2 * wall_thickness_mm
         inner_l = bin_l - 2 * wall_thickness_mm
         cavity = Box(inner_w, inner_l, wall_h + 0.1)
-        cavity = cavity.moved(Location((0, 0, C.BASE_HEIGHT_MM + wall_h / 2)))
+        cavity = cavity.moved(Location((0, 0, C.BASE_HEIGHT_MM + floor_h + wall_h / 2)))
         walls = walls_outer - cavity
     else:
         walls = Box(0.1, 0.1, 0.1)
 
-    # Combine base + walls
-    bin_solid = Part(base) + Part(walls)
+    # Combine base + floor + walls
+    bin_solid = Part(base) + Part(floor) + Part(walls)
 
     # --- Stacking lip ---
     if lip and wall_h > 0:
@@ -85,14 +94,18 @@ def build_bin(
         )
         lip_z = total_h + C.LIP_HEIGHT_MM / 2
         lip_outer = lip_outer.moved(Location((0, 0, lip_z)))
-        lip_inner = Box(bin_w - 2 * wall_thickness_mm, bin_l - 2 * wall_thickness_mm, C.LIP_HEIGHT_MM + 0.1)
+        lip_inner = Box(
+            bin_w - 2 * wall_thickness_mm,
+            bin_l - 2 * wall_thickness_mm,
+            C.LIP_HEIGHT_MM + 0.1,
+        )
         lip_inner = lip_inner.moved(Location((0, 0, lip_z)))
         lip_part = lip_outer - lip_inner
         bin_solid = bin_solid + Part(lip_part)
 
-    # --- Magnet holes ---
+    # --- Magnet holes (in each cell corner) ---
     if magnet_holes:
-        bin_solid = _add_magnet_holes(bin_solid, grid_w, grid_l, base_thickness_mm)
+        bin_solid = _add_magnet_holes(bin_solid, grid_w, grid_l)
 
     # --- Screw holes ---
     if screw_holes:
@@ -112,46 +125,98 @@ def build_bin(
     return bin_solid
 
 
-def _corner_positions(grid_w: int, grid_l: int) -> list[tuple[float, float]]:
-    """Return the 4 corner positions (relative to bin center) for magnet/screw holes.
+def _build_per_cell_socket_base(grid_w: int, grid_l: int) -> Solid:
+    """Build a proper Gridfinity base with per-cell chamfered sockets.
+
+    Each 42x42mm cell has its own chamfered socket:
+    - Bottom: ~38.5x38.5mm (fits into baseplate socket)
+    - Top: ~41.5x41.5mm (matches bin footprint per unit)
+    - Height: 4mm with chamfered transition
+    - The gaps between sockets form the grid pattern
+
+    Magnet holes go in the corners of each cell.
+    """
+    bin_w = grid_w * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
+    bin_l = grid_l * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
+
+    # Socket dimensions per cell
+    socket_bottom = C.SOCKET_BOTTOM_SIZE_MM  # 38.5mm
+    socket_top = C.SOCKET_TOP_SIZE_MM  # 41.5mm
+    base_h = C.BASE_HEIGHT_MM  # 4mm
+
+    base = None
+    for gx in range(grid_w):
+        for gy in range(grid_l):
+            # Cell center in bin-local coords (centered at origin)
+            cx = -bin_w / 2 + (gx + 0.5) * C.GRID_UNIT_MM
+            cy = -bin_l / 2 + (gy + 0.5) * C.GRID_UNIT_MM
+
+            # Build one chamfered cell socket using loft
+            with BuildPart() as bp:
+                with BuildSketch(Plane.XY) as s1:
+                    Rectangle(socket_bottom, socket_bottom)
+                with BuildSketch(Plane.XY.moved(Location((0, 0, base_h)))) as s2:
+                    Rectangle(socket_top, socket_top)
+                loft()
+            cell = bp.part
+            cell = cell.moved(Location((cx, cy, 0)))
+
+            if base is None:
+                base = cell
+            else:
+                base = base + cell
+
+    return base
+
+
+def _cell_corner_positions(grid_w: int, grid_l: int) -> list[tuple[float, float]]:
+    """Return magnet/screw hole positions for each cell corner.
 
     Gridfinity bins have magnet holes in the corners of each unit cell,
-    but for a multi-unit bin we place them at the 4 outer corners.
+    positioned at a specific offset from the cell center.
     """
-    bin_w = grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
-    bin_l = grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
-    inset = C.MAGNET_INSET_MM
-    return [
-        (-bin_w / 2 + inset, -bin_l / 2 + inset),
-        (bin_w / 2 - inset, -bin_l / 2 + inset),
-        (-bin_w / 2 + inset, bin_l / 2 - inset),
-        (bin_w / 2 - inset, bin_l / 2 - inset),
-    ]
+    bin_w = grid_w * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
+    bin_l = grid_l * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
+
+    positions = []
+    # Magnet holes are at each cell corner, offset from cell center
+    # The offset is approximately 8mm from the bin edge
+    hole_offset = C.GRID_UNIT_MM / 2 - C.MAGNET_INSET_MM  # ~13mm from cell center
+
+    for gx in range(grid_w):
+        for gy in range(grid_l):
+            cx = -bin_w / 2 + (gx + 0.5) * C.GRID_UNIT_MM
+            cy = -bin_l / 2 + (gy + 0.5) * C.GRID_UNIT_MM
+            # 4 corners per cell
+            for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+                positions.append((cx + dx * hole_offset, cy + dy * hole_offset))
+
+    # Deduplicate (corners shared between cells)
+    seen = set()
+    unique = []
+    for px, py in positions:
+        key = (round(px, 1), round(py, 1))
+        if key not in seen:
+            seen.add(key)
+            unique.append((px, py))
+    return unique
 
 
-def _add_magnet_holes(bin_solid, grid_w, grid_l, base_thickness_mm) -> Part:
-    """Subtract 6x2mm magnet holes from the base corners."""
-    holes = []
-    for cx, cy in _corner_positions(grid_w, grid_l):
-        # Hole goes up from the bottom of the base.
+def _add_magnet_holes(bin_solid, grid_w, grid_l) -> Part:
+    """Subtract 6.5x2mm magnet holes from the base cell corners."""
+    for cx, cy in _cell_corner_positions(grid_w, grid_l):
         hole = Cylinder(C.MAGNET_DIAMETER_MM / 2, C.MAGNET_DEPTH_MM)
-        # Position: at the corner, z from bottom of base up.
         hole = hole.moved(Location((cx, cy, C.MAGNET_DEPTH_MM / 2)))
-        holes.append(hole)
-    for h in holes:
-        bin_solid = bin_solid - h
+        bin_solid = bin_solid - hole
     return bin_solid
 
 
 def _add_screw_holes(bin_solid, grid_w, grid_l) -> Part:
-    """Subtract M3 screw through-holes from base corners."""
-    holes = []
-    for cx, cy in _corner_positions(grid_w, grid_l):
-        hole = Cylinder(C.SCREW_DIAMETER_MM / 2, C.BASE_HEIGHT_MM + 0.1)
-        hole = hole.moved(Location((cx, cy, C.BASE_HEIGHT_MM / 2)))
-        holes.append(hole)
-    for h in holes:
-        bin_solid = bin_solid - h
+    """Subtract M3 screw through-holes from base cell corners."""
+    for cx, cy in _cell_corner_positions(grid_w, grid_l):
+        hole = Cylinder(C.SCREW_DIAMETER_MM / 2, C.SCREW_DEPTH_MM)
+        hole = hole.moved(Location((cx, cy, C.SCREW_DEPTH_MM / 2)))
+        bin_solid = bin_solid - hole
     return bin_solid
 
 
@@ -164,7 +229,6 @@ def _add_dividers(
     bin_l = grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     wall_h = total_h - C.BASE_HEIGHT_MM - base_thickness
 
-    # X dividers (run along Y axis)
     if compartments_x > 1:
         inner_w = bin_w - 2 * wall_thickness
         spacing = inner_w / compartments_x
@@ -174,7 +238,6 @@ def _add_dividers(
             div = div.moved(Location((x, 0, C.BASE_HEIGHT_MM + base_thickness + wall_h / 2)))
             bin_solid = bin_solid + Part(div)
 
-    # Y dividers (run along X axis)
     if compartments_y > 1:
         inner_l = bin_l - 2 * wall_thickness
         spacing = inner_l / compartments_y
@@ -191,11 +254,8 @@ def _add_scoop(bin_solid, bin_w, bin_l, wall_thickness, total_h, scoop_depth) ->
     """Add a scoop (finger cutout) on the front edge of the bin."""
     wall_h = total_h - C.BASE_HEIGHT_MM
     scoop_w = bin_w - 2 * wall_thickness
-    # Scoop is a cylindrical cut at the bottom-front of the compartment.
     scoop = Cylinder(scoop_depth, scoop_w + 0.1)
-    # Orient cylinder along X axis (so it spans the width)
     scoop = scoop.rotate(axis=Axis.Y, angle=90)
-    # Position at the front-bottom interior
     scoop = scoop.moved(Location((0, bin_l / 2 - wall_thickness - scoop_depth / 2, C.BASE_HEIGHT_MM)))
     bin_solid = bin_solid - scoop
     return bin_solid

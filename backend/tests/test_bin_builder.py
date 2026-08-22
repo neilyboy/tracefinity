@@ -32,8 +32,8 @@ def test_bin_with_scoop():
 
 def test_bin_with_lip():
     """Test that lip adds height."""
-    solid_no_lip = build_bin(grid_w=1, grid_l=1, height_units=2, lip=False, scoop=False, magnet_holes=False)
-    solid_with_lip = build_bin(grid_w=1, grid_l=1, height_units=2, lip=True, scoop=False, magnet_holes=False)
+    solid_no_lip = build_bin(grid_w=1, grid_l=1, height_units=4, lip=False, scoop=False, magnet_holes=False, pocket_depth_mm=5)
+    solid_with_lip = build_bin(grid_w=1, grid_l=1, height_units=4, lip=True, scoop=False, magnet_holes=False, pocket_depth_mm=5)
     h_no = solid_no_lip.bounding_box().size.Z
     h_with = solid_with_lip.bounding_box().size.Z
     assert h_with > h_no

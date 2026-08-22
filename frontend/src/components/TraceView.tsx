@@ -1,5 +1,6 @@
 import { useEditor } from '../editor/useEditorState'
 import { suggestGridSize } from '../editor/gridSnap'
+import { smoothClosedPath } from '../utils/smoothPath'
 
 export default function TraceView() {
   const { design, setView, toggleToolVisible, setParams } = useEditor()
@@ -39,7 +40,7 @@ export default function TraceView() {
             >
               {design.outlines.map((tool) => {
                 const scale = design.scale_mm_per_px
-                const d = tool.outer.map((p, i) => `${i === 0 ? 'M' : 'L'} ${(p.x / scale).toFixed(1)} ${(p.y / scale).toFixed(1)}`).join(' ') + ' Z'
+                const d = smoothClosedPath(tool.outer.map(p => ({ x: p.x / scale, y: p.y / scale })))
                 return (
                   <path
                     key={tool.id}

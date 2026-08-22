@@ -2,6 +2,7 @@ import { useRef, useState, useCallback } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { clientToSvgMm, snapToGrid, snapFine } from '../editor/vertexDrag'
 import { GRID_UNIT_MM } from '../editor/constants'
+import { smoothClosedPath } from '../utils/smoothPath'
 import type { Point } from '../types'
 
 export default function SvgEditor() {
@@ -177,9 +178,9 @@ export default function SvgEditor() {
             if (!tool.visible) return null
             const isSelected = tool.id === selectedToolId
             const margin = tool.margin_mm ?? p.tool_margin_mm
-            const outerD = tool.outer.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${(pt.x + pad).toFixed(2)} ${(pt.y + pad).toFixed(2)}`).join(' ') + ' Z'
+            const outerD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad, y: pt.y + pad })))
             // Offset (margin) outline - simplified visual
-            const offsetD = tool.outer.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${(pt.x + pad + margin * Math.sign(pt.x - tool.outer[0].x || 1)).toFixed(2)} ${(pt.y + pad + margin * Math.sign(pt.y - tool.outer[0].y || 1)).toFixed(2)}`).join(' ') + ' Z'
+            const offsetD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad + margin * Math.sign(pt.x - tool.outer[0].x || 1), y: pt.y + pad + margin * Math.sign(pt.y - tool.outer[0].y || 1) })))
 
             return (
               <g key={tool.id}>
@@ -189,7 +190,7 @@ export default function SvgEditor() {
 
                 {/* Holes */}
                 {tool.holes.map((hole, hi) => {
-                  const hd = hole.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${(pt.x + pad).toFixed(2)} ${(pt.y + pad).toFixed(2)}`).join(' ') + ' Z'
+                  const hd = smoothClosedPath(hole.map(pt => ({ x: pt.x + pad, y: pt.y + pad })))
                   return <path key={hi} d={hd} fill="#0f1115" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.3} />
                 })}
 

@@ -9,3 +9,4 @@ backend/app/static/
 .pytest_cache/
 .env
 *.tsbuildinfo
+*.pt

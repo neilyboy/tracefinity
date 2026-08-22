@@ -97,11 +97,25 @@ def export_svg(design: Design) -> str:
 
 
 def _polygon_to_path(pts, dx: float = 0, dy: float = 0) -> str:
-    """Convert an (N,2) array to an SVG path 'd' string (closed polygon)."""
+    """Convert an (N,2) array to a smooth SVG path 'd' string (closed).
+
+    Uses Catmull-Rom splines converted to cubic bezier curves for smooth,
+    rounded outlines — same technique as tooltrace.ai.
+    """
     if len(pts) < 3:
         return ""
+    n = len(pts)
+    tension = 0.5
     cmds = [f"M {pts[0][0] + dx:.2f} {pts[0][1] + dy:.2f}"]
-    for p in pts[1:]:
-        cmds.append(f"L {p[0] + dx:.2f} {p[1] + dy:.2f}")
+    for i in range(n):
+        p0 = pts[(i - 1) % n]
+        p1 = pts[i]
+        p2 = pts[(i + 1) % n]
+        p3 = pts[(i + 2) % n]
+        cp1x = p1[0] + (p2[0] - p0[0]) * tension / 3
+        cp1y = p1[1] + (p2[1] - p0[1]) * tension / 3
+        cp2x = p2[0] - (p3[0] - p1[0]) * tension / 3
+        cp2y = p2[1] - (p3[1] - p1[1]) * tension / 3
+        cmds.append(f"C {cp1x + dx:.2f} {cp1y + dy:.2f} {cp2x + dx:.2f} {cp2y + dy:.2f} {p2[0] + dx:.2f} {p2[1] + dy:.2f}")
     cmds.append("Z")
     return " ".join(cmds)

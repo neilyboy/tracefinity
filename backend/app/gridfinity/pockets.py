@@ -53,28 +53,26 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
     # Build a sketch and extrude downward to create the pocket.
     # We extrude a solid that will be subtracted from the bin.
-    # The pocket is positioned with its top at the bin's top (open) and extends down by pocket_depth.
+    # The pocket cuts into the solid floor of the bin.
     sketch = Sketch()
     for f in faces:
         sketch = sketch + f
 
-    # Extrude: pocket_depth in -Z (downward into the bin).
-    pocket = extrude(sketch, amount=-pocket_depth)
+    # Extrude the pocket solid upward (+Z) so it spans from the base
+    # through the floor and walls, cutting through all solid material.
+    total_h = params.height_units * C.HEIGHT_UNIT_MM
+    extrude_depth = total_h + 5.0  # tall enough to cut through everything
+    pocket = extrude(sketch, amount=-extrude_depth)  # negative = upward in build123d
 
-    # Now we need to position the pocket in bin-local coordinates.
+    # Position the pocket in bin-local coordinates.
     # Outlines are in paper coords (origin top-left, y down).
     # Bin coords: origin at bin center, x right, y forward, z up.
-    # We place the bin so its center is at (bin_w/2, bin_l/2) in paper coords.
-    # Translate outline coords -> bin-local (centered).
     translate_x = -bin_w_mm / 2
     translate_y = -bin_l_mm / 2
 
-    # The pocket top should be at the bin's top surface (total height).
-    # Pocket extrudes downward by pocket_depth, so its top z = 0 after extrude
-    # (build123d extrudes from sketch plane at z=0 downward).
-    # We need to move it up to the bin top.
-    total_h = params.height_units * C.HEIGHT_UNIT_MM
-    pocket = pocket.moved(Location((translate_x, translate_y, total_h)))
+    # The pocket starts at z=0 (bottom of base) and extends upward
+    # through the floor and walls.
+    pocket = pocket.moved(Location((translate_x, translate_y, 0)))
 
     return pocket
 
