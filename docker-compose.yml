@@ -1,0 +1,12 @@
+services:
+  tracefinity:
+    build: .
+    container_name: tracefinity
+    ports:
+      - "${TRACEFINITY_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - TRACEFINITY_DATA_DIR=/data
+      - TRACEFINITY_MAX_UPLOAD_MB=25
+    restart: unless-stopped

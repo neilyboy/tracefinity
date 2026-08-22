@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="200" viewBox="0 0 500 200">
+  <rect width="500" height="200" fill="#0a0a0b" rx="12"/>
+
+  <!-- Grid cells -->
+  <g transform="translate(50,30)">
+    <rect x="0" y="0" width="84" height="84" fill="none" stroke="#7c3aed" stroke-width="2" rx="4"/>
+    <rect x="0" y="0" width="42" height="42" fill="none" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <rect x="42" y="0" width="42" height="42" fill="none" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <rect x="0" y="42" width="42" height="42" fill="none" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <rect x="42" y="42" width="42" height="42" fill="none" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+
+    <!-- Dimension labels -->
+    <line x1="0" y1="-10" x2="84" y2="-10" stroke="#71717a" stroke-width="1" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="42" y="-15" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#a1a1aa">42mm × 2 = 84mm</text>
+
+    <line x1="-10" y1="0" x2="-10" y2="84" stroke="#71717a" stroke-width="1" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="-15" y="42" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#a1a1aa" transform="rotate(-90,-15,42)">42mm × 2</text>
+
+    <!-- Magnet holes -->
+    <circle cx="6" cy="6" r="4" fill="none" stroke="#fbbf24" stroke-width="1.5"/>
+    <circle cx="78" cy="6" r="4" fill="none" stroke="#fbbf24" stroke-width="1.5"/>
+    <circle cx="6" cy="78" r="4" fill="none" stroke="#fbbf24" stroke-width="1.5"/>
+    <circle cx="78" cy="78" r="4" fill="none" stroke="#fbbf24" stroke-width="1.5"/>
+  </g>
+
+  <!-- Height diagram -->
+  <g transform="translate(200,30)">
+    <rect x="0" y="0" width="60" height="21" fill="#27272a" stroke="#7c3aed" stroke-width="2" rx="2"/>
+    <rect x="0" y="21" width="60" height="4" fill="#7c3aed" opacity="0.5" rx="2"/>
+    <line x1="70" y1="0" x2="70" y2="25" stroke="#71717a" stroke-width="1" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="75" y="15" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">3U = 21mm</text>
+    <line x1="70" y1="21" x2="70" y2="25" stroke="#71717a" stroke-width="1" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="75" y="28" font-family="system-ui,sans-serif" font-size="10" fill="#71717a">base 4mm</text>
+  </g>
+
+  <!-- Spec table -->
+  <g transform="translate(300,25)">
+    <text x="0" y="0" font-family="system-ui,sans-serif" font-size="13" font-weight="bold" fill="#e4e4e7">Gridfinity Spec</text>
+    <text x="0" y="25" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Unit cell: 42 × 42mm</text>
+    <text x="0" y="45" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Height unit: 7mm</text>
+    <text x="0" y="65" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Base: 4mm</text>
+    <text x="0" y="85" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Magnets: 6 × 2mm</text>
+    <text x="0" y="105" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Screws: M3 (3.35mm)</text>
+    <text x="0" y="125" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa">Clearance: 0.5mm/side</text>
+  </g>
+
+  <defs>
+    <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#71717a"/>
+    </marker>
+  </defs>
+</svg>
