@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from ..config import PAPER_SIZES_MM, settings
 from ..cv.pipeline import run_trace, run_rectify_with_corners
-from ..schemas import ManualRectifyRequest
+from ..cv.tool_detect import detect_tool_at_point
+from ..schemas import ManualRectifyRequest, Point, ToolOutline
 
 router = APIRouter()
 
@@ -66,3 +68,33 @@ async def rectify_with_corners(req: ManualRectifyRequest):
     result.original_image_url = req.original_image_url
     result.paper_detected = True
     return result
+
+
+class ClickDetectRequest(BaseModel):
+    """Request to detect a tool at a clicked point on the rectified image."""
+    rectified_image_url: str
+    scale_mm_per_px: float
+    click_x: int  # pixel x in rectified image
+    click_y: int  # pixel y in rectified image
+
+
+@router.post("/detect-at-point", response_model=None)
+async def detect_at_point(req: ClickDetectRequest):
+    """Detect a single tool outline at a clicked point.
+
+    This implements Tooltrace-style click-based detection: the user clicks
+    on a tool in the rectified image, and we detect the outline of just
+    that tool using floodfill segmentation.
+    """
+    import cv2
+    filename = req.rectified_image_url.split("/")[-1]
+    filepath = settings.data_dir / "images" / filename
+    img = cv2.imread(str(filepath))
+    if img is None:
+        raise HTTPException(status_code=400, detail=f"Could not load image: {filename}")
+
+    outline = detect_tool_at_point(img, req.scale_mm_per_px, req.click_x, req.click_y)
+    if outline is None:
+        raise HTTPException(status_code=400, detail="No tool detected at that point.")
+
+    return outline

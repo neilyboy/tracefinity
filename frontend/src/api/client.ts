@@ -1,5 +1,5 @@
 // API client for the Tracefinity backend.
-import type { Design, DesignSummary, PaperSize, Point, TraceResult, ExportFormat } from '../types'
+import type { Design, DesignSummary, PaperSize, Point, ToolOutline, TraceResult, ExportFormat } from '../types'
 
 const API = '/api'
 
@@ -32,6 +32,29 @@ export async function rectifyWithCorners(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || 'Rectify failed')
+  }
+  return res.json()
+}
+
+export async function detectToolAtPoint(
+  rectifiedImageUrl: string,
+  scaleMmPerPx: number,
+  clickX: number,
+  clickY: number,
+): Promise<ToolOutline> {
+  const res = await fetch(`${API}/detect-at-point`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rectified_image_url: rectifiedImageUrl,
+      scale_mm_per_px: scaleMmPerPx,
+      click_x: clickX,
+      click_y: clickY,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Detection failed')
   }
   return res.json()
 }
