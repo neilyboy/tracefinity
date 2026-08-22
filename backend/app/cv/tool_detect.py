@@ -52,20 +52,26 @@ def detect_tools(rectified: np.ndarray, scale_mm_per_px: float) -> list[ToolOutl
     # Step 3: Adaptive threshold — paper=white(255), tools=black(0).
     # THRESH_BINARY_INV makes tools white (255) on black (0) background.
     # blockSize=51 handles uneven lighting across the paper.
-    # C=10 subtracts from the mean, so only clearly darker regions become tools.
+    # C=5 is less aggressive than C=10, catching more of the tool edges
+    # including slightly lighter areas (handles, labels, reflections).
     block_size = _nearest_odd(max(31, int(20 / scale_mm_per_px)))
     thresh = cv2.adaptiveThreshold(
         filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, block_size, C=10,
+        cv2.THRESH_BINARY_INV, block_size, C=5,
     )
 
     # Step 4: Morphological operations to clean up the binary image.
     # Close fills small holes inside tools (from reflections, text, etc.)
     # Open removes small noise specks.
+    # Dilate slightly to expand outlines beyond the exact tool boundary.
     close_kernel = np.ones((5, 5), np.uint8)
     open_kernel = np.ones((3, 3), np.uint8)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, close_kernel, iterations=2)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel, iterations=1)
+    # Dilate by a few px to expand outlines slightly beyond the tool edge,
+    # giving a small built-in margin so the outline isn't too tight.
+    dilate_kernel = np.ones((3, 3), np.uint8)
+    thresh = cv2.dilate(thresh, dilate_kernel, iterations=2)
 
     # Step 5: Find contours — external contours only (no holes inside tools)
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -225,11 +231,12 @@ def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float) -> list[Po
         return []
 
     # Resample to high density for smooth Gaussian smoothing
-    pts_px = _resample_contour(pts_px, num_points=max(800, len(pts_px)))
+    pts_px = _resample_contour(pts_px, num_points=max(1000, len(pts_px)))
 
     # Gaussian smooth — removes per-pixel jaggedness from the mask boundary.
-    # Higher sigma = smoother curves, but too high loses detail.
-    pts_px = _gaussian_smooth_2d(pts_px, sigma=4.0)
+    # Higher sigma = smoother curves. Two-pass smoothing for extra smoothness.
+    pts_px = _gaussian_smooth_2d(pts_px, sigma=5.0)
+    pts_px = _gaussian_smooth_2d(pts_px, sigma=3.0)
 
     # Convert to mm
     pts_mm = pts_px * scale_mm_per_px
@@ -237,7 +244,7 @@ def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float) -> list[Po
     # Curvature-based simplification: keep points where curvature is high
     # (corners, curves) and decimate where curvature is low (straight edges).
     # More points = smoother curves in the frontend bezier rendering.
-    target_pts = min(target_max, max(30, len(pts_mm) // 6))
+    target_pts = min(target_max, max(40, len(pts_mm) // 5))
     pts_mm = _simplify_by_curvature(pts_mm, target_pts=target_pts)
 
     # Remove any points that ended up too close together

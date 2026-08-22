@@ -98,7 +98,7 @@ export const DEFAULT_PARAMS: BinParams = {
   wall_thickness_mm: 1.2,
   base_thickness_mm: 0.8,
   pocket_depth_mm: 15.0,
-  tool_margin_mm: 1.0,
+  tool_margin_mm: 2.0,
   magnet_holes: true,
   screw_holes: false,
   scoop: true,

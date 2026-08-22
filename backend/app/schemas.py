@@ -55,7 +55,7 @@ class BinParams(BaseModel):
     # Default pocket depth (mm) - depth of tool cutout
     pocket_depth_mm: float = Field(15.0, gt=0)
     # Default margin around each tool (mm) - clearance so tool fits
-    tool_margin_mm: float = Field(1.0, ge=0)
+    tool_margin_mm: float = Field(2.0, ge=0)
     # Features
     magnet_holes: bool = True
     screw_holes: bool = False
