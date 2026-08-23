@@ -13,6 +13,8 @@ export default function SvgEditor() {
     addVertex, deleteVertex, deleteTool, pushHistory, updateTool,
     undo, redo, history, historyIndex,
     addLabel, updateLabel, deleteLabel, moveLabel,
+    symmetryAxis, symmetryMode, setSymmetryAxis, setSymmetryMode,
+    mirrorHalf, symmetrize,
   } = useEditor()
 
   const [drag, setDrag] = useState<{
@@ -277,6 +279,56 @@ export default function SvgEditor() {
           ✂ Simplify
         </button>
         <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
+        {/* Symmetry controls */}
+        <button
+          onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')}
+          disabled={!selectedToolId}
+          style={toolBtn(symmetryAxis === 'x')}
+          title="Toggle X-axis symmetry (vertical line through tool center)"
+        >
+          ⇅ Sym X
+        </button>
+        <button
+          onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')}
+          disabled={!selectedToolId}
+          style={toolBtn(symmetryAxis === 'y')}
+          title="Toggle Y-axis symmetry (horizontal line through tool center)"
+        >
+          ⇄ Sym Y
+        </button>
+        {symmetryAxis && (
+          <>
+            <button
+              onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')}
+              style={toolBtn(symmetryMode === 'live')}
+              title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use buttons below'}
+            >
+              {symmetryMode === 'live' ? '🔗 Live' : '✋ Manual'}
+            </button>
+            <button
+              onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')}
+              style={toolBtn(false)}
+              title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`}
+            >
+              ⬅ Copy→
+            </button>
+            <button
+              onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')}
+              style={toolBtn(false)}
+              title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`}
+            >
+              ←Copy ➡
+            </button>
+            <button
+              onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)}
+              style={toolBtn(false)}
+              title="Average both sides for perfect symmetry"
+            >
+              ⚖ Symmetrize
+            </button>
+          </>
+        )}
+        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
         <button
           onClick={handleAddLabel}
           style={toolBtn(false)}
@@ -291,7 +343,9 @@ export default function SvgEditor() {
         <span style={{ fontSize: 12, color: '#52525b' }}>
           {placingFingerHole
             ? 'Click anywhere on the selected tool to place a finger hole'
-            : 'Drag vertices to edit · Double-click edge to add vertex · Del to remove tool'}
+            : symmetryAxis
+              ? `Symmetry ${symmetryAxis.toUpperCase()} ${symmetryMode === 'live' ? '(live mirror)' : '(manual)'} · Drag vertices to edit · Use Copy buttons to mirror halves`
+              : 'Drag vertices to edit · Double-click edge to add vertex · Del to remove tool'}
         </span>
       </div>
 
@@ -388,11 +442,19 @@ export default function SvgEditor() {
                   const next = tool.outer[(vi + 1) % tool.outer.length]
                   const dist = Math.sqrt((pt.x - next.x) ** 2 + (pt.y - next.y) ** 2)
                   const isClustered = dist < 2 // less than 2mm apart
+                  // Highlight mirrored vertex pair when symmetry is live
+                  const isMirrored = symmetryAxis && symmetryMode === 'live' && drag?.type === 'vertex' &&
+                    drag.toolId === tool.id &&
+                    (vi === drag.vertexIdx || (
+                      symmetryAxis === 'x'
+                        ? Math.abs(pt.x - (2 * cx - design.outlines.find(o => o.id === drag.toolId)!.outer[drag.vertexIdx!].x)) < 0.5
+                        : Math.abs(pt.y - (2 * cy - design.outlines.find(o => o.id === drag.toolId)!.outer[drag.vertexIdx!].y)) < 0.5
+                    ))
                   return (
                     <circle
                       key={vi}
                       cx={pad + pt.x} cy={pad + pt.y} r={isClustered ? 2 : 1.5}
-                      fill={isClustered ? '#fca5a5' : '#a78bfa'}
+                      fill={isMirrored ? '#34d399' : (isClustered ? '#fca5a5' : '#a78bfa')}
                       stroke="#0f1115" strokeWidth={0.5}
                       style={{ cursor: 'grab' }}
                       onPointerDown={(e) => handleVertexPointerDown(e, tool.id, vi)}
@@ -401,10 +463,46 @@ export default function SvgEditor() {
                       <title>
                         Vertex {vi}: ({pt.x.toFixed(1)}, {pt.y.toFixed(1)})mm
                         {isClustered ? ' — CLUSTERED (double-click to delete)' : ''}
+                        {isMirrored ? ' — MIRRORED PAIR' : ''}
                       </title>
                     </circle>
                   )
                 })}
+
+                {/* Symmetry axis line (only for selected tool when symmetry is on) */}
+                {isSelected && symmetryAxis && (() => {
+                  // Compute bounding box of the tool to draw the axis line
+                  const xs = tool.outer.map(p => p.x)
+                  const ys = tool.outer.map(p => p.y)
+                  const minX = Math.min(...xs), maxX = Math.max(...xs)
+                  const minY = Math.min(...ys), maxY = Math.max(...ys)
+                  const lineLen = Math.max(maxX - minX, maxY - minY) + 10
+                  if (symmetryAxis === 'x') {
+                    // Vertical line through centroid (X axis = mirror left/right)
+                    return (
+                      <line
+                        x1={pad + cx} y1={pad + cy - lineLen / 2}
+                        x2={pad + cx} y2={pad + cy + lineLen / 2}
+                        stroke="#34d399" strokeWidth={0.4} strokeDasharray="3,2"
+                        style={{ pointerEvents: 'none' }}
+                      >
+                        <title>Symmetry axis (X) — left/right mirror</title>
+                      </line>
+                    )
+                  } else {
+                    // Horizontal line through centroid (Y axis = mirror top/bottom)
+                    return (
+                      <line
+                        x1={pad + cx - lineLen / 2} y1={pad + cy}
+                        x2={pad + cx + lineLen / 2} y2={pad + cy}
+                        stroke="#34d399" strokeWidth={0.4} strokeDasharray="3,2"
+                        style={{ pointerEvents: 'none' }}
+                      >
+                        <title>Symmetry axis (Y) — top/bottom mirror</title>
+                      </line>
+                    )
+                  }
+                })()}
 
                 {/* Finger holes (draggable circles) */}
                 {(tool.finger_holes ?? []).map((hole, hi) => (
