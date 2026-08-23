@@ -148,10 +148,10 @@ def generate_flat_outlines(design: Design) -> Solid:
         offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
         # Build the cutout solid
-        # Flip Y (SVG Y-down → build123d Y-up). Y-flip also reverses winding
-        # (CW→CCW), so no need to reverse the point list.
+        # Flip Y (SVG Y-down → build123d Y-up), then reverse points to
+        # restore CCW winding (Y-flip reverses winding, build123d needs CCW).
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer]
+        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer][::-1]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face

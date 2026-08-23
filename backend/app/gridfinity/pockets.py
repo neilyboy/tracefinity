@@ -107,9 +107,9 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # SVG editor has Y going DOWN; build123d has Y going UP.
     # Flip Y on each point: y_new = grid_l - y_old.
-    # This also reverses winding (CW→CCW), so no need to reverse the list.
+    # Y-flip reverses winding, so reverse the list to restore CCW for build123d.
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer]
+    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer][::-1]
     try:
         outer_face = Polygon(pts)
     except Exception:
