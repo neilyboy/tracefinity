@@ -25,6 +25,7 @@ export interface TextLabel {
   rotation_deg: number
   depth_mm: number
   cutout: boolean  // True = engraved into surface, False = raised above
+  target: 'tray' | 'flat'  // which export the label appears on
 }
 
 export interface ToolOutline {
@@ -66,6 +67,7 @@ export interface BinParams {
   pocket_corner_radius_mm: number
   cutout_chamfer_mm: number
   pocket_bottom_radius_mm: number
+  flat_thickness_mm: number
 }
 
 export interface Design {
@@ -129,4 +131,5 @@ export const DEFAULT_PARAMS: BinParams = {
   pocket_corner_radius_mm: 2.0,
   cutout_chamfer_mm: 0.0,
   pocket_bottom_radius_mm: 0.0,
+  flat_thickness_mm: 2.0,
 }

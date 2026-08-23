@@ -36,9 +36,10 @@ def generate_gridfinity(design: Design) -> Solid:
     )
     bin_solid = subtract_pockets(bin_solid, design.outlines, p)
 
-    # Add/subtract text labels on the top surface
-    if design.labels:
-        bin_solid = _apply_labels(bin_solid, design.labels, p)
+    # Add/subtract text labels on the top surface (tray-targeted only)
+    tray_labels = [l for l in design.labels if l.target == "tray" and l.text.strip()]
+    if tray_labels:
+        bin_solid = _apply_labels(bin_solid, tray_labels, p)
 
     return bin_solid
 
@@ -95,17 +96,22 @@ def _apply_labels(bin_solid, labels, params) -> Part:
 def generate_flat_outlines(design: Design) -> Solid:
     """Generate a flat plate with tool cutouts for test-fitting and two-tone printing.
 
-    This creates a thin flat plate (typically 2-3mm thick) with the tool outlines
-    cut through it. You can print this to test-fit tools before committing to the
-    full bin, or print it in a different color to lay inside the bin as a two-tone
-    insert layer.
+    This creates a thin flat plate with the tool outlines cut through it. You can
+    print this to test-fit tools before committing to the full bin, or print it in
+    a different color to lay inside the bin as a two-tone insert layer.
+
+    Labels with target='flat' are applied to this plate:
+    - cutout=True: text is cut completely through the plate (like a stencil).
+      Use a stencil-friendly font — letters with enclosed counters (A, B, O, etc.)
+      will lose their inner pieces. This is by design for see-through labeling.
+    - cutout=False: text is raised on top of the plate surface.
     """
     p = design.params
     bin_w = p.grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     bin_l = p.grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
 
-    # Flat plate thickness — use a thin layer (default 2mm)
-    plate_thickness = 2.0
+    # Flat plate thickness — configurable
+    plate_thickness = p.flat_thickness_mm
 
     # Build the flat plate
     plate = Part(Box(bin_w, bin_l, plate_thickness))
@@ -144,24 +150,65 @@ def generate_flat_outlines(design: Design) -> Solid:
         except Exception:
             continue
 
-    if not cutters:
-        return plate
+    if cutters:
+        # Union all cutters
+        combined = cutters[0]
+        for c in cutters[1:]:
+            try:
+                combined = combined + c
+            except Exception:
+                pass
 
-    # Union all cutters
-    combined = cutters[0]
-    for c in cutters[1:]:
+        # Intersect with plate bounds to keep cutouts inside
+        interior = Box(bin_w, bin_l, plate_thickness * 3)
+        interior = interior.moved(Location((0, 0, plate_thickness)))
         try:
-            combined = combined + c
+            combined = combined & interior
         except Exception:
             pass
 
-    # Intersect with plate bounds to keep cutouts inside
-    interior = Box(bin_w, bin_l, plate_thickness * 3)
-    interior = interior.moved(Location((0, 0, plate_thickness)))
-    try:
-        combined = combined & interior
-    except Exception:
-        pass
+        plate = plate - combined
 
-    result = plate - combined
-    return result
+    # Apply flat-targeted labels
+    flat_labels = [l for l in design.labels if l.target == "flat" and l.text.strip()]
+    if flat_labels:
+        plate = _apply_flat_labels(plate, flat_labels, p, plate_thickness)
+
+    return plate
+
+
+def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
+    """Apply text labels to the flat plate.
+
+    cutout=True: text is cut completely through the plate (stencil style).
+    cutout=False: text is raised on top of the plate surface.
+    """
+    for label in labels:
+        try:
+            with BuildSketch(Plane.XY) as text_sketch:
+                Text(label.text, font_size=label.font_size_mm, align=(0, 0))
+            text_face = text_sketch.sketch
+
+            # Convert label coords to build123d coords
+            x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
+            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+
+            if label.cutout:
+                # Cut through the entire plate
+                text_solid = extrude(text_face, amount=plate_thickness * 3)
+                if abs(label.rotation_deg) > 0.01:
+                    text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+                text_solid = text_solid.moved(Location((x_local, y_local, -plate_thickness)))
+                plate = plate - text_solid
+            else:
+                # Raised on top surface
+                text_solid = extrude(text_face, amount=label.depth_mm)
+                if abs(label.rotation_deg) > 0.01:
+                    text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+                text_solid = text_solid.moved(Location((x_local, y_local, plate_thickness)))
+                plate = plate + text_solid
+
+        except Exception:
+            continue
+
+    return plate

@@ -85,8 +85,8 @@ export default function ToolPropsPanel() {
                 background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ color: label.cutout ? '#fbbf24' : '#34d399' }}>
-                    {label.cutout ? '⬇' : '⬆'} {label.text}
+                  <span style={{ color: label.target === 'flat' ? '#60a5fa' : (label.cutout ? '#fbbf24' : '#34d399') }}>
+                    {label.target === 'flat' ? '📋' : (label.cutout ? '⬇' : '⬆')} {label.text}
                   </span>
                   <button
                     onClick={() => deleteLabel(label.id)}
@@ -126,6 +126,29 @@ export default function ToolPropsPanel() {
                     style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1 }}
                   >
                     {label.cutout ? '⬇ Cutout' : '⬆ Raised'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
+                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Target:</label>
+                  <button
+                    onClick={() => updateLabel(label.id, { target: 'tray' })}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
+                      borderColor: label.target === 'tray' ? '#7c3aed' : '#3f3f46',
+                      background: label.target === 'tray' ? '#3b0764' : '#27272a',
+                      color: label.target === 'tray' ? '#a78bfa' : '#a1a1aa',
+                    }}
+                  >
+                    Tray
+                  </button>
+                  <button
+                    onClick={() => updateLabel(label.id, { target: 'flat' })}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
+                      borderColor: label.target === 'flat' ? '#2563eb' : '#3f3f46',
+                      background: label.target === 'flat' ? '#1e3a5f' : '#27272a',
+                      color: label.target === 'flat' ? '#60a5fa' : '#a1a1aa',
+                    }}
+                  >
+                    Flat
                   </button>
                 </div>
               </div>

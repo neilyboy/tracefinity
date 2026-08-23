@@ -171,6 +171,7 @@ export default function SvgEditor() {
       rotation_deg: 0,
       depth_mm: 0.6,
       cutout: true,
+      target: 'tray',
     }
     addLabel(newLabel)
   }
@@ -434,8 +435,10 @@ export default function SvgEditor() {
             )
           })}
 
-          {/* Text labels — draggable, on the bin surface */}
-          {design.labels.map((label) => (
+          {/* Text labels — draggable, on the bin surface or flat */}
+          {design.labels.map((label) => {
+            const color = label.target === 'flat' ? '#60a5fa' : (label.cutout ? '#fbbf24' : '#34d399')
+            return (
             <g
               key={label.id}
               transform={label.rotation_deg !== 0 ? `rotate(${label.rotation_deg} ${pad + label.x} ${pad + label.y})` : undefined}
@@ -447,7 +450,7 @@ export default function SvgEditor() {
                 width={label.text.length * label.font_size_mm * 0.6}
                 height={label.font_size_mm * 1.4}
                 fill="transparent"
-                stroke={label.cutout ? '#fbbf24' : '#34d399'}
+                stroke={color}
                 strokeWidth={0.3}
                 strokeDasharray="2,1"
                 style={{ cursor: 'move', pointerEvents: 'all' }}
@@ -457,21 +460,22 @@ export default function SvgEditor() {
                 onDoubleClick={() => deleteLabel(label.id)}
               >
                 <title>
-                  {label.text} — {label.cutout ? 'Cutout' : 'Raised'} · Double-click to delete
+                  {label.text} — {label.target === 'flat' ? 'Flat' : 'Tray'} · {label.cutout ? 'Cutout' : 'Raised'} · Double-click to delete
                 </title>
               </rect>
               <text
                 x={pad + label.x}
                 y={pad + label.y}
                 fontSize={label.font_size_mm}
-                fill={label.cutout ? '#fbbf24' : '#34d399'}
+                fill={color}
                 textAnchor="middle"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
                 {label.text}
               </text>
             </g>
-          ))}
+            )
+          })}
         </svg>
       </div>
     </div>

@@ -41,11 +41,14 @@ class ToolOutline(BaseModel):
 
 
 class TextLabel(BaseModel):
-    """A movable text label placed on the bin surface.
+    """A movable text label placed on the bin surface or flat output.
 
     Labels can be cutout (engraved into the surface) or raised (embossed above).
     They sit on the top surface of the bin, accounting for the stacking lip.
     Multiple labels can be placed — e.g. one per tool ("screwdriver", "extension").
+
+    target: 'tray' = label appears on the 3D bin/tray export
+            'flat' = label appears on the flat STL test-fit layer
     """
     id: str
     text: str = "Label"
@@ -53,8 +56,9 @@ class TextLabel(BaseModel):
     y: float = 0.0
     font_size_mm: float = 6.0
     rotation_deg: float = 0.0
-    depth_mm: float = 0.6  # emboss depth (positive = raised, negative = cutout)
+    depth_mm: float = 0.6  # emboss depth
     cutout: bool = True  # True = engraved into surface, False = raised above surface
+    target: str = "tray"  # 'tray' or 'flat' — which export the label appears on
 
 
 class BinParams(BaseModel):
@@ -103,6 +107,8 @@ class BinParams(BaseModel):
     # Rounded bottom radius for pockets (mm). 0 = flat bottom.
     # Creates a rounded transition from the pocket walls to the floor.
     pocket_bottom_radius_mm: float = Field(0.0, ge=0)
+    # Flat STL plate thickness (for test-fit / two-tone insert layer)
+    flat_thickness_mm: float = Field(2.0, gt=0, le=20)
 
 
 class Design(BaseModel):

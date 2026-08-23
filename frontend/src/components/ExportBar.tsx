@@ -25,7 +25,10 @@ export default function ExportBar() {
     setExportStatus(is3D ? 'Generating 3D model...' : 'Exporting...')
     try {
       const blob = await exportDesign(design, fmt)
-      const filename = `${design.name || 'tracefinity'}.${fmt}`
+      // stl_flat is an STL file, just with a different name
+      const ext = fmt === 'stl_flat' ? 'stl' : fmt
+      const suffix = fmt === 'stl_flat' ? '-flat' : ''
+      const filename = `${design.name || 'tracefinity'}${suffix}.${ext}`
       setExportStatus('Downloading...')
       downloadBlob(blob, filename)
     } catch (e) {

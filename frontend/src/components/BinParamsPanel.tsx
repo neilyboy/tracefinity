@@ -92,6 +92,13 @@ export default function BinParamsPanel() {
           <NumInput label="Sheet thickness (mm)" value={p.foam_thickness_mm} step={1} min={1} max={50} onChange={(v) => setParams({ foam_thickness_mm: v })} />
         </Section>
       )}
+
+      <Section title="Flat STL Layer">
+        <NumInput label="Plate thickness (mm)" value={p.flat_thickness_mm} step={0.5} min={0.4} max={20} onChange={(v) => setParams({ flat_thickness_mm: v })} />
+        <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
+          Used for test-fit and two-tone insert exports
+        </div>
+      </Section>
     </div>
   )
 }
