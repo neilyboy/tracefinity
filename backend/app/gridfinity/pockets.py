@@ -105,8 +105,11 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
-    # Reverse points to ensure CCW winding (build123d extrudes CCW polygons upward).
-    pts = [(float(p[0]), float(p[1])) for p in offset_outer][::-1]
+    # SVG editor has Y going DOWN; build123d has Y going UP.
+    # Flip Y on each point: y_new = grid_l - y_old.
+    # This also reverses winding (CW→CCW), so no need to reverse the list.
+    grid_l_mm = params.grid_l * C.GRID_UNIT_MM
+    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer]
     try:
         outer_face = Polygon(pts)
     except Exception:
@@ -167,10 +170,8 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             pass  # fillet can fail on complex geometries — skip if so
 
     # Position the pocket in bin-local coordinates.
-    # Use grid dimensions (42mm units) to match the SVG editor coordinate system.
-    # The bin is physically slightly smaller (42mm - 0.5mm clearance) but tools
-    # are positioned in the 42mm grid space in the editor, so we use the grid
-    # dimensions for the offset to ensure tools and labels align correctly.
+    # SVG editor has Y going DOWN (top-left origin); build123d has Y going UP.
+    # We flip Y on each point so the 3D export matches the editor view.
     grid_w_mm = params.grid_w * C.GRID_UNIT_MM
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
     translate_x = -grid_w_mm / 2
@@ -201,12 +202,11 @@ def build_finger_hole(
     """
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
-    # Convert to bin-local coords using grid dimensions (42mm units)
-    # to match the SVG editor coordinate system
+    # Convert to bin-local coords, flipping Y (SVG Y-down → build123d Y-up)
     grid_w_mm = params.grid_w * C.GRID_UNIT_MM
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
     x_local = hole.x - grid_w_mm / 2
-    y_local = hole.y - grid_l_mm / 2
+    y_local = grid_l_mm / 2 - hole.y
 
     # Place sphere center at the top surface.
     # Only the bottom half cuts into the bin material, creating a bowl.
@@ -256,11 +256,11 @@ def build_finger_scoop(
     scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
     scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
 
-    # Convert to bin-local coords using grid dimensions (42mm units)
+    # Convert to bin-local coords, flipping Y (SVG Y-down → build123d Y-up)
     grid_w_mm = params.grid_w * C.GRID_UNIT_MM
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
     scoop_x_local = scoop_x - grid_w_mm / 2
-    scoop_y_local = scoop_y - grid_l_mm / 2
+    scoop_y_local = grid_l_mm / 2 - scoop_y
 
     # Build a sphere with center at the top surface.
     # Only the bottom half cuts into the bin, creating a bowl-shaped scoop.

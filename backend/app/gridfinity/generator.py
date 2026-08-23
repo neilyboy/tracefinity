@@ -79,10 +79,10 @@ def _apply_labels(bin_solid, labels, params) -> Part:
                 text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
 
             # Position: text sits on top surface
-            # Convert label coords (editor coords, top-left origin) to build123d coords (centered at origin)
-            # Use grid dimensions (42mm units) to match the SVG editor coordinate system
+            # Convert label coords (SVG: top-left origin, Y-down) to build123d coords
+            # (centered at origin, Y-up). Flip Y so export matches editor view.
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
-            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+            y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
 
             if label.cutout:
                 # Engrave into the surface: subtract text from bin
@@ -148,15 +148,16 @@ def generate_flat_outlines(design: Design) -> Solid:
         offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
         # Build the cutout solid
-        pts = [(float(pt[0]), float(pt[1])) for pt in offset_outer][::-1]
+        # Flip Y (SVG Y-down → build123d Y-up). Y-flip also reverses winding
+        # (CW→CCW), so no need to reverse the point list.
+        grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
             cutter = extrude(sketch, amount=plate_thickness * 3)
             # Position in bin-local coords using grid dimensions (42mm units)
-            # to match the SVG editor coordinate system
             grid_w_mm = p.grid_w * C.GRID_UNIT_MM
-            grid_l_mm = p.grid_l * C.GRID_UNIT_MM
             cutter = cutter.moved(Location((-grid_w_mm / 2, -grid_l_mm / 2, -plate_thickness)))
             cutters.append(cutter)
         except Exception:
@@ -207,10 +208,9 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords to build123d coords
-            # Use grid dimensions (42mm units) to match the SVG editor coordinate system
+            # Convert label coords (SVG: Y-down) to build123d coords (Y-up)
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
-            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+            y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
 
             if label.cutout:
                 # Cut through the entire plate
