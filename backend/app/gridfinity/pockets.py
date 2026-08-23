@@ -167,8 +167,14 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             pass  # fillet can fail on complex geometries — skip if so
 
     # Position the pocket in bin-local coordinates.
-    translate_x = -bin_w_mm / 2
-    translate_y = -bin_l_mm / 2
+    # Use grid dimensions (42mm units) to match the SVG editor coordinate system.
+    # The bin is physically slightly smaller (42mm - 0.5mm clearance) but tools
+    # are positioned in the 42mm grid space in the editor, so we use the grid
+    # dimensions for the offset to ensure tools and labels align correctly.
+    grid_w_mm = params.grid_w * C.GRID_UNIT_MM
+    grid_l_mm = params.grid_l * C.GRID_UNIT_MM
+    translate_x = -grid_w_mm / 2
+    translate_y = -grid_l_mm / 2
 
     # After extrude(+depth), the solid spans z=[0, extrude_depth].
     # We want the pocket top at total_h + chamfer_extra (above wall top for clean cut),
@@ -195,9 +201,12 @@ def build_finger_hole(
     """
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
-    # Convert to bin-local coords
-    x_local = hole.x - bin_w_mm / 2
-    y_local = hole.y - bin_l_mm / 2
+    # Convert to bin-local coords using grid dimensions (42mm units)
+    # to match the SVG editor coordinate system
+    grid_w_mm = params.grid_w * C.GRID_UNIT_MM
+    grid_l_mm = params.grid_l * C.GRID_UNIT_MM
+    x_local = hole.x - grid_w_mm / 2
+    y_local = hole.y - grid_l_mm / 2
 
     # Place sphere center at the top surface.
     # Only the bottom half cuts into the bin material, creating a bowl.
@@ -247,9 +256,11 @@ def build_finger_scoop(
     scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
     scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
 
-    # Convert to bin-local coords
-    scoop_x_local = scoop_x - bin_w_mm / 2
-    scoop_y_local = scoop_y - bin_l_mm / 2
+    # Convert to bin-local coords using grid dimensions (42mm units)
+    grid_w_mm = params.grid_w * C.GRID_UNIT_MM
+    grid_l_mm = params.grid_l * C.GRID_UNIT_MM
+    scoop_x_local = scoop_x - grid_w_mm / 2
+    scoop_y_local = scoop_y - grid_l_mm / 2
 
     # Build a sphere with center at the top surface.
     # Only the bottom half cuts into the bin, creating a bowl-shaped scoop.

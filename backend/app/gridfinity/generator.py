@@ -71,7 +71,8 @@ def _apply_labels(bin_solid, labels, params) -> Part:
                 text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
 
             # Position: text sits on top surface
-            # Convert label coords (bin-local, top-left origin) to build123d coords (centered at origin)
+            # Convert label coords (editor coords, top-left origin) to build123d coords (centered at origin)
+            # Use grid dimensions (42mm units) to match the SVG editor coordinate system
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
             y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
 
@@ -144,8 +145,11 @@ def generate_flat_outlines(design: Design) -> Solid:
             face = Polygon(pts)
             sketch = Sketch() + face
             cutter = extrude(sketch, amount=plate_thickness * 3)
-            # Position in bin-local coords
-            cutter = cutter.moved(Location((-bin_w / 2, -bin_l / 2, -plate_thickness)))
+            # Position in bin-local coords using grid dimensions (42mm units)
+            # to match the SVG editor coordinate system
+            grid_w_mm = p.grid_w * C.GRID_UNIT_MM
+            grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+            cutter = cutter.moved(Location((-grid_w_mm / 2, -grid_l_mm / 2, -plate_thickness)))
             cutters.append(cutter)
         except Exception:
             continue
@@ -190,6 +194,7 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
             text_face = text_sketch.sketch
 
             # Convert label coords to build123d coords
+            # Use grid dimensions (42mm units) to match the SVG editor coordinate system
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
             y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
 
