@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import design, export, preview, trace
+from .routers import design, export, preview, trace, tool_library
 from .schemas import HealthResponse
 
 app = FastAPI(title="Tracefinity", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -26,6 +26,7 @@ app.include_router(trace.router, prefix="/api", tags=["trace"])
 app.include_router(design.router, prefix="/api/designs", tags=["designs"])
 app.include_router(preview.router, prefix="/api", tags=["preview"])
 app.include_router(export.router, prefix="/api", tags=["export"])
+app.include_router(tool_library.router, prefix="/api/tools", tags=["tools"])
 
 
 @app.get("/api/health", response_model=HealthResponse)

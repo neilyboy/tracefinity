@@ -123,3 +123,45 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// --- Tool Library ---
+
+export interface ToolLibrarySummary {
+  id: string
+  name: string
+  category: string
+  bbox_w_mm: number
+  bbox_h_mm: number
+  created_at: string
+}
+
+export async function listToolLibrary(): Promise<ToolLibrarySummary[]> {
+  const res = await fetch(`${API}/tools`)
+  if (!res.ok) throw new Error('List tools failed')
+  return res.json()
+}
+
+export async function loadToolFromLibrary(id: string): Promise<ToolOutline> {
+  const res = await fetch(`${API}/tools/${id}`)
+  if (!res.ok) throw new Error('Load tool failed')
+  return res.json()
+}
+
+export async function saveToolToLibrary(
+  tool: ToolOutline,
+  name: string,
+  category: string = 'General',
+): Promise<{ id: string }> {
+  const res = await fetch(`${API}/tools`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool, name, category }),
+  })
+  if (!res.ok) throw new Error('Save tool failed')
+  return res.json()
+}
+
+export async function deleteToolFromLibrary(id: string): Promise<void> {
+  const res = await fetch(`${API}/tools/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Delete tool failed')
+}

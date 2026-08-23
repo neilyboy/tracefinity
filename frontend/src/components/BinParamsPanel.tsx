@@ -19,15 +19,21 @@ export default function BinParamsPanel() {
       <Section title="Grid Size (42mm units)">
         <NumInput label="Width" value={p.grid_w} min={1} max={20} onChange={(v) => setParams({ grid_w: v })} />
         <NumInput label="Length" value={p.grid_l} min={1} max={20} onChange={(v) => setParams({ grid_l: v })} />
-        <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
-          Footprint: {(p.grid_w * 42).toFixed(0)}×{(p.grid_l * 42).toFixed(0)}mm
+        <div style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+          Footprint: <strong style={{ color: '#a1a1aa' }}>{(p.grid_w * 42).toFixed(0)}×{(p.grid_l * 42).toFixed(0)}mm</strong>
+          {' '}({(p.grid_w * 42 / 25.4).toFixed(1)}×{(p.grid_l * 42 / 25.4).toFixed(1)}in)
         </div>
       </Section>
 
-      <Section title="Height (7mm units)">
-        <NumInput label="Height units" value={p.height_units} min={1} max={20} onChange={(v) => setParams({ height_units: v })} />
-        <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
-          Total: {(p.height_units * 7).toFixed(0)}mm
+      <Section title="Height">
+        <NumInput label="Height (7mm units)" value={p.height_units} min={1} max={20} onChange={(v) => setParams({ height_units: v })} />
+        <div style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+          Total: <strong style={{ color: '#a1a1aa' }}>{(p.height_units * 7).toFixed(0)}mm</strong>
+          {' '}({(p.height_units * 7 / 25.4).toFixed(2)}in)
+          {p.lip && <span> + lip 4.4mm = <strong style={{ color: '#a1a1aa' }}>{(p.height_units * 7 + 4.4).toFixed(1)}mm</strong></span>}
+        </div>
+        <div style={{ fontSize: 10, color: '#52525b', marginTop: 2 }}>
+          Pocket depth: {p.pocket_depth_mm.toFixed(1)}mm · Floor: {Math.max(2.25, 4).toFixed(1)}mm
         </div>
       </Section>
 

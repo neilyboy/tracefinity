@@ -147,6 +147,25 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
         except Exception:
             pass  # fillet can fail on complex geometries — skip if so
 
+    # Apply corner radius to vertical edges (if enabled).
+    # These are the edges connecting the top and bottom faces — rounding
+    # them gives the pocket rounded vertical corners.
+    if params.pocket_corner_radius_mm > 0:
+        try:
+            bb = pocket.bounding_box()
+            bottom_z = bb.min.Z
+            top_z = bb.max.Z
+            # Vertical edges are those whose Z center is between top and bottom
+            # (not at either face). They connect the top and bottom polygons.
+            vert_edges = [
+                e for e in pocket.edges()
+                if abs(e.center().Z - bottom_z) > 0.1 and abs(e.center().Z - top_z) > 0.1
+            ]
+            if vert_edges:
+                pocket = pocket.fillet(params.pocket_corner_radius_mm, vert_edges)
+        except Exception:
+            pass  # fillet can fail on complex geometries — skip if so
+
     # Position the pocket in bin-local coordinates.
     translate_x = -bin_w_mm / 2
     translate_y = -bin_l_mm / 2
@@ -165,9 +184,13 @@ def build_finger_hole(
 ) -> Solid | None:
     """Build a spherical finger hole at a user-specified position.
 
-    A finger hole is a spherical pocket that cuts into the bin at the edge
-    of a tool, making it easy to lift the tool out. The user places these
-    wherever they want.
+    A finger hole is a spherical pocket that cuts into the bin from the TOP
+    surface downward, making it easy to lift the tool out. The user places
+    these wherever they want on each tool.
+
+    The sphere is positioned so that its top is at the bin's top surface
+    (total_h). This ensures the finger hole always breaks through the top,
+    regardless of pocket depth or lip height.
     """
     pocket_depth = hole.depth_mm if hole.depth_mm is not None else params.pocket_depth_mm
     total_h = params.height_units * C.HEIGHT_UNIT_MM
@@ -176,14 +199,14 @@ def build_finger_hole(
     x_local = hole.x - bin_w_mm / 2
     y_local = hole.y - bin_l_mm / 2
 
-    # Build a sphere that cuts through the top of the bin
-    # The sphere center is at the pocket floor level, so the top half
-    # cuts into the bin material above the floor.
+    # Position the sphere so its TOP is at the bin's top surface (total_h).
+    # This means the sphere center is at total_h - radius.
+    # The sphere cuts downward from the top, creating a scoop that breaks
+    # through the top surface for easy finger access.
     radius = hole.radius_mm
     sphere = Sphere(radius)
-    # Position: center at the pocket floor level
-    floor_z = total_h - pocket_depth
-    sphere = sphere.moved(Location((x_local, y_local, floor_z)))
+    sphere_center_z = total_h - radius
+    sphere = sphere.moved(Location((x_local, y_local, sphere_center_z)))
 
     return sphere
 
@@ -231,10 +254,11 @@ def build_finger_scoop(
     scoop_x_local = scoop_x - bin_w_mm / 2
     scoop_y_local = scoop_y - bin_l_mm / 2
 
-    # Build a sphere for a smoother finger scoop
+    # Build a sphere that cuts from the TOP surface downward.
+    # Sphere top at total_h, center at total_h - radius.
     sphere = Sphere(scoop_radius)
-    floor_z = total_h - pocket_depth
-    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, floor_z)))
+    sphere_center_z = total_h - scoop_radius
+    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, sphere_center_z)))
 
     return sphere
 

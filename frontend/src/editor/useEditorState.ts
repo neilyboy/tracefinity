@@ -30,6 +30,7 @@ interface EditorState {
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
   deleteVertex: (toolId: string, vertexIdx: number) => void
   toggleToolVisible: (id: string) => void
+  scaleTool: (id: string, scaleFactor: number) => void
   setPaperSize: (size: PaperSize) => void
   setName: (name: string) => void
   undo: () => void
@@ -159,6 +160,40 @@ export const useEditor = create<EditorState>((set, get) => ({
       design: {
         ...s.design,
         outlines: s.design.outlines.map((o) => (o.id === id ? { ...o, visible: !o.visible } : o)),
+      },
+    }))
+  },
+
+  scaleTool: (id, scaleFactor) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== id) return o
+          // Scale around centroid
+          const cx = o.outer.reduce((a, p) => a + p.x, 0) / o.outer.length
+          const cy = o.outer.reduce((a, p) => a + p.y, 0) / o.outer.length
+          return {
+            ...o,
+            outer: o.outer.map((p) => ({
+              x: cx + (p.x - cx) * scaleFactor,
+              y: cy + (p.y - cy) * scaleFactor,
+            })),
+            holes: o.holes.map((h) =>
+              h.map((p) => ({
+                x: cx + (p.x - cx) * scaleFactor,
+                y: cy + (p.y - cy) * scaleFactor,
+              })),
+            ),
+            finger_holes: (o.finger_holes ?? []).map((fh) => ({
+              ...fh,
+              x: cx + (fh.x - cx) * scaleFactor,
+              y: cy + (fh.y - cy) * scaleFactor,
+              radius_mm: fh.radius_mm * scaleFactor,
+            })),
+          }
+        }),
       },
     }))
   },

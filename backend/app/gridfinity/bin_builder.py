@@ -18,12 +18,16 @@ from build123d import (
     Location,
     Part,
     Plane,
+    Polygon,
     Rectangle,
     Solid,
+    Sphere,
     extrude,
     fillet,
     chamfer,
     loft,
+    Text,
+    Mode,
 )
 
 from . import constants as C
@@ -43,6 +47,9 @@ def build_bin(
     tabs: str = "none",
     lip: bool = True,
     label_tab: bool = False,
+    label_text: str = "",
+    label_font_size_mm: float = 6.0,
+    label_depth_mm: float = 0.6,
     compartments_x: int = 1,
     compartments_y: int = 1,
     pocket_depth_mm: float = 15.0,
@@ -121,6 +128,17 @@ def build_bin(
     # --- Scoop ---
     if scoop and wall_h > C.DEFAULT_SCOOP_DEPTH_MM:
         bin_solid = _add_scoop(bin_solid, bin_w, bin_l, wall_thickness_mm, total_h, scoop_depth_mm)
+
+    # --- Label tab ---
+    if label_tab:
+        bin_solid = _add_label_tab(
+            bin_solid, bin_w, bin_l, wall_thickness_mm, total_h,
+            label_text, label_font_size_mm, label_depth_mm,
+        )
+
+    # --- Print support tabs ---
+    if tabs != "none" and lip:
+        bin_solid = _add_print_tabs(bin_solid, bin_w, bin_l, total_h, tabs)
 
     return bin_solid
 
@@ -258,4 +276,88 @@ def _add_scoop(bin_solid, bin_w, bin_l, wall_thickness, total_h, scoop_depth) ->
     scoop = scoop.rotate(axis=Axis.Y, angle=90)
     scoop = scoop.moved(Location((0, bin_l / 2 - wall_thickness - scoop_depth / 2, C.BASE_HEIGHT_MM)))
     bin_solid = bin_solid - scoop
+    return bin_solid
+
+
+def _add_print_tabs(bin_solid, bin_w, bin_l, total_h, tab_style) -> Part:
+    """Add print support tabs below the stacking lip.
+
+    These are small rectangular tabs that support the lip overhang during
+    3D printing, reducing sag. 'split' puts tabs on all 4 sides with gaps.
+    'aligned' puts continuous tabs on the front and back only.
+    """
+    tab_h = 1.2  # tab thickness
+    tab_t = C.LIP_OVERHANG_MM + 0.2  # matches lip overhang
+    lip_top = total_h + C.LIP_HEIGHT_MM
+    tab_z = lip_top - tab_h / 2
+
+    if tab_style == "aligned":
+        # Continuous tabs on front and back only
+        for y_pos in [bin_l / 2 + tab_t / 2, -bin_l / 2 - tab_t / 2]:
+            tab = Box(bin_w, tab_t, tab_h)
+            tab = tab.moved(Location((0, y_pos, tab_z)))
+            bin_solid = bin_solid + Part(tab)
+    else:  # split
+        # Tabs on all 4 sides with gaps for removal
+        tab_len = 10  # mm per tab
+        gap = 5  # mm gap between tabs
+
+        # Front and back
+        for y_pos in [bin_l / 2 + tab_t / 2, -bin_l / 2 - tab_t / 2]:
+            x = -bin_w / 2 + tab_len / 2
+            while x < bin_w / 2:
+                tab = Box(min(tab_len, bin_w / 2 - x + tab_len / 2), tab_t, tab_h)
+                tab = tab.moved(Location((x, y_pos, tab_z)))
+                bin_solid = bin_solid + Part(tab)
+                x += tab_len + gap
+
+        # Left and right
+        for x_pos in [bin_w / 2 + tab_t / 2, -bin_w / 2 - tab_t / 2]:
+            y = -bin_l / 2 + tab_len / 2
+            while y < bin_l / 2:
+                tab = Box(tab_t, min(tab_len, bin_l / 2 - y + tab_len / 2), tab_h)
+                tab = tab.moved(Location((x_pos, y, tab_z)))
+                bin_solid = bin_solid + Part(tab)
+                y += tab_len + gap
+
+    return bin_solid
+
+
+def _add_label_tab(
+    bin_solid, bin_w, bin_l, wall_thickness, total_h,
+    label_text, font_size, label_depth,
+) -> Part:
+    """Add a label tab on the front wall of the bin with optional embossed text.
+
+    The label tab is a flat area on the front of the bin where you can write
+    or stick a label. If label_text is provided, it's embossed (raised) on the tab.
+    """
+    # Tab dimensions: spans the full width, sits at the top of the front wall
+    tab_w = min(C.LABEL_TAB_WIDTH_MM, bin_w - 2 * wall_thickness)
+    tab_h = C.LABEL_TAB_HEIGHT_MM
+    tab_t = C.LABEL_TAB_THICKNESS_MM  # how far it sticks out
+
+    # Position: centered on front wall, near the top
+    tab_y = bin_l / 2 + tab_t / 2  # sticks out from the front
+    tab_z = total_h - tab_h / 2 - 2  # near the top of the bin
+
+    tab = Box(tab_w, tab_t, tab_h)
+    tab = tab.moved(Location((0, tab_y, tab_z)))
+    bin_solid = bin_solid + Part(tab)
+
+    # Add embossed text if provided
+    if label_text and label_depth > 0:
+        try:
+            # Create text sketch and extrude it
+            with BuildSketch(Plane.XY) as text_sketch:
+                Text(label_text, font_size=font_size, font_path=None, align=(0, 0))
+            text_face = text_sketch.sketch
+            text_solid = extrude(text_face, amount=label_depth)
+            # Position text on the front face of the label tab
+            text_solid = text_solid.rotate(axis=Axis.X, angle=90)
+            text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t + label_depth / 2, tab_z)))
+            bin_solid = bin_solid + Part(text_solid)
+        except Exception:
+            pass  # text rendering can fail if font not available — skip silently
+
     return bin_solid

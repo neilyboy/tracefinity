@@ -1,11 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
-import { autoRotateTool } from '../api/client'
+import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary } from '../api/client'
+import type { ToolLibrarySummary } from '../api/client'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, updateTool, deleteTool } = useEditor()
+  const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const [rotating, setRotating] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [saveCat, setSaveCat] = useState('General')
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [libraryTools, setLibraryTools] = useState<ToolLibrarySummary[]>([])
+  const [libLoading, setLibLoading] = useState(false)
+  const [scalePct, setScalePct] = useState(100)
 
   if (!tool) {
     return (
@@ -47,6 +55,60 @@ export default function ToolPropsPanel() {
     const holes = [...(tool.finger_holes ?? [])]
     holes.splice(idx, 1)
     updateTool(tool.id, { finger_holes: holes })
+  }
+
+  const handleSaveToLibrary = async () => {
+    if (!tool || !saveName.trim()) return
+    try {
+      await saveToolToLibrary(tool, saveName.trim(), saveCat.trim() || 'General')
+      setShowSaveDialog(false)
+      setSaveName('')
+    } catch (e) {
+      console.error('Save to library failed:', e)
+    }
+  }
+
+  const handleShowLibrary = async () => {
+    setShowLibrary(!showLibrary)
+    if (!showLibrary) {
+      setLibLoading(true)
+      try {
+        const tools = await listToolLibrary()
+        setLibraryTools(tools)
+      } catch (e) {
+        console.error('List tools failed:', e)
+      } finally {
+        setLibLoading(false)
+      }
+    }
+  }
+
+  const handleLoadFromLibrary = async (id: string) => {
+    try {
+      const loaded = await loadToolFromLibrary(id)
+      // Generate a new ID and position at bin center
+      const newId = `tool_${Date.now()}`
+      addTool({ ...loaded, id: newId })
+    } catch (e) {
+      console.error('Load tool failed:', e)
+    }
+  }
+
+  const handleDeleteFromLibrary = async (id: string) => {
+    try {
+      await deleteToolFromLibrary(id)
+      const tools = await listToolLibrary()
+      setLibraryTools(tools)
+    } catch (e) {
+      console.error('Delete tool failed:', e)
+    }
+  }
+
+  const handleScale = (pct: number) => {
+    if (!tool) return
+    const factor = pct / 100
+    scaleTool(tool.id, factor)
+    setScalePct(100) // reset after applying
   }
 
   return (
@@ -121,6 +183,102 @@ export default function ToolPropsPanel() {
           <button onClick={() => handleRemoveFingerHole(i)} style={{ ...smallBtn, color: '#fca5a5' }}>✕</button>
         </div>
       ))}
+
+      <Field label={`Scale (${scalePct}%)`}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="range" min={50} max={200} value={scalePct} step={5}
+            onChange={(e) => setScalePct(parseInt(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={() => handleScale(scalePct)}
+            disabled={scalePct === 100}
+            style={{ ...smallBtn, opacity: scalePct === 100 ? 0.4 : 1 }}
+          >
+            Apply
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+          <button onClick={() => handleScale(90)} style={smallBtn}>−10%</button>
+          <button onClick={() => handleScale(95)} style={smallBtn}>−5%</button>
+          <button onClick={() => handleScale(105)} style={smallBtn}>+5%</button>
+          <button onClick={() => handleScale(110)} style={smallBtn}>+10%</button>
+        </div>
+      </Field>
+
+      <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Tool Library
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button onClick={() => setShowSaveDialog(!showSaveDialog)} style={{ ...btnStyle, flex: 1 }}>
+          {showSaveDialog ? 'Cancel' : '💾 Save'}
+        </button>
+        <button onClick={handleShowLibrary} style={{ ...btnStyle, flex: 1 }}>
+          {showLibrary ? 'Close' : '📂 Browse'}
+        </button>
+      </div>
+
+      {showSaveDialog && (
+        <div style={{ marginBottom: 8, padding: 8, background: '#18181b', borderRadius: 4, border: '1px solid #3f3f46' }}>
+          <input
+            type="text" placeholder="Tool name (e.g. Pliers)"
+            value={saveName} onChange={(e) => setSaveName(e.target.value)}
+            style={{ ...inputStyle, width: '100%', marginBottom: 4 }}
+          />
+          <input
+            type="text" placeholder="Category"
+            value={saveCat} onChange={(e) => setSaveCat(e.target.value)}
+            style={{ ...inputStyle, width: '100%', marginBottom: 4 }}
+          />
+          <button
+            onClick={handleSaveToLibrary}
+            disabled={!saveName.trim()}
+            style={{ ...btnStyle, width: '100%', opacity: saveName.trim() ? 1 : 0.4 }}
+          >
+            Save to Library
+          </button>
+        </div>
+      )}
+
+      {showLibrary && (
+        <div style={{ marginBottom: 8, maxHeight: 200, overflow: 'auto' }}>
+          {libLoading && <div style={{ fontSize: 12, color: '#71717a', padding: 4 }}>Loading...</div>}
+          {!libLoading && libraryTools.length === 0 && (
+            <div style={{ fontSize: 12, color: '#52525b', padding: 4 }}>No saved tools yet</div>
+          )}
+          {libraryTools.map((t) => (
+            <div key={t.id} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '4px 6px', marginBottom: 2, borderRadius: 4,
+              background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
+            }}>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ color: '#e4e4e7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.name}
+                </div>
+                <div style={{ color: '#71717a', fontSize: 10 }}>
+                  {t.category} · {t.bbox_w_mm.toFixed(0)}×{t.bbox_h_mm.toFixed(0)}mm
+                </div>
+              </div>
+              <button
+                onClick={() => handleLoadFromLibrary(t.id)}
+                style={{ ...smallBtn, fontSize: 10, padding: '2px 6px' }}
+                title="Add to workspace"
+              >
+                + Add
+              </button>
+              <button
+                onClick={() => handleDeleteFromLibrary(t.id)}
+                style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
+                title="Delete from library"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button
