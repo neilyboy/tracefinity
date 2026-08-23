@@ -97,13 +97,15 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     # Offset the outer polygon outward by the margin (clearance).
     offset_outer = offset_polygon(outer, margin)
 
-    # Simplify the polygon to prevent OCP boolean operation failures.
-    offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
+    # Apply Catmull-Rom smoothing FIRST (before simplification) to match the
+    # SVG editor's smooth curves. Smoothing before simplification preserves
+    # sharp tips and rounded ends that simplification would otherwise remove.
+    # 20 samples per segment gives smooth curves even at sharp tips.
+    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=20, tension=0.3)
 
-    # Apply Catmull-Rom smoothing to match the SVG editor's smooth curves.
-    # The SVG editor renders tools with smooth splines, but the raw polygon
-    # has sharp corners. This samples the spline to produce a dense, smooth polygon.
-    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=10, tension=0.3)
+    # Simplify AFTER smoothing to reduce point count for OCP boolean stability.
+    # Use a smaller epsilon since the smoothed curve has many close points.
+    smoothed = _simplify_polygon(smoothed, epsilon=0.15)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # SVG editor has Y going DOWN; build123d has Y going UP.

@@ -145,18 +145,21 @@ def generate_flat_outlines(design: Design) -> Solid:
 
         # Offset by margin
         offset_outer = offset_polygon(outer, margin)
-        offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
-        # Apply Catmull-Rom smoothing to match the SVG editor's smooth curves
-        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=10, tension=0.3)
+        # Apply Catmull-Rom smoothing FIRST (before simplification) to match
+        # the SVG editor's smooth curves. 20 samples per segment for smooth
+        # curves even at sharp tips.
+        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=20, tension=0.3)
+        # Simplify after smoothing with small epsilon to reduce point count
+        smoothed = _simplify_polygon(smoothed, epsilon=0.15)
 
         # Build the cutout solid.
-        # Mirror both X and Y (180° rotation) so the flat export matches the SVG
-        # editor when viewed from the bottom in a slicer (the natural viewing
-        # direction for a flat plate). 180° rotation preserves CCW winding.
+        # Flip Y only (SVG Y-down → build123d Y-up). Text is created fresh in
+        # build123d so it reads correctly without X mirroring.
+        # Y-flip reverses winding, so reverse points to restore CCW.
         grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(grid_w_mm - float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed]
+        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed][::-1]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
@@ -212,10 +215,10 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords to build123d coords.
-            # Mirror both X and Y (180° rotation) to match the tool cutout
-            # orientation — flat export is viewed from the bottom in slicers.
-            x_local = params.grid_w * C.GRID_UNIT_MM / 2 - label.x
+            # Convert label coords (SVG: Y-down) to build123d coords (Y-up).
+            # Y-flip only — text is created fresh in build123d so it reads
+            # correctly. X is not mirrored.
+            x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
             y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
 
             if label.cutout:
