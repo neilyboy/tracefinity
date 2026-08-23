@@ -1,6 +1,6 @@
 // Central editor state via zustand.
 import { create } from 'zustand'
-import type { BinParams, Design, PaperSize, Point, ToolOutline } from '../types'
+import type { BinParams, Design, PaperSize, Point, ToolOutline, TextLabel } from '../types'
 import { DEFAULT_PARAMS } from '../types'
 
 interface EditorState {
@@ -32,6 +32,12 @@ interface EditorState {
   deleteVertex: (toolId: string, vertexIdx: number) => void
   toggleToolVisible: (id: string) => void
   scaleTool: (id: string, scaleFactor: number) => void
+  mirrorTool: (id: string, axis: 'x' | 'y') => void
+  // Labels
+  addLabel: (label: TextLabel) => void
+  updateLabel: (id: string, updates: Partial<TextLabel>) => void
+  deleteLabel: (id: string) => void
+  moveLabel: (id: string, dx: number, dy: number) => void
   setPaperSize: (size: PaperSize) => void
   setName: (name: string) => void
   undo: () => void
@@ -49,6 +55,7 @@ const emptyDesign: Design = {
   rectified_h_px: 0,
   paper_corners_px: [],
   outlines: [],
+  labels: [],
   params: { ...DEFAULT_PARAMS },
   image_filename: null,
 }
@@ -219,6 +226,70 @@ export const useEditor = create<EditorState>((set, get) => ({
             })),
           }
         }),
+      },
+    }))
+  },
+
+  mirrorTool: (id, axis) => {
+    const tool = get().design.outlines.find((o) => o.id === id)
+    if (!tool) return
+    get().pushHistory()
+    const cx = tool.outer.reduce((a, p) => a + p.x, 0) / tool.outer.length
+    const cy = tool.outer.reduce((a, p) => a + p.y, 0) / tool.outer.length
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== id) return o
+          const mirror = (p: Point): Point =>
+            axis === 'x' ? { x: 2 * cx - p.x, y: p.y } : { x: p.x, y: 2 * cy - p.y }
+          // Reverse winding for mirrored polygon to maintain CCW
+          const mirroredOuter = o.outer.map(mirror).reverse()
+          return {
+            ...o,
+            outer: mirroredOuter,
+            holes: o.holes.map((h) => h.map(mirror).reverse()),
+            finger_holes: (o.finger_holes ?? []).map((fh) => ({
+              ...fh,
+              x: axis === 'x' ? 2 * cx - fh.x : fh.x,
+              y: axis === 'y' ? 2 * cy - fh.y : fh.y,
+            })),
+          }
+        }),
+      },
+    }))
+  },
+
+  // --- Labels ---
+  addLabel: (label) => {
+    get().pushHistory()
+    set((s) => ({ design: { ...s.design, labels: [...s.design.labels, label] } }))
+  },
+
+  updateLabel: (id, updates) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        labels: s.design.labels.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+      },
+    }))
+  },
+
+  deleteLabel: (id) => {
+    get().pushHistory()
+    set((s) => ({
+      design: { ...s.design, labels: s.design.labels.filter((l) => l.id !== id) },
+    }))
+  },
+
+  moveLabel: (id, dx, dy) => {
+    set((s) => ({
+      design: {
+        ...s.design,
+        labels: s.design.labels.map((l) =>
+          l.id === id ? { ...l, x: l.x + dx, y: l.y + dy } : l,
+        ),
       },
     }))
   },

@@ -1,8 +1,8 @@
-"""Assemble a complete gridfinity model: bin + tool pockets."""
+"""Assemble a complete gridfinity model: bin + tool pockets + labels."""
 from __future__ import annotations
 
 import numpy as np
-from build123d import Box, Location, Part, Polygon, Sketch, Solid, extrude
+from build123d import Axis, Box, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, extrude
 
 from ..schemas import Design
 from ..utils.geometry import offset_polygon, to_np
@@ -35,6 +35,60 @@ def generate_gridfinity(design: Design) -> Solid:
         pocket_depth_mm=p.pocket_depth_mm,
     )
     bin_solid = subtract_pockets(bin_solid, design.outlines, p)
+
+    # Add/subtract text labels on the top surface
+    if design.labels:
+        bin_solid = _apply_labels(bin_solid, design.labels, p)
+
+    return bin_solid
+
+
+def _apply_labels(bin_solid, labels, params) -> Part:
+    """Apply text labels to the bin's top surface.
+
+    Labels can be cutout (engraved into the surface) or raised (embossed above).
+    They sit on the top surface of the bin, accounting for the stacking lip.
+    """
+    total_h = params.height_units * C.HEIGHT_UNIT_MM
+    # Top surface Z (accounting for lip)
+    top_z = total_h + (C.LIP_HEIGHT_MM if params.lip else 0)
+
+    for label in labels:
+        if not label.text.strip():
+            continue
+        try:
+            # Create text sketch on XY plane
+            with BuildSketch(Plane.XY) as text_sketch:
+                Text(label.text, font_size=label.font_size_mm, align=(0, 0))
+            text_face = text_sketch.sketch
+
+            # Extrude to create the text solid
+            text_solid = extrude(text_face, amount=label.depth_mm)
+
+            # Rotate around Z axis (text rotation in the XY plane)
+            if abs(label.rotation_deg) > 0.01:
+                text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+
+            # Position: text sits on top surface
+            # Convert label coords (bin-local, top-left origin) to build123d coords (centered at origin)
+            x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
+            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+
+            if label.cutout:
+                # Engrave into the surface: subtract text from bin
+                # Text solid spans Z=[0, depth], place it so top is at top_z
+                text_solid = text_solid.moved(Location((x_local, y_local, top_z - label.depth_mm)))
+                bin_solid = bin_solid - text_solid
+            else:
+                # Raised above surface: add text on top of bin
+                # Text solid spans Z=[0, depth], place it so bottom is at top_z
+                text_solid = text_solid.moved(Location((x_local, y_local, top_z)))
+                bin_solid = bin_solid + text_solid
+
+        except Exception:
+            # Text rendering can fail if font not available — skip silently
+            continue
+
     return bin_solid
 
 

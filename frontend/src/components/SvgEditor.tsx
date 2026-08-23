@@ -3,13 +3,15 @@ import { useEditor } from '../editor/useEditorState'
 import { clientToSvgMm, snapToGrid, snapFine } from '../editor/vertexDrag'
 import { GRID_UNIT_MM } from '../editor/constants'
 import { smoothClosedPath } from '../utils/smoothPath'
-import type { Point, FingerHole } from '../types'
+import type { Point, FingerHole, TextLabel } from '../types'
 
 export default function SvgEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
   const {
     design, selectedToolId, selectTool, updateVertex, moveTool,
     addVertex, deleteVertex, deleteTool, pushHistory, updateTool,
+    undo, redo, history, historyIndex,
+    addLabel, updateLabel, deleteLabel, moveLabel,
   } = useEditor()
 
   const [drag, setDrag] = useState<{
@@ -30,6 +32,7 @@ export default function SvgEditor() {
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [zoom, setZoom] = useState(1)
   const [placingFingerHole, setPlacingFingerHole] = useState(false)
+  const [draggingLabel, setDraggingLabel] = useState<string | null>(null)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -157,6 +160,47 @@ export default function SvgEditor() {
     }
   }
 
+  // Add a new text label at the center of the bin
+  const handleAddLabel = () => {
+    const newLabel: TextLabel = {
+      id: `label_${Date.now()}`,
+      text: 'Label',
+      x: binW / 2,
+      y: binL / 2,
+      font_size_mm: 6.0,
+      rotation_deg: 0,
+      depth_mm: 0.6,
+      cutout: true,
+    }
+    addLabel(newLabel)
+  }
+
+  // Label drag handler
+  const handleLabelPointerDown = (e: React.PointerEvent, labelId: string) => {
+    e.stopPropagation()
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    setDraggingLabel(labelId)
+  }
+
+  const handleLabelPointerMove = (e: React.PointerEvent) => {
+    if (!draggingLabel || !svgRef.current) return
+    const pt = clientToSvgMm(svgRef.current, e.clientX, e.clientY)
+    // Convert from SVG coords to mm (subtract pad)
+    const mx = pt.x - pad
+    const my = pt.y - pad
+    const label = design.labels.find(l => l.id === draggingLabel)
+    if (!label) return
+    moveLabel(draggingLabel, mx - label.x, my - label.y)
+  }
+
+  const handleLabelPointerUp = (e: React.PointerEvent) => {
+    if (draggingLabel) {
+      ;(e.target as Element).releasePointerCapture?.(e.pointerId)
+      pushHistory()
+    }
+    setDraggingLabel(null)
+  }
+
   // Remove vertices that are too close together (within threshold mm)
   const handleSimplifyVertices = () => {
     if (!selectedToolId) return
@@ -193,6 +237,23 @@ export default function SvgEditor() {
     >
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a', alignItems: 'center' }}>
+        <button
+          onClick={undo}
+          disabled={historyIndex <= 0}
+          style={{ ...toolBtn(false), opacity: historyIndex <= 0 ? 0.3 : 1 }}
+          title="Undo"
+        >
+          ↩ Undo
+        </button>
+        <button
+          onClick={redo}
+          disabled={historyIndex >= history.length - 1}
+          style={{ ...toolBtn(false), opacity: historyIndex >= history.length - 1 ? 0.3 : 1 }}
+          title="Redo"
+        >
+          ↪ Redo
+        </button>
+        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
         <button onClick={() => setSnapEnabled(!snapEnabled)} style={toolBtn(snapEnabled)}>
           {snapEnabled ? '🧲 Snap ON' : '🧲 Snap OFF'}
         </button>
@@ -211,6 +272,14 @@ export default function SvgEditor() {
           title="Remove vertices that are closer than 1.5mm together"
         >
           ✂ Simplify
+        </button>
+        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
+        <button
+          onClick={handleAddLabel}
+          style={toolBtn(false)}
+          title="Add a text label to the bin surface"
+        >
+          🏷 Add Label
         </button>
         <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))} style={toolBtn(false)}>−</button>
         <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
@@ -364,6 +433,45 @@ export default function SvgEditor() {
               </g>
             )
           })}
+
+          {/* Text labels — draggable, on the bin surface */}
+          {design.labels.map((label) => (
+            <g
+              key={label.id}
+              transform={label.rotation_deg !== 0 ? `rotate(${label.rotation_deg} ${pad + label.x} ${pad + label.y})` : undefined}
+            >
+              {/* Bounding rect for drag target (invisible) */}
+              <rect
+                x={pad + label.x - label.text.length * label.font_size_mm * 0.3}
+                y={pad + label.y - label.font_size_mm}
+                width={label.text.length * label.font_size_mm * 0.6}
+                height={label.font_size_mm * 1.4}
+                fill="transparent"
+                stroke={label.cutout ? '#fbbf24' : '#34d399'}
+                strokeWidth={0.3}
+                strokeDasharray="2,1"
+                style={{ cursor: 'move', pointerEvents: 'all' }}
+                onPointerDown={(e) => handleLabelPointerDown(e, label.id)}
+                onPointerMove={handleLabelPointerMove}
+                onPointerUp={handleLabelPointerUp}
+                onDoubleClick={() => deleteLabel(label.id)}
+              >
+                <title>
+                  {label.text} — {label.cutout ? 'Cutout' : 'Raised'} · Double-click to delete
+                </title>
+              </rect>
+              <text
+                x={pad + label.x}
+                y={pad + label.y}
+                fontSize={label.font_size_mm}
+                fill={label.cutout ? '#fbbf24' : '#34d399'}
+                textAnchor="middle"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {label.text}
+              </text>
+            </g>
+          ))}
         </svg>
       </div>
     </div>

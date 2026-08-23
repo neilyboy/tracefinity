@@ -40,6 +40,23 @@ class ToolOutline(BaseModel):
     finger_holes: list[FingerHole] = Field(default_factory=list)
 
 
+class TextLabel(BaseModel):
+    """A movable text label placed on the bin surface.
+
+    Labels can be cutout (engraved into the surface) or raised (embossed above).
+    They sit on the top surface of the bin, accounting for the stacking lip.
+    Multiple labels can be placed — e.g. one per tool ("screwdriver", "extension").
+    """
+    id: str
+    text: str = "Label"
+    x: float = 0.0  # position in bin-local mm (relative to bin top-left)
+    y: float = 0.0
+    font_size_mm: float = 6.0
+    rotation_deg: float = 0.0
+    depth_mm: float = 0.6  # emboss depth (positive = raised, negative = cutout)
+    cutout: bool = True  # True = engraved into surface, False = raised above surface
+
+
 class BinParams(BaseModel):
     """Gridfinity bin configuration."""
 
@@ -102,6 +119,7 @@ class Design(BaseModel):
     # Detected paper corners in original image (px), for re-calibration display
     paper_corners_px: list[Point] = Field(default_factory=list)
     outlines: list[ToolOutline] = Field(default_factory=list)
+    labels: list[TextLabel] = Field(default_factory=list)
     params: BinParams = Field(default_factory=BinParams)
     image_filename: str | None = None
 

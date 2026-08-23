@@ -16,6 +16,17 @@ export interface FingerHole {
   depth_mm: number | null
 }
 
+export interface TextLabel {
+  id: string
+  text: string
+  x: number
+  y: number
+  font_size_mm: number
+  rotation_deg: number
+  depth_mm: number
+  cutout: boolean  // True = engraved into surface, False = raised above
+}
+
 export interface ToolOutline {
   id: string
   outer: Point[]
@@ -66,6 +77,7 @@ export interface Design {
   rectified_h_px: number
   paper_corners_px: Point[]
   outlines: ToolOutline[]
+  labels: TextLabel[]
   params: BinParams
   image_filename: string | null
 }

@@ -4,7 +4,7 @@ import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary
 import type { ToolLibrarySummary } from '../api/client'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool, duplicateTool } = useEditor()
+  const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const [rotating, setRotating] = useState(false)
   const [saveName, setSaveName] = useState('')
@@ -72,6 +72,66 @@ export default function ToolPropsPanel() {
           onDelete={handleDeleteFromLibrary}
           onRefresh={refreshLibrary}
         />
+
+        {/* Labels section */}
+        {design.labels.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Text Labels
+            </div>
+            {design.labels.map((label) => (
+              <div key={label.id} style={{
+                padding: '6px 8px', marginBottom: 4, borderRadius: 4,
+                background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ color: label.cutout ? '#fbbf24' : '#34d399' }}>
+                    {label.cutout ? '⬇' : '⬆'} {label.text}
+                  </span>
+                  <button
+                    onClick={() => deleteLabel(label.id)}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <input
+                  type="text" value={label.text}
+                  onChange={(e) => updateLabel(label.id, { text: e.target.value })}
+                  style={{ ...inputStyle, width: '100%', marginBottom: 4, fontSize: 12 }}
+                />
+                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Size:</label>
+                  <input
+                    type="number" value={label.font_size_mm} step={0.5} min={2} max={30}
+                    onChange={(e) => updateLabel(label.id, { font_size_mm: parseFloat(e.target.value) || 6 })}
+                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
+                  />
+                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Rot:</label>
+                  <input
+                    type="number" value={label.rotation_deg} step={5}
+                    onChange={(e) => updateLabel(label.id, { rotation_deg: parseFloat(e.target.value) || 0 })}
+                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Depth:</label>
+                  <input
+                    type="number" value={label.depth_mm} step={0.1} min={0.2} max={3}
+                    onChange={(e) => updateLabel(label.id, { depth_mm: parseFloat(e.target.value) || 0.6 })}
+                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
+                  />
+                  <button
+                    onClick={() => updateLabel(label.id, { cutout: !label.cutout })}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1 }}
+                  >
+                    {label.cutout ? '⬇ Cutout' : '⬆ Raised'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -148,7 +208,7 @@ export default function ToolPropsPanel() {
       <Field label="Rotation (degrees)">
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           <input
-            type="number" value={tool.rotation_deg ?? 0} step={1} min={0} max={359}
+            type="number" value={tool.rotation_deg ?? 0} step={1}
             onChange={(e) => updateTool(tool.id, { rotation_deg: parseFloat(e.target.value) || 0 })}
             style={{ ...inputStyle, width: 70 }}
           />
@@ -156,6 +216,17 @@ export default function ToolPropsPanel() {
           <button onClick={() => handleRotate90(1)} style={smallBtn} title="Rotate +90°">90↻</button>
           <button onClick={handleAutoRotate} disabled={rotating} style={smallBtn} title="Auto-align to axes">
             {rotating ? '...' : 'Auto'}
+          </button>
+        </div>
+      </Field>
+
+      <Field label="Mirror">
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={() => mirrorTool(tool.id, 'x')} style={smallBtn} title="Mirror left-right (flip X)">
+            ↔ Mirror X
+          </button>
+          <button onClick={() => mirrorTool(tool.id, 'y')} style={smallBtn} title="Mirror top-bottom (flip Y)">
+            ↕ Mirror Y
           </button>
         </div>
       </Field>
