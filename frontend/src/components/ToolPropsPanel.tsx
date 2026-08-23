@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary } from '../api/client'
 import type { ToolLibrarySummary } from '../api/client'
@@ -398,49 +398,110 @@ function LibraryBrowser({ tools, loading, onAdd, onDelete, onRefresh }: {
   onDelete: (id: string) => void
   onRefresh: () => void
 }) {
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(['General']))
+
+  // Group tools by category
+  const categories = useMemo(() => {
+    const map = new Map<string, ToolLibrarySummary[]>()
+    for (const t of tools) {
+      const cat = t.category || 'General'
+      if (!map.has(cat)) map.set(cat, [])
+      map.get(cat)!.push(t)
+    }
+    // Sort categories alphabetically, with General first
+    const sorted = Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === 'General') return -1
+      if (b[0] === 'General') return 1
+      return a[0].localeCompare(b[0])
+    })
+    return sorted
+  }, [tools])
+
+  const toggleCat = (cat: string) => {
+    setExpandedCats((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
+  }
+
+  const expandAll = () => setExpandedCats(new Set(categories.map(([c]) => c)))
+  const collapseAll = () => setExpandedCats(new Set())
+
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <span style={{ fontSize: 11, color: '#71717a' }}>{tools.length} tool{tools.length !== 1 ? 's' : ''}</span>
-        <button onClick={onRefresh} style={{ ...smallBtn, fontSize: 10, padding: '2px 6px' }} title="Refresh">↻</button>
+        <span style={{ fontSize: 11, color: '#71717a' }}>
+          {tools.length} tool{tools.length !== 1 ? 's' : ''} · {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'}
+        </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={expandAll} style={{ ...smallBtn, fontSize: 9, padding: '2px 5px' }} title="Expand all">⊕</button>
+          <button onClick={collapseAll} style={{ ...smallBtn, fontSize: 9, padding: '2px 5px' }} title="Collapse all">⊖</button>
+          <button onClick={onRefresh} style={{ ...smallBtn, fontSize: 10, padding: '2px 6px' }} title="Refresh">↻</button>
+        </div>
       </div>
-      <div style={{ maxHeight: 250, overflow: 'auto' }}>
+      <div style={{ maxHeight: 300, overflow: 'auto' }}>
         {loading && <div style={{ fontSize: 12, color: '#71717a', padding: 4 }}>Loading...</div>}
         {!loading && tools.length === 0 && (
           <div style={{ fontSize: 12, color: '#52525b', padding: 8, textAlign: 'center' }}>
             No saved tools yet. Select a tool and click 💾 Save to add it to your library.
           </div>
         )}
-        {tools.map((t) => (
-          <div key={t.id} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '4px 6px', marginBottom: 2, borderRadius: 4,
-            background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
-          }}>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <div style={{ color: '#e4e4e7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {t.name}
+        {categories.map(([cat, catTools]) => {
+          const isExpanded = expandedCats.has(cat)
+          return (
+            <div key={cat} style={{ marginBottom: 2 }}>
+              {/* Category header (folder) */}
+              <div
+                onClick={() => toggleCat(cat)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
+                  borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  background: '#1e1b2e', border: '1px solid #3f3f46', color: '#a78bfa',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ fontSize: 10, width: 12 }}>{isExpanded ? '▼' : '▶'}</span>
+                <span>📁 {cat}</span>
+                <span style={{ fontSize: 10, color: '#71717a', fontWeight: 400 }}>
+                  ({catTools.length})
+                </span>
               </div>
-              <div style={{ color: '#71717a', fontSize: 10 }}>
-                {t.category} · {t.bbox_w_mm.toFixed(0)}×{t.bbox_h_mm.toFixed(0)}mm
-              </div>
+              {/* Tools in category */}
+              {isExpanded && catTools.map((t) => (
+                <div key={t.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '4px 6px 4px 24px', marginBottom: 1, borderRadius: 4,
+                  background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
+                }}>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div style={{ color: '#e4e4e7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      🔧 {t.name}
+                    </div>
+                    <div style={{ color: '#71717a', fontSize: 10 }}>
+                      {t.bbox_w_mm.toFixed(0)}×{t.bbox_h_mm.toFixed(0)}mm
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onAdd(t.id)}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 6px' }}
+                    title="Add to workspace"
+                  >
+                    + Add
+                  </button>
+                  <button
+                    onClick={() => onDelete(t.id)}
+                    style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
+                    title="Delete from library"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-            <button
-              onClick={() => onAdd(t.id)}
-              style={{ ...smallBtn, fontSize: 10, padding: '2px 6px' }}
-              title="Add to workspace"
-            >
-              + Add
-            </button>
-            <button
-              onClick={() => onDelete(t.id)}
-              style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
-              title="Delete from library"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

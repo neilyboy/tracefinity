@@ -28,6 +28,7 @@ from build123d import (
     loft,
     Text,
     Mode,
+    Align,
 )
 
 from . import constants as C
@@ -350,7 +351,7 @@ def _add_label_tab(
         try:
             # Create text sketch and extrude it
             with BuildSketch(Plane.XY) as text_sketch:
-                Text(label_text, font_size=font_size, font_path=None, align=(0, 0))
+                Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
             text_face = text_sketch.sketch
             text_solid = extrude(text_face, amount=label_depth)
             # Position text on the front face of the label tab

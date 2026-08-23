@@ -139,6 +139,11 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...o,
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
                 holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                finger_holes: (o.finger_holes ?? []).map((fh) => ({
+                  ...fh,
+                  x: fh.x + dx,
+                  y: fh.y + dy,
+                })),
               }
             : o,
         ),

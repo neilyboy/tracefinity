@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from build123d import Axis, Box, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, extrude
+from build123d import Axis, Box, BuildSketch, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, Align, extrude
 
 from ..schemas import Design
 from ..utils.geometry import offset_polygon, to_np
@@ -60,7 +60,7 @@ def _apply_labels(bin_solid, labels, params) -> Part:
         try:
             # Create text sketch on XY plane
             with BuildSketch(Plane.XY) as text_sketch:
-                Text(label.text, font_size=label.font_size_mm, align=(0, 0))
+                Text(label.text, font_size=label.font_size_mm, align=Align.CENTER)
             text_face = text_sketch.sketch
 
             # Extrude to create the text solid
@@ -186,7 +186,7 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
     for label in labels:
         try:
             with BuildSketch(Plane.XY) as text_sketch:
-                Text(label.text, font_size=label.font_size_mm, align=(0, 0))
+                Text(label.text, font_size=label.font_size_mm, align=Align.CENTER)
             text_face = text_sketch.sketch
 
             # Convert label coords to build123d coords
@@ -208,7 +208,9 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 text_solid = text_solid.moved(Location((x_local, y_local, plate_thickness)))
                 plate = plate + text_solid
 
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Flat label '{label.text}' failed: {e}")
             continue
 
     return plate
