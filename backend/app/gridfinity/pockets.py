@@ -188,25 +188,22 @@ def build_finger_hole(
     surface downward, making it easy to lift the tool out. The user places
     these wherever they want on each tool.
 
-    The sphere is positioned so that its top is at the bin's top surface
-    (total_h). This ensures the finger hole always breaks through the top,
-    regardless of pocket depth or lip height.
+    The sphere CENTER is placed at the bin's top surface (total_h).
+    This means only the bottom half of the sphere cuts into the bin,
+    creating a bowl-shaped scoop. The top half is above the bin and
+    does nothing (it's outside the solid, so subtraction has no effect).
     """
-    pocket_depth = hole.depth_mm if hole.depth_mm is not None else params.pocket_depth_mm
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
     # Convert to bin-local coords
     x_local = hole.x - bin_w_mm / 2
     y_local = hole.y - bin_l_mm / 2
 
-    # Position the sphere so its TOP is at the bin's top surface (total_h).
-    # This means the sphere center is at total_h - radius.
-    # The sphere cuts downward from the top, creating a scoop that breaks
-    # through the top surface for easy finger access.
+    # Place sphere center at the top surface.
+    # Only the bottom half cuts into the bin material, creating a bowl.
     radius = hole.radius_mm
     sphere = Sphere(radius)
-    sphere_center_z = total_h - radius
-    sphere = sphere.moved(Location((x_local, y_local, sphere_center_z)))
+    sphere = sphere.moved(Location((x_local, y_local, total_h)))
 
     return sphere
 
@@ -254,11 +251,10 @@ def build_finger_scoop(
     scoop_x_local = scoop_x - bin_w_mm / 2
     scoop_y_local = scoop_y - bin_l_mm / 2
 
-    # Build a sphere that cuts from the TOP surface downward.
-    # Sphere top at total_h, center at total_h - radius.
+    # Build a sphere with center at the top surface.
+    # Only the bottom half cuts into the bin, creating a bowl-shaped scoop.
     sphere = Sphere(scoop_radius)
-    sphere_center_z = total_h - scoop_radius
-    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, sphere_center_z)))
+    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, total_h)))
 
     return sphere
 
