@@ -41,7 +41,7 @@ from build123d import (
 )
 
 from ..schemas import BinParams, FingerHole, ToolOutline
-from ..utils.geometry import offset_polygon, to_np
+from ..utils.geometry import catmull_rom_smooth, offset_polygon, to_np
 from . import constants as C
 
 
@@ -98,18 +98,19 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     offset_outer = offset_polygon(outer, margin)
 
     # Simplify the polygon to prevent OCP boolean operation failures.
-    # Complex polygons with many close-together points (from tool detection
-    # smoothing) can cause the boolean subtraction to fail silently, producing
-    # a 0-volume result and a 0-byte STL. Douglas-Peucker simplification with
-    # a small epsilon (0.3mm) preserves the shape while reducing point count.
     offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
+
+    # Apply Catmull-Rom smoothing to match the SVG editor's smooth curves.
+    # The SVG editor renders tools with smooth splines, but the raw polygon
+    # has sharp corners. This samples the spline to produce a dense, smooth polygon.
+    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=10, tension=0.3)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # SVG editor has Y going DOWN; build123d has Y going UP.
     # Flip Y on each point: y_new = grid_l - y_old.
     # Y-flip reverses winding, so reverse the list to restore CCW for build123d.
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer][::-1]
+    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed][::-1]
     try:
         outer_face = Polygon(pts)
     except Exception:

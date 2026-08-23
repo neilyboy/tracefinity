@@ -6,7 +6,7 @@ from build123d import Axis, Box, BuildSketch, Location, Part, Plane, Polygon, Sk
 
 from ..fonts import get_font_path
 from ..schemas import Design
-from ..utils.geometry import offset_polygon, to_np
+from ..utils.geometry import catmull_rom_smooth, offset_polygon, to_np
 from .bin_builder import build_bin
 from .pockets import subtract_pockets, _rotate_points, _simplify_polygon
 from . import constants as C
@@ -147,17 +147,21 @@ def generate_flat_outlines(design: Design) -> Solid:
         offset_outer = offset_polygon(outer, margin)
         offset_outer = _simplify_polygon(offset_outer, epsilon=0.3)
 
-        # Build the cutout solid
-        # Flip Y (SVG Y-down → build123d Y-up), then reverse points to
-        # restore CCW winding (Y-flip reverses winding, build123d needs CCW).
+        # Apply Catmull-Rom smoothing to match the SVG editor's smooth curves
+        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=10, tension=0.3)
+
+        # Build the cutout solid.
+        # Mirror both X and Y (180° rotation) so the flat export matches the SVG
+        # editor when viewed from the bottom in a slicer (the natural viewing
+        # direction for a flat plate). 180° rotation preserves CCW winding.
+        grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer][::-1]
+        pts = [(grid_w_mm - float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
             cutter = extrude(sketch, amount=plate_thickness * 3)
             # Position in bin-local coords using grid dimensions (42mm units)
-            grid_w_mm = p.grid_w * C.GRID_UNIT_MM
             cutter = cutter.moved(Location((-grid_w_mm / 2, -grid_l_mm / 2, -plate_thickness)))
             cutters.append(cutter)
         except Exception:
@@ -208,8 +212,10 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords (SVG: Y-down) to build123d coords (Y-up)
-            x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
+            # Convert label coords to build123d coords.
+            # Mirror both X and Y (180° rotation) to match the tool cutout
+            # orientation — flat export is viewed from the bottom in slicers.
+            x_local = params.grid_w * C.GRID_UNIT_MM / 2 - label.x
             y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
 
             if label.cutout:

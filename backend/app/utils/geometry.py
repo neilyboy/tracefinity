@@ -81,6 +81,46 @@ def chaikin_smooth(pts: np.ndarray, iterations: int = 1) -> np.ndarray:
     return pts
 
 
+def catmull_rom_smooth(pts: np.ndarray, samples_per_segment: int = 10, tension: float = 0.3) -> np.ndarray:
+    """Sample a Catmull-Rom spline through the points to create a smooth closed polygon.
+
+    This matches the frontend's smoothClosedPath() which uses Catmull-Rom converted
+    to cubic Bezier with the given tension. We sample the Bezier curve at regular
+    intervals to produce a dense polygon that approximates the smooth curve.
+
+    Args:
+        pts: (N, 2) array of polygon vertices
+        samples_per_segment: number of points to sample per spline segment
+        tension: controls how much curves bulge (0.3 = balanced, matching frontend)
+    """
+    n = len(pts)
+    if n < 3:
+        return pts
+    pts = np.asarray(pts, dtype=float)
+
+    result = []
+    for i in range(n):
+        p0 = pts[(i - 1) % n]
+        p1 = pts[i]
+        p2 = pts[(i + 1) % n]
+        p3 = pts[(i + 2) % n]
+
+        # Catmull-Rom to Bezier control points (same as frontend)
+        cp1 = p1 + (p2 - p0) * tension / 3.0
+        cp2 = p2 - (p3 - p1) * tension / 3.0
+
+        # Sample the cubic Bezier curve
+        for s in range(samples_per_segment):
+            t = s / samples_per_segment
+            mt = 1 - t
+            # B(t) = (1-t)^3 * P1 + 3*(1-t)^2*t * cp1 + 3*(1-t)*t^2 * cp2 + t^3 * P2
+            x = mt**3 * p1[0] + 3 * mt**2 * t * cp1[0] + 3 * mt * t**2 * cp2[0] + t**3 * p2[0]
+            y = mt**3 * p1[1] + 3 * mt**2 * t * cp1[1] + 3 * mt * t**2 * cp2[1] + t**3 * p2[1]
+            result.append([x, y])
+
+    return np.array(result, dtype=float)
+
+
 def offset_polygon(pts: np.ndarray, distance: float) -> np.ndarray:
     """Offset a closed polygon outward (positive) or inward (negative).
 
