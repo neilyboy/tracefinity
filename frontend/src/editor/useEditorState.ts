@@ -25,6 +25,7 @@ interface EditorState {
   updateTool: (id: string, updates: Partial<ToolOutline>) => void
   deleteTool: (id: string) => void
   addTool: (tool: ToolOutline) => void
+  duplicateTool: (id: string) => void
   moveTool: (id: string, dx: number, dy: number) => void
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
@@ -95,6 +96,30 @@ export const useEditor = create<EditorState>((set, get) => ({
   addTool: (tool) => {
     get().pushHistory()
     set((s) => ({ design: { ...s.design, outlines: [...s.design.outlines, tool] } }))
+  },
+
+  duplicateTool: (id) => {
+    const tool = get().design.outlines.find((o) => o.id === id)
+    if (!tool) return
+    get().pushHistory()
+    const newId = `tool_${Date.now()}`
+    // Offset the duplicate by 10mm so it doesn't overlap
+    const offset = 10
+    const dup: ToolOutline = {
+      ...tool,
+      id: newId,
+      outer: tool.outer.map((p) => ({ x: p.x + offset, y: p.y + offset })),
+      holes: tool.holes.map((h) => h.map((p) => ({ x: p.x + offset, y: p.y + offset }))),
+      finger_holes: (tool.finger_holes ?? []).map((fh) => ({
+        ...fh,
+        x: fh.x + offset,
+        y: fh.y + offset,
+      })),
+    }
+    set((s) => ({
+      design: { ...s.design, outlines: [...s.design.outlines, dup] },
+      selectedToolId: newId,
+    }))
   },
 
   moveTool: (id, dx, dy) => {

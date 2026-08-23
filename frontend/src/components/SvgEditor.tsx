@@ -157,6 +157,34 @@ export default function SvgEditor() {
     }
   }
 
+  // Remove vertices that are too close together (within threshold mm)
+  const handleSimplifyVertices = () => {
+    if (!selectedToolId) return
+    const tool = design.outlines.find((o) => o.id === selectedToolId)
+    if (!tool || tool.outer.length <= 3) return
+    const threshold = 1.5 // mm — remove vertices closer than this to the previous one
+    const simplified: Point[] = [tool.outer[0]]
+    for (let i = 1; i < tool.outer.length; i++) {
+      const prev = simplified[simplified.length - 1]
+      const curr = tool.outer[i]
+      const dist = Math.sqrt((curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2)
+      if (dist >= threshold) {
+        simplified.push(curr)
+      }
+    }
+    // Check last vs first
+    const last = simplified[simplified.length - 1]
+    const first = simplified[0]
+    const distLF = Math.sqrt((last.x - first.x) ** 2 + (last.y - first.y) ** 2)
+    if (distLF < threshold && simplified.length > 3) {
+      simplified.pop()
+    }
+    if (simplified.length >= 3 && simplified.length < tool.outer.length) {
+      pushHistory()
+      updateTool(selectedToolId, { outer: simplified })
+    }
+  }
+
   return (
     <div
       style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -175,6 +203,14 @@ export default function SvgEditor() {
           title="Click to place a finger hole on the selected tool"
         >
           {placingFingerHole ? '👆 Click on tool...' : '◯ Finger Hole'}
+        </button>
+        <button
+          onClick={handleSimplifyVertices}
+          disabled={!selectedToolId}
+          style={toolBtn(false)}
+          title="Remove vertices that are closer than 1.5mm together"
+        >
+          ✂ Simplify
         </button>
         <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))} style={toolBtn(false)}>−</button>
         <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
@@ -240,12 +276,19 @@ export default function SvgEditor() {
             if (!tool.visible) return null
             const isSelected = tool.id === selectedToolId
             const margin = tool.margin_mm ?? p.tool_margin_mm
+            // Compute centroid for rotation
+            const cx = tool.outer.reduce((a, b) => a + b.x, 0) / tool.outer.length
+            const cy = tool.outer.reduce((a, b) => a + b.y, 0) / tool.outer.length
+            const rot = tool.rotation_deg ?? 0
+            // SVG transform: rotate around centroid (in SVG coords, y is down)
+            const transform = rot !== 0
+              ? `rotate(${rot} ${cx + pad} ${cy + pad})`
+              : undefined
+
             const outerD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad, y: pt.y + pad })))
-            // Offset (margin) outline - simplified visual
-            const offsetD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad + margin * Math.sign(pt.x - tool.outer[0].x || 1), y: pt.y + pad + margin * Math.sign(pt.y - tool.outer[0].y || 1) })))
 
             return (
-              <g key={tool.id}>
+              <g key={tool.id} transform={transform}>
                 {/* Margin preview (dashed) */}
                 <path d={outerD} fill={isSelected ? 'rgba(124,58,237,0.15)' : 'rgba(63,63,70,0.1)'} stroke="none" />
                 <path d={outerD} fill="none" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.4} />
@@ -259,25 +302,37 @@ export default function SvgEditor() {
                 {/* Label */}
                 {tool.label && (
                   <text
-                    x={pad + tool.outer.reduce((a, b) => a + b.x, 0) / tool.outer.length}
-                    y={pad + tool.outer.reduce((a, b) => a + b.y, 0) / tool.outer.length}
+                    x={pad + cx}
+                    y={pad + cy}
                     fontSize={3} fill={isSelected ? '#a78bfa' : '#52525b'} textAnchor="middle"
                   >
                     {tool.label}
                   </text>
                 )}
 
-                {/* Vertices (only for selected tool) */}
-                {isSelected && tool.outer.map((pt, vi) => (
-                  <circle
-                    key={vi}
-                    cx={pad + pt.x} cy={pad + pt.y} r={1.5}
-                    fill="#a78bfa" stroke="#0f1115" strokeWidth={0.5}
-                    style={{ cursor: 'grab' }}
-                    onPointerDown={(e) => handleVertexPointerDown(e, tool.id, vi)}
-                    onDoubleClick={(e) => { e.stopPropagation(); deleteVertex(tool.id, vi) }}
-                  />
-                ))}
+                {/* Vertices (only for selected tool) — larger when zoomed in */}
+                {isSelected && tool.outer.map((pt, vi) => {
+                  // Compute distance to next vertex to detect clusters
+                  const next = tool.outer[(vi + 1) % tool.outer.length]
+                  const dist = Math.sqrt((pt.x - next.x) ** 2 + (pt.y - next.y) ** 2)
+                  const isClustered = dist < 2 // less than 2mm apart
+                  return (
+                    <circle
+                      key={vi}
+                      cx={pad + pt.x} cy={pad + pt.y} r={isClustered ? 2 : 1.5}
+                      fill={isClustered ? '#fca5a5' : '#a78bfa'}
+                      stroke="#0f1115" strokeWidth={0.5}
+                      style={{ cursor: 'grab' }}
+                      onPointerDown={(e) => handleVertexPointerDown(e, tool.id, vi)}
+                      onDoubleClick={(e) => { e.stopPropagation(); deleteVertex(tool.id, vi) }}
+                    >
+                      <title>
+                        Vertex {vi}: ({pt.x.toFixed(1)}, {pt.y.toFixed(1)})mm
+                        {isClustered ? ' — CLUSTERED (double-click to delete)' : ''}
+                      </title>
+                    </circle>
+                  )
+                })}
 
                 {/* Finger holes (draggable circles) */}
                 {(tool.finger_holes ?? []).map((hole, hi) => (

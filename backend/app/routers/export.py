@@ -51,25 +51,34 @@ async def export_design(payload: dict):
         )
 
     # 3D formats require build123d
-    if fmt in ("stl", "3mf", "step"):
+    if fmt in ("stl", "3mf", "step", "stl_flat"):
         try:
-            from ..gridfinity.generator import generate_gridfinity
+            from ..gridfinity.generator import generate_gridfinity, generate_flat_outlines
             from ..exporters.mesh import export_stl, export_3mf
             from ..exporters.step import export_step
 
-            solid = generate_gridfinity(design)
-
-            if fmt == "stl":
+            if fmt == "stl_flat":
+                # Flat outline: just the tool cutouts as a thin flat plate
+                # for test-fitting and two-tone printing
+                solid = generate_flat_outlines(design)
                 content = export_stl(solid)
                 media = "model/stl"
-            elif fmt == "3mf":
-                content = export_3mf(solid)
-                media = "model/3mf"
-            else:  # step
-                content = export_step(solid)
-                media = "application/step"
+                filename = f"{name}_{file_id}_flat.stl"
+            else:
+                solid = generate_gridfinity(design)
 
-            filename = f"{name}_{file_id}.{fmt}"
+                if fmt == "stl":
+                    content = export_stl(solid)
+                    media = "model/stl"
+                elif fmt == "3mf":
+                    content = export_3mf(solid)
+                    media = "model/3mf"
+                else:  # step
+                    content = export_step(solid)
+                    media = "application/step"
+
+                filename = f"{name}_{file_id}.{fmt}"
+
             return Response(
                 content=content,
                 media_type=media,

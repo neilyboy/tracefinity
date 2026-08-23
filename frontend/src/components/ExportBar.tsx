@@ -7,6 +7,7 @@ const FORMATS: { fmt: ExportFormat; label: string; icon: string; desc: string }[
   { fmt: 'svg', label: 'SVG', icon: '📐', desc: '2D vector (laser/foam)' },
   { fmt: 'dxf', label: 'DXF', icon: '📐', desc: '2D CAD (laser/CNC)' },
   { fmt: 'stl', label: 'STL', icon: '🧊', desc: '3D mesh (3D print)' },
+  { fmt: 'stl_flat', label: 'Flat STL', icon: '📋', desc: 'Flat test-fit layer (2mm plate with cutouts)' },
   { fmt: '3mf', label: '3MF', icon: '🧊', desc: '3D mesh (advanced)' },
   { fmt: 'step', label: 'STEP', icon: '🔧', desc: '3D CAD (Fusion/FreeCAD)' },
 ]
@@ -20,7 +21,7 @@ export default function ExportBar() {
 
   const handleExport = async (fmt: ExportFormat) => {
     setExporting(fmt)
-    const is3D = fmt === 'stl' || fmt === '3mf' || fmt === 'step'
+    const is3D = fmt === 'stl' || fmt === '3mf' || fmt === 'step' || fmt === 'stl_flat'
     setExportStatus(is3D ? 'Generating 3D model...' : 'Exporting...')
     try {
       const blob = await exportDesign(design, fmt)

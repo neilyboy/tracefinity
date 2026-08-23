@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 PaperSize = Literal["letter", "a4"]
-ExportFormat = Literal["svg", "dxf", "stl", "3mf", "step"]
+ExportFormat = Literal["svg", "dxf", "stl", "3mf", "step", "stl_flat"]
 OutputMode = Literal["foam", "gridfinity"]
 
 
