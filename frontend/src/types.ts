@@ -26,6 +26,15 @@ export interface TextLabel {
   depth_mm: number
   cutout: boolean  // True = engraved into surface, False = raised above
   target: 'tray' | 'flat'  // which export the label appears on
+  font: string  // font family key (e.g. "Lato-Stenciled") or system font name
+}
+
+export interface FontInfo {
+  key: string
+  name: string
+  category: string  // "Stencil" or "Standard"
+  is_stencil: boolean
+  available: boolean
 }
 
 export interface ToolOutline {

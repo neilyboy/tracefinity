@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useEditor } from '../editor/useEditorState'
-import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary } from '../api/client'
+import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary, listFonts } from '../api/client'
 import type { ToolLibrarySummary } from '../api/client'
+import type { FontInfo, TextLabel } from '../types'
 
 export default function ToolPropsPanel() {
   const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
@@ -80,78 +81,12 @@ export default function ToolPropsPanel() {
               Text Labels
             </div>
             {design.labels.map((label) => (
-              <div key={label.id} style={{
-                padding: '6px 8px', marginBottom: 4, borderRadius: 4,
-                background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ color: label.target === 'flat' ? '#60a5fa' : (label.cutout ? '#fbbf24' : '#34d399') }}>
-                    {label.target === 'flat' ? '📋' : (label.cutout ? '⬇' : '⬆')} {label.text}
-                  </span>
-                  <button
-                    onClick={() => deleteLabel(label.id)}
-                    style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <input
-                  type="text" value={label.text}
-                  onChange={(e) => updateLabel(label.id, { text: e.target.value })}
-                  style={{ ...inputStyle, width: '100%', marginBottom: 4, fontSize: 12 }}
-                />
-                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Size:</label>
-                  <input
-                    type="number" value={label.font_size_mm} step={0.5} min={2} max={30}
-                    onChange={(e) => updateLabel(label.id, { font_size_mm: parseFloat(e.target.value) || 6 })}
-                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
-                  />
-                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Rot:</label>
-                  <input
-                    type="number" value={label.rotation_deg} step={5}
-                    onChange={(e) => updateLabel(label.id, { rotation_deg: parseFloat(e.target.value) || 0 })}
-                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Depth:</label>
-                  <input
-                    type="number" value={label.depth_mm} step={0.1} min={0.2} max={3}
-                    onChange={(e) => updateLabel(label.id, { depth_mm: parseFloat(e.target.value) || 0.6 })}
-                    style={{ ...inputStyle, width: 50, fontSize: 11 }}
-                  />
-                  <button
-                    onClick={() => updateLabel(label.id, { cutout: !label.cutout })}
-                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1 }}
-                  >
-                    {label.cutout ? '⬇ Cutout' : '⬆ Raised'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
-                  <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Target:</label>
-                  <button
-                    onClick={() => updateLabel(label.id, { target: 'tray' })}
-                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
-                      borderColor: label.target === 'tray' ? '#7c3aed' : '#3f3f46',
-                      background: label.target === 'tray' ? '#3b0764' : '#27272a',
-                      color: label.target === 'tray' ? '#a78bfa' : '#a1a1aa',
-                    }}
-                  >
-                    Tray
-                  </button>
-                  <button
-                    onClick={() => updateLabel(label.id, { target: 'flat' })}
-                    style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
-                      borderColor: label.target === 'flat' ? '#2563eb' : '#3f3f46',
-                      background: label.target === 'flat' ? '#1e3a5f' : '#27272a',
-                      color: label.target === 'flat' ? '#60a5fa' : '#a1a1aa',
-                    }}
-                  >
-                    Flat
-                  </button>
-                </div>
-              </div>
+              <LabelEditor
+                key={label.id}
+                label={label}
+                onUpdate={(updates) => updateLabel(label.id, updates)}
+                onDelete={() => deleteLabel(label.id)}
+              />
             ))}
           </div>
         )}
@@ -530,4 +465,219 @@ const smallBtn: React.CSSProperties = {
   padding: '4px 8px', borderRadius: 4, border: '1px solid #3f3f46',
   background: '#27272a', color: '#a1a1aa', cursor: 'pointer', fontSize: 11,
   whiteSpace: 'nowrap',
+}
+
+
+// ─── Font Selector ──────────────────────────────────────────────────────
+// Loads bundled fonts from the backend and lets the user pick one.
+// Stencil fonts (with bridges connecting counters) are shown first and
+// tagged with a ⚔ icon; standard fonts are tagged with ✎.
+let _fontCache: FontInfo[] | null = null
+
+async function loadFonts(): Promise<FontInfo[]> {
+  if (_fontCache) return _fontCache
+  try {
+    _fontCache = await listFonts()
+    return _fontCache
+  } catch {
+    return []
+  }
+}
+
+function FontSelector({ value, onChange }: { value: string; onChange: (font: string) => void }) {
+  const [fonts, setFonts] = useState<FontInfo[]>([])
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    loadFonts().then(setFonts)
+  }, [])
+
+  const stencilFonts = fonts.filter((f) => f.is_stencil)
+  const standardFonts = fonts.filter((f) => !f.is_stencil)
+  const selected = fonts.find((f) => f.key === value)
+  const selectedName = selected ? selected.name : value
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          ...inputStyle, cursor: 'pointer', display: 'flex',
+          justifyContent: 'space-between', alignItems: 'center',
+        }}
+      >
+        <span style={{ fontSize: 11 }}>
+          {selected?.is_stencil ? '⚔ ' : (selected ? '✎ ' : '')}
+          {selectedName}
+        </span>
+        <span style={{ fontSize: 9, color: '#71717a' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+          />
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+            maxHeight: 250, overflow: 'auto', background: '#18181b',
+            border: '1px solid #3f3f46', borderRadius: 4, marginTop: 2,
+          }}>
+            {stencilFonts.length > 0 && (
+              <>
+                <div style={{ fontSize: 9, color: '#71717a', padding: '4px 8px 2px', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
+                  ⚔ Stencil (cutout-ready)
+                </div>
+                {stencilFonts.map((f) => (
+                  <div
+                    key={f.key}
+                    onClick={() => { onChange(f.key); setOpen(false) }}
+                    style={{
+                      padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+                      background: f.key === value ? '#3b0764' : 'transparent',
+                      color: f.key === value ? '#a78bfa' : '#e4e4e7',
+                    }}
+                    onMouseEnter={(e) => { if (f.key !== value) e.currentTarget.style.background = '#27272a' }}
+                    onMouseLeave={(e) => { if (f.key !== value) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    ⚔ {f.name}
+                  </div>
+                ))}
+              </>
+            )}
+            {standardFonts.length > 0 && (
+              <>
+                <div style={{ fontSize: 9, color: '#71717a', padding: '6px 8px 2px', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, borderTop: '1px solid #3f3f46' }}>
+                  ✎ Standard (raised labels)
+                </div>
+                {standardFonts.map((f) => (
+                  <div
+                    key={f.key}
+                    onClick={() => { onChange(f.key); setOpen(false) }}
+                    style={{
+                      padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+                      background: f.key === value ? '#3b0764' : 'transparent',
+                      color: f.key === value ? '#a78bfa' : '#e4e4e7',
+                    }}
+                    onMouseEnter={(e) => { if (f.key !== value) e.currentTarget.style.background = '#27272a' }}
+                    onMouseLeave={(e) => { if (f.key !== value) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    ✎ {f.name}
+                  </div>
+                ))}
+              </>
+            )}
+            {/* System font option */}
+            <div style={{ fontSize: 9, color: '#71717a', padding: '6px 8px 2px', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, borderTop: '1px solid #3f3f46' }}>
+              System
+            </div>
+            {['Arial', 'Helvetica', 'Times New Roman', 'Courier New'].map((name) => (
+              <div
+                key={name}
+                onClick={() => { onChange(name); setOpen(false) }}
+                style={{
+                  padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+                  background: name === value ? '#3b0764' : 'transparent',
+                  color: name === value ? '#a78bfa' : '#e4e4e7',
+                }}
+                onMouseEnter={(e) => { if (name !== value) e.currentTarget.style.background = '#27272a' }}
+                onMouseLeave={(e) => { if (name !== value) e.currentTarget.style.background = 'transparent' }}
+              >
+                ✎ {name}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+
+// ─── Label Editor ───────────────────────────────────────────────────────
+function LabelEditor({ label, onUpdate, onDelete }: {
+  label: TextLabel
+  onUpdate: (updates: Partial<TextLabel>) => void
+  onDelete: () => void
+}) {
+  return (
+    <div style={{
+      padding: '6px 8px', marginBottom: 4, borderRadius: 4,
+      background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ color: label.target === 'flat' ? '#60a5fa' : (label.cutout ? '#fbbf24' : '#34d399') }}>
+          {label.target === 'flat' ? '📋' : (label.cutout ? '⬇' : '⬆')} {label.text || '(empty)'}
+        </span>
+        <button
+          onClick={onDelete}
+          style={{ ...smallBtn, fontSize: 10, padding: '2px 6px', color: '#fca5a5' }}
+        >
+          ✕
+        </button>
+      </div>
+      <input
+        type="text" value={label.text}
+        placeholder="Label text"
+        onChange={(e) => onUpdate({ text: e.target.value })}
+        style={{ ...inputStyle, width: '100%', marginBottom: 4, fontSize: 12 }}
+      />
+      <div style={{ fontSize: 10, color: '#71717a', marginBottom: 2, marginTop: 4 }}>Font</div>
+      <FontSelector
+        value={label.font}
+        onChange={(font) => onUpdate({ font })}
+      />
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4, marginTop: 4 }}>
+        <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Size:</label>
+        <input
+          type="number" value={label.font_size_mm} step={0.5} min={2} max={30}
+          onChange={(e) => onUpdate({ font_size_mm: parseFloat(e.target.value) || 6 })}
+          style={{ ...inputStyle, width: 50, fontSize: 11 }}
+        />
+        <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Rot:</label>
+        <input
+          type="number" value={label.rotation_deg} step={5}
+          onChange={(e) => onUpdate({ rotation_deg: parseFloat(e.target.value) || 0 })}
+          style={{ ...inputStyle, width: 50, fontSize: 11 }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Depth:</label>
+        <input
+          type="number" value={label.depth_mm} step={0.1} min={0.2} max={3}
+          onChange={(e) => onUpdate({ depth_mm: parseFloat(e.target.value) || 0.6 })}
+          style={{ ...inputStyle, width: 50, fontSize: 11 }}
+        />
+        <button
+          onClick={() => onUpdate({ cutout: !label.cutout })}
+          style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1 }}
+        >
+          {label.cutout ? '⬇ Cutout' : '⬆ Raised'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
+        <label style={{ fontSize: 10, color: '#71717a', minWidth: 40 }}>Target:</label>
+        <button
+          onClick={() => onUpdate({ target: 'tray' })}
+          style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
+            borderColor: label.target === 'tray' ? '#7c3aed' : '#3f3f46',
+            background: label.target === 'tray' ? '#3b0764' : '#27272a',
+            color: label.target === 'tray' ? '#a78bfa' : '#a1a1aa',
+          }}
+        >
+          Tray
+        </button>
+        <button
+          onClick={() => onUpdate({ target: 'flat' })}
+          style={{ ...smallBtn, fontSize: 10, padding: '2px 8px', flex: 1,
+            borderColor: label.target === 'flat' ? '#2563eb' : '#3f3f46',
+            background: label.target === 'flat' ? '#1e3a5f' : '#27272a',
+            color: label.target === 'flat' ? '#60a5fa' : '#a1a1aa',
+          }}
+        >
+          Flat
+        </button>
+      </div>
+    </div>
+  )
 }

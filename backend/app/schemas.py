@@ -59,6 +59,7 @@ class TextLabel(BaseModel):
     depth_mm: float = 0.6  # emboss depth
     cutout: bool = True  # True = engraved into surface, False = raised above surface
     target: str = "tray"  # 'tray' or 'flat' — which export the label appears on
+    font: str = "Arial"  # font family name or bundled font key (e.g. "Lato-Stenciled")
 
 
 class BinParams(BaseModel):

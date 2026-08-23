@@ -1,5 +1,5 @@
 // API client for the Tracefinity backend.
-import type { Design, DesignSummary, PaperSize, Point, ToolOutline, TraceResult, ExportFormat } from '../types'
+import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat } from '../types'
 
 const API = '/api'
 
@@ -164,4 +164,10 @@ export async function saveToolToLibrary(
 export async function deleteToolFromLibrary(id: string): Promise<void> {
   const res = await fetch(`${API}/tools/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Delete tool failed')
+}
+
+export async function listFonts(): Promise<FontInfo[]> {
+  const res = await fetch(`${API}/designs/fonts/list`)
+  if (!res.ok) throw new Error('List fonts failed')
+  return res.json()
 }

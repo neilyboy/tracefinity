@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from ..fonts import list_fonts
 from ..schemas import Design
 from ..storage.db import delete_design, list_designs, load_design, save_design
 
@@ -13,6 +14,12 @@ router = APIRouter()
 async def get_designs():
     """List all saved designs."""
     return list_designs()
+
+
+@router.get("/fonts/list")
+async def get_fonts():
+    """List all bundled fonts available for labels."""
+    return list_fonts()
 
 
 @router.get("/{design_id}")

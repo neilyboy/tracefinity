@@ -1,0 +1,26 @@
+SIL Open Font License 1.1
+
+All fonts in this directory are licensed under the SIL Open Font License 1.1 (OFL).
+See https://openfontlicense.org for the full license text.
+
+Copyright holders:
+- Noto Sans: Copyright 2019 Google LLC
+- Roboto: Copyright 2015 Google Inc.
+- Lato: Copyright (c) 2011-2015 by tyPoland Lukasz Dziedzic
+- Montserrat: Copyright 2011 The Montserrat Project Authors
+- Inter: Copyright 2016 The Inter Project Authors
+- Archivo: Copyright 2017 The Archivo Project Authors
+- Open Sans: Copyright 2020 The Open Sans Project Authors
+- Bitter: Copyright 2011 Sol Matas
+- Major Mono Display: Copyright 2018 The Major Mono Display Project Authors
+- Press Start 2P: Copyright 2012 The Press Start 2P Project Authors
+- Saira Stencil One: Copyright 2019 The Saira Stencil Project Authors
+- Black Ops One: Copyright 2022 The Black Ops One Project Authors
+- Plaster: Copyright 2011 Sorkin Type Co
+
+Stencil-converted versions (suffix "-Stenciled") were generated from the
+original OFL fonts using the stencilizer tool (https://github.com/cosmix/stencilizer),
+which adds bridges to enclosed contours. The modified versions remain under the OFL.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://scripts.sil.org/OFL

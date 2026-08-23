@@ -172,6 +172,7 @@ export default function SvgEditor() {
       depth_mm: 0.6,
       cutout: true,
       target: 'tray',
+      font: 'Lato-Stenciled',
     }
     addLabel(newLabel)
   }
@@ -469,6 +470,8 @@ export default function SvgEditor() {
                 fontSize={label.font_size_mm}
                 fill={color}
                 textAnchor="middle"
+                fontFamily={label.font?.includes('Stenciled') || label.font === 'Saira-Stencil' || label.font === 'BlackOps-One' || label.font === 'Plaster' ? 'monospace' : 'sans-serif'}
+                fontWeight={label.font?.includes('Bold') ? 'bold' : 'normal'}
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
                 {label.text}

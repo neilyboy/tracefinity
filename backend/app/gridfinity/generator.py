@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 from build123d import Axis, Box, BuildSketch, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, Align, extrude
 
+from ..fonts import get_font_path
 from ..schemas import Design
 from ..utils.geometry import offset_polygon, to_np
 from .bin_builder import build_bin
@@ -58,9 +59,16 @@ def _apply_labels(bin_solid, labels, params) -> Part:
         if not label.text.strip():
             continue
         try:
+            # Resolve font path (None for system fonts like Arial)
+            font_path = get_font_path(label.font)
             # Create text sketch on XY plane
             with BuildSketch(Plane.XY) as text_sketch:
-                Text(label.text, font_size=label.font_size_mm, align=Align.CENTER)
+                Text(
+                    label.text,
+                    font_size=label.font_size_mm,
+                    align=Align.CENTER,
+                    font_path=font_path,
+                )
             text_face = text_sketch.sketch
 
             # Extrude to create the text solid
@@ -189,8 +197,14 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
     """
     for label in labels:
         try:
+            font_path = get_font_path(label.font)
             with BuildSketch(Plane.XY) as text_sketch:
-                Text(label.text, font_size=label.font_size_mm, align=Align.CENTER)
+                Text(
+                    label.text,
+                    font_size=label.font_size_mm,
+                    align=Align.CENTER,
+                    font_path=font_path,
+                )
             text_face = text_sketch.sketch
 
             # Convert label coords to build123d coords
