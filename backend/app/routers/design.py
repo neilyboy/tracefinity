@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
-from ..fonts import list_fonts
+from ..fonts import get_font_path, list_fonts
 from ..schemas import Design
 from ..storage.db import delete_design, list_designs, load_design, save_design
 
@@ -20,6 +21,15 @@ async def get_designs():
 async def get_fonts():
     """List all bundled fonts available for labels."""
     return list_fonts()
+
+
+@router.get("/fonts/file/{font_key}")
+async def get_font_file(font_key: str):
+    """Serve a font TTF file by its key for browser @font-face loading."""
+    path = get_font_path(font_key)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Font not found")
+    return FileResponse(path, media_type="font/ttf")
 
 
 @router.get("/{design_id}")

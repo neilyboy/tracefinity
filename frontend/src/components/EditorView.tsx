@@ -1,14 +1,22 @@
+import { useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import SvgEditor from './SvgEditor'
 import BinParamsPanel from './BinParamsPanel'
 import ToolPropsPanel from './ToolPropsPanel'
 import ExportBar from './ExportBar'
 import { Undo2, Redo2, Home } from 'lucide-react'
+import { loadAllFonts } from '../editor/fontLoader'
 
 export default function EditorView() {
   const { undo, redo, reset, history, historyIndex } = useEditor()
   const canUndo = historyIndex > 0
   const canRedo = historyIndex < history.length - 1
+
+  // Load all bundled fonts on mount — injects @font-face CSS so SVG text
+  // elements can use the actual font files for accurate preview rendering.
+  useEffect(() => {
+    loadAllFonts()
+  }, [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

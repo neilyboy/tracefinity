@@ -36,6 +36,7 @@ class FontInfo:
     category: str  # "Stencil" or "Standard"
     filename: str  # TTF filename inside the fonts directory
     is_stencil: bool  # True if font has stencil bridges
+    css_family: str = ""  # CSS font-family name for @font-face (defaults to key)
 
     @property
     def path(self) -> Path:
@@ -43,6 +44,11 @@ class FontInfo:
 
     def exists(self) -> bool:
         return self.path.exists()
+
+    @property
+    def family(self) -> str:
+        """CSS font-family name to use in @font-face and SVG text."""
+        return self.css_family or f"Tracefinity-{self.key}"
 
 
 # Curated font catalogue. Order matters — this is the order shown in the UI.
@@ -93,6 +99,8 @@ def list_fonts() -> list[dict]:
             "category": f.category,
             "is_stencil": f.is_stencil,
             "available": f.exists(),
+            "css_family": f.family,
+            "url": f"/api/designs/fonts/file/{f.key}",
         }
         for f in FONT_CATALOGUE
         if f.exists()

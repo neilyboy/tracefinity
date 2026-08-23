@@ -3,6 +3,7 @@ import { useEditor } from '../editor/useEditorState'
 import { clientToSvgMm, snapToGrid, snapFine } from '../editor/vertexDrag'
 import { GRID_UNIT_MM } from '../editor/constants'
 import { smoothClosedPath } from '../utils/smoothPath'
+import { fontKeyToCssFamily } from '../editor/fontLoader'
 import type { Point, FingerHole, TextLabel } from '../types'
 
 export default function SvgEditor() {
@@ -470,7 +471,7 @@ export default function SvgEditor() {
                 fontSize={label.font_size_mm}
                 fill={color}
                 textAnchor="middle"
-                fontFamily={label.font?.includes('Stenciled') || label.font === 'Saira-Stencil' || label.font === 'BlackOps-One' || label.font === 'Plaster' ? 'monospace' : 'sans-serif'}
+                fontFamily={fontKeyToCssFamily(label.font)}
                 fontWeight={label.font?.includes('Bold') ? 'bold' : 'normal'}
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >

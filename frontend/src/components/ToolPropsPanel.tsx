@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useEditor } from '../editor/useEditorState'
-import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary, listFonts } from '../api/client'
+import { autoRotateTool, saveToolToLibrary, listToolLibrary, loadToolFromLibrary, deleteToolFromLibrary } from '../api/client'
 import type { ToolLibrarySummary } from '../api/client'
 import type { FontInfo, TextLabel } from '../types'
+import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
   const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
@@ -472,24 +473,13 @@ const smallBtn: React.CSSProperties = {
 // Loads bundled fonts from the backend and lets the user pick one.
 // Stencil fonts (with bridges connecting counters) are shown first and
 // tagged with a ⚔ icon; standard fonts are tagged with ✎.
-let _fontCache: FontInfo[] | null = null
-
-async function loadFonts(): Promise<FontInfo[]> {
-  if (_fontCache) return _fontCache
-  try {
-    _fontCache = await listFonts()
-    return _fontCache
-  } catch {
-    return []
-  }
-}
 
 function FontSelector({ value, onChange }: { value: string; onChange: (font: string) => void }) {
   const [fonts, setFonts] = useState<FontInfo[]>([])
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    loadFonts().then(setFonts)
+    loadAllFonts().then(setFonts)
   }, [])
 
   const stencilFonts = fonts.filter((f) => f.is_stencil)
@@ -536,11 +526,15 @@ function FontSelector({ value, onChange }: { value: string; onChange: (font: str
                       padding: '4px 8px', fontSize: 11, cursor: 'pointer',
                       background: f.key === value ? '#3b0764' : 'transparent',
                       color: f.key === value ? '#a78bfa' : '#e4e4e7',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
                     }}
                     onMouseEnter={(e) => { if (f.key !== value) e.currentTarget.style.background = '#27272a' }}
                     onMouseLeave={(e) => { if (f.key !== value) e.currentTarget.style.background = 'transparent' }}
                   >
-                    ⚔ {f.name}
+                    <span>⚔ {f.name}</span>
+                    <span style={{ fontFamily: f.css_family, fontSize: 13, color: f.key === value ? '#c4b5fd' : '#a1a1aa' }}>
+                      ABC abc 123
+                    </span>
                   </div>
                 ))}
               </>
@@ -558,11 +552,15 @@ function FontSelector({ value, onChange }: { value: string; onChange: (font: str
                       padding: '4px 8px', fontSize: 11, cursor: 'pointer',
                       background: f.key === value ? '#3b0764' : 'transparent',
                       color: f.key === value ? '#a78bfa' : '#e4e4e7',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
                     }}
                     onMouseEnter={(e) => { if (f.key !== value) e.currentTarget.style.background = '#27272a' }}
                     onMouseLeave={(e) => { if (f.key !== value) e.currentTarget.style.background = 'transparent' }}
                   >
-                    ✎ {f.name}
+                    <span>✎ {f.name}</span>
+                    <span style={{ fontFamily: f.css_family, fontSize: 13, color: f.key === value ? '#c4b5fd' : '#a1a1aa' }}>
+                      ABC abc 123
+                    </span>
                   </div>
                 ))}
               </>
@@ -579,11 +577,15 @@ function FontSelector({ value, onChange }: { value: string; onChange: (font: str
                   padding: '4px 8px', fontSize: 11, cursor: 'pointer',
                   background: name === value ? '#3b0764' : 'transparent',
                   color: name === value ? '#a78bfa' : '#e4e4e7',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
                 }}
                 onMouseEnter={(e) => { if (name !== value) e.currentTarget.style.background = '#27272a' }}
                 onMouseLeave={(e) => { if (name !== value) e.currentTarget.style.background = 'transparent' }}
               >
-                ✎ {name}
+                <span>✎ {name}</span>
+                <span style={{ fontFamily: name, fontSize: 13, color: name === value ? '#c4b5fd' : '#a1a1aa' }}>
+                  ABC abc 123
+                </span>
               </div>
             ))}
           </div>

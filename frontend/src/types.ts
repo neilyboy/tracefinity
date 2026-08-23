@@ -35,6 +35,8 @@ export interface FontInfo {
   category: string  // "Stencil" or "Standard"
   is_stencil: boolean
   available: boolean
+  css_family: string  // CSS font-family name for @font-face
+  url: string  // URL to the TTF file
 }
 
 export interface ToolOutline {
