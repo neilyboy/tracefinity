@@ -215,6 +215,10 @@ def generate_flat_outlines(design: Design) -> Solid:
         scoop_cutters = []
         grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+        # Plate bounds (the actual plate is smaller than the grid)
+        plate_half_w = plate_w / 2
+        plate_half_l = plate_l / 2
+
         for outline in design.outlines:
             if not outline.visible:
                 continue
@@ -249,6 +253,12 @@ def generate_flat_outlines(design: Design) -> Solid:
             # Convert to bin-local coords with Y-flip
             scoop_x_local = scoop_x - grid_w_mm / 2
             scoop_y_local = grid_l_mm / 2 - scoop_y
+
+            # Clamp scoop center to be inside the plate so it creates a proper
+            # semicircular notch at the edge instead of being entirely outside.
+            # Keep at least scoop_radius * 0.5 inside the plate for a visible notch.
+            scoop_x_local = max(min(scoop_x_local, plate_half_w - scoop_radius * 0.3), -plate_half_w + scoop_radius * 0.3)
+            scoop_y_local = max(min(scoop_y_local, plate_half_l - scoop_radius * 0.3), -plate_half_l + scoop_radius * 0.3)
 
             # Cut a cylinder through the plate
             scoop_cyl = Cylinder(scoop_radius, plate_thickness * 3)
