@@ -53,7 +53,7 @@ def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> n
     """
     if abs(angle_deg) < 0.01:
         return pts
-    angle_rad = np.radians(-angle_deg)  # negate: SVG CW → build123d CCW
+    angle_rad = np.radians(angle_deg)  # no negation: keep SVG's CW direction
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
     dx = pts[:, 0] - cx
     dy = pts[:, 1] - cy
