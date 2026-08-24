@@ -209,16 +209,17 @@ def generate_flat_outlines(design: Design) -> Solid:
 
         plate = plate - combined
 
-    # Cut finger scoops through the plate (when use_flat_insert is enabled)
-    # The flat piece sits on top where fingers pinch, so scoops must go through it.
-    if p.use_flat_insert and getattr(p, 'finger_scoop', True):
-        scoop_cutters = []
-        grid_w_mm = p.grid_w * C.GRID_UNIT_MM
-        grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        # Plate bounds (the actual plate is smaller than the grid)
-        plate_half_w = plate_w / 2
-        plate_half_l = plate_l / 2
+    # Cut finger scoops and user-placed finger holes through the flat plate.
+    # These always apply to the flat STL — the plate is a thin stencil and
+    # scoops/holes help lift tools out. They are not gated on use_flat_insert.
+    scoop_cutters = []
+    grid_w_mm = p.grid_w * C.GRID_UNIT_MM
+    grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+    plate_half_w = plate_w / 2
+    plate_half_l = plate_l / 2
 
+    # Auto finger scoops at tool tips (when finger_scoop is enabled)
+    if getattr(p, 'finger_scoop', True):
         for outline in design.outlines:
             if not outline.visible:
                 continue
@@ -256,7 +257,6 @@ def generate_flat_outlines(design: Design) -> Solid:
 
             # Clamp scoop center to be inside the plate so it creates a proper
             # semicircular notch at the edge instead of being entirely outside.
-            # Keep at least scoop_radius * 0.5 inside the plate for a visible notch.
             scoop_x_local = max(min(scoop_x_local, plate_half_w - scoop_radius * 0.3), -plate_half_w + scoop_radius * 0.3)
             scoop_y_local = max(min(scoop_y_local, plate_half_l - scoop_radius * 0.3), -plate_half_l + scoop_radius * 0.3)
 
@@ -265,23 +265,23 @@ def generate_flat_outlines(design: Design) -> Solid:
             scoop_cyl = scoop_cyl.moved(Location((scoop_x_local, scoop_y_local, -plate_thickness)))
             scoop_cutters.append(scoop_cyl)
 
-        # Also cut user-placed finger holes through the flat plate
-        for outline in design.outlines:
-            if not outline.visible:
-                continue
-            for hole in getattr(outline, 'finger_holes', []):
-                fh_x_local = hole.x - grid_w_mm / 2
-                fh_y_local = grid_l_mm / 2 - hole.y
-                fh_cyl = Cylinder(hole.radius_mm, plate_thickness * 3)
-                fh_cyl = fh_cyl.moved(Location((fh_x_local, fh_y_local, -plate_thickness)))
-                scoop_cutters.append(fh_cyl)
+    # User-placed finger holes — always cut through the flat plate
+    for outline in design.outlines:
+        if not outline.visible:
+            continue
+        for hole in getattr(outline, 'finger_holes', []):
+            fh_x_local = hole.x - grid_w_mm / 2
+            fh_y_local = grid_l_mm / 2 - hole.y
+            fh_cyl = Cylinder(hole.radius_mm, plate_thickness * 3)
+            fh_cyl = fh_cyl.moved(Location((fh_x_local, fh_y_local, -plate_thickness)))
+            scoop_cutters.append(fh_cyl)
 
-        if scoop_cutters:
-            for cutter in scoop_cutters:
-                try:
-                    plate = plate - cutter
-                except Exception:
-                    pass
+    if scoop_cutters:
+        for cutter in scoop_cutters:
+            try:
+                plate = plate - cutter
+            except Exception:
+                pass
 
     # Apply flat-targeted labels
     flat_labels = [l for l in design.labels if l.target == "flat" and l.text.strip()]
