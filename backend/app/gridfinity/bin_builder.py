@@ -54,6 +54,8 @@ def build_bin(
     compartments_x: int = 1,
     compartments_y: int = 1,
     pocket_depth_mm: float = 15.0,
+    use_flat_insert: bool = False,
+    flat_thickness_mm: float = 2.0,
 ) -> Solid:
     """Build a gridfinity bin solid (without tool pockets).
 
@@ -110,6 +112,24 @@ def build_bin(
         lip_inner = lip_inner.moved(Location((0, 0, lip_z)))
         lip_part = lip_outer - lip_inner
         bin_solid = bin_solid + Part(lip_part)
+
+        # --- Flat insert recess ---
+        # When use_flat_insert is enabled, recess the floor top inside the walls
+        # by flat_thickness_mm so the flat insert sits flush with the wall top.
+        # The flat insert fills this recess; its top is at the wall top (total_h),
+        # so the stacking lip sits on top at the correct height.
+        if use_flat_insert and flat_thickness_mm > 0:
+            recess_w = bin_w - 2 * wall_thickness_mm
+            recess_l = bin_l - 2 * wall_thickness_mm
+            # Floor top is at Z = BASE_HEIGHT_MM + floor_h
+            floor_top_z = C.BASE_HEIGHT_MM + floor_h
+            # Recess removes from floor_top - flat_thickness to floor_top + 0.1
+            # (slightly into wall area for clean boolean cut)
+            recess_h = flat_thickness_mm + 0.1
+            recess_z = floor_top_z - flat_thickness_mm / 2 + 0.05
+            recess = Box(recess_w, recess_l, recess_h)
+            recess = recess.moved(Location((0, 0, recess_z)))
+            bin_solid = bin_solid - Part(recess)
 
     # --- Magnet holes (in each cell corner) ---
     if magnet_holes:

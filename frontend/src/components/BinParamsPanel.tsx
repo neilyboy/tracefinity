@@ -93,11 +93,23 @@ export default function BinParamsPanel() {
         </Section>
       )}
 
-      <Section title="Flat STL Layer">
-        <NumInput label="Plate thickness (mm)" value={p.flat_thickness_mm} step={0.5} min={0.4} max={20} onChange={(v) => setParams({ flat_thickness_mm: v })} />
-        <div style={{ fontSize: 11, color: '#52525b', marginTop: 4 }}>
-          Used for test-fit and two-tone insert exports
-        </div>
+      <Section title="Flat Insert (Two-Tone)">
+        <Toggle label="Use flat insert layer" checked={p.use_flat_insert} onChange={(v) => setParams({ use_flat_insert: v })} />
+        {p.use_flat_insert && (
+          <>
+            <NumInput label="Plate thickness (mm)" value={p.flat_thickness_mm} step={0.5} min={0.4} max={20} onChange={(v) => setParams({ flat_thickness_mm: v })} />
+            <div style={{ fontSize: 11, color: '#71717a', marginTop: 4, lineHeight: 1.4 }}>
+              Prints the tray in one color and the flat STL in another.
+              The flat piece sits inside the lip, showing the tray color
+              through tool and text cutouts. Finger scoops are also cut
+              through the flat piece.
+              <br /><br />
+              <strong style={{ color: '#a78bfa' }}>Tray:</strong> Top surface is recessed by {p.flat_thickness_mm.toFixed(1)}mm inside the lip to accept the insert.
+              <br />
+              <strong style={{ color: '#a78bfa' }}>Flat STL:</strong> Sized to fit inside the lip walls ({((p.grid_w * 42 - 1 - 2 * p.wall_thickness_mm)).toFixed(1)}×{(p.grid_l * 42 - 1 - 2 * p.wall_thickness_mm).toFixed(1)}mm).
+            </div>
+          </>
+        )}
       </Section>
     </div>
   )

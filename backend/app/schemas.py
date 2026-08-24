@@ -110,6 +110,11 @@ class BinParams(BaseModel):
     pocket_bottom_radius_mm: float = Field(0.0, ge=0)
     # Flat STL plate thickness (for test-fit / two-tone insert layer)
     flat_thickness_mm: float = Field(2.0, gt=0, le=20)
+    # When True, the tray is modified to accept a flat insert:
+    # - Top surface inside the lip is recessed by flat_thickness_mm
+    # - Flat STL is sized to fit inside the lip walls
+    # - Finger scoops are cut through the flat STL
+    use_flat_insert: bool = False
 
 
 class Design(BaseModel):

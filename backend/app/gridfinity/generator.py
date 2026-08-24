@@ -34,6 +34,8 @@ def generate_gridfinity(design: Design) -> Solid:
         compartments_x=p.compartments_x,
         compartments_y=p.compartments_y,
         pocket_depth_mm=p.pocket_depth_mm,
+        use_flat_insert=getattr(p, 'use_flat_insert', False),
+        flat_thickness_mm=p.flat_thickness_mm,
     )
     bin_solid = subtract_pockets(bin_solid, design.outlines, p)
 
@@ -103,11 +105,15 @@ def _apply_labels(bin_solid, labels, params) -> Part:
 
 
 def generate_flat_outlines(design: Design) -> Solid:
-    """Generate a flat plate with tool cutouts for test-fitting and two-tone printing.
+    """Generate a flat plate with tool cutouts for two-tone insert printing.
 
-    This creates a thin flat plate with the tool outlines cut through it. You can
-    print this to test-fit tools before committing to the full bin, or print it in
-    a different color to lay inside the bin as a two-tone insert layer.
+    When use_flat_insert is True:
+    - The plate is sized to fit inside the tray's lip walls (not the full bin footprint)
+    - Finger scoops are cut through the plate at each tool's far end
+    - The plate sits inside the lip recess of the tray
+
+    When use_flat_insert is False:
+    - The plate is the full bin footprint (test-fit mode)
 
     Labels with target='flat' are applied to this plate:
     - cutout=True: text is cut completely through the plate (like a stencil).
@@ -115,6 +121,9 @@ def generate_flat_outlines(design: Design) -> Solid:
       will lose their inner pieces. This is by design for see-through labeling.
     - cutout=False: text is raised on top of the plate surface.
     """
+    from build123d import Cylinder, Sphere
+    from ..schemas import FingerHole
+
     p = design.params
     bin_w = p.grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     bin_l = p.grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
@@ -122,8 +131,19 @@ def generate_flat_outlines(design: Design) -> Solid:
     # Flat plate thickness — configurable
     plate_thickness = p.flat_thickness_mm
 
+    # When use_flat_insert is enabled, size the plate to fit inside the lip walls.
+    # The lip inner opening is bin_w - 2*wall_thickness_mm.
+    # Add a small clearance (0.2mm) for a snug but removable fit.
+    if p.use_flat_insert:
+        clearance = 0.2
+        plate_w = bin_w - 2 * p.wall_thickness_mm - 2 * clearance
+        plate_l = bin_l - 2 * p.wall_thickness_mm - 2 * clearance
+    else:
+        plate_w = bin_w
+        plate_l = bin_l
+
     # Build the flat plate
-    plate = Part(Box(bin_w, bin_l, plate_thickness))
+    plate = Part(Box(plate_w, plate_l, plate_thickness))
     plate = plate.moved(Location((0, 0, plate_thickness / 2)))
 
     # Cut tool outlines through the plate
@@ -180,7 +200,7 @@ def generate_flat_outlines(design: Design) -> Solid:
                 pass
 
         # Intersect with plate bounds to keep cutouts inside
-        interior = Box(bin_w, bin_l, plate_thickness * 3)
+        interior = Box(plate_w, plate_l, plate_thickness * 3)
         interior = interior.moved(Location((0, 0, plate_thickness)))
         try:
             combined = combined & interior
@@ -188,6 +208,70 @@ def generate_flat_outlines(design: Design) -> Solid:
             pass
 
         plate = plate - combined
+
+    # Cut finger scoops through the plate (when use_flat_insert is enabled)
+    # The flat piece sits on top where fingers pinch, so scoops must go through it.
+    if p.use_flat_insert and getattr(p, 'finger_scoop', True):
+        scoop_cutters = []
+        grid_w_mm = p.grid_w * C.GRID_UNIT_MM
+        grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+        for outline in design.outlines:
+            if not outline.visible:
+                continue
+            outer = to_np(outline.outer)
+            if len(outer) < 3:
+                continue
+
+            # Apply rotation to find the correct far-end position
+            cx = float(np.mean(outer[:, 0]))
+            cy = float(np.mean(outer[:, 1]))
+            if abs(outline.rotation_deg) > 0.01:
+                outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
+
+            # Find the point on the outline farthest from the centroid
+            dists = np.sqrt((outer[:, 0] - cx) ** 2 + (outer[:, 1] - cy) ** 2)
+            far_idx = int(np.argmax(dists))
+            far_pt = outer[far_idx]
+
+            # Direction from centroid to far point
+            dx = far_pt[0] - cx
+            dy = far_pt[1] - cy
+            dist = np.sqrt(dx * dx + dy * dy)
+            if dist < 1e-6:
+                continue
+            ux, uy = dx / dist, dy / dist
+
+            margin = outline.margin_mm if outline.margin_mm is not None else p.tool_margin_mm
+            scoop_radius = p.finger_scoop_diameter_mm / 2
+            scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
+            scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
+
+            # Convert to bin-local coords with Y-flip
+            scoop_x_local = scoop_x - grid_w_mm / 2
+            scoop_y_local = grid_l_mm / 2 - scoop_y
+
+            # Cut a cylinder through the plate
+            scoop_cyl = Cylinder(scoop_radius, plate_thickness * 3)
+            scoop_cyl = scoop_cyl.moved(Location((scoop_x_local, scoop_y_local, -plate_thickness)))
+            scoop_cutters.append(scoop_cyl)
+
+        # Also cut user-placed finger holes through the flat plate
+        for outline in design.outlines:
+            if not outline.visible:
+                continue
+            for hole in getattr(outline, 'finger_holes', []):
+                fh_x_local = hole.x - grid_w_mm / 2
+                fh_y_local = grid_l_mm / 2 - hole.y
+                fh_cyl = Cylinder(hole.radius_mm, plate_thickness * 3)
+                fh_cyl = fh_cyl.moved(Location((fh_x_local, fh_y_local, -plate_thickness)))
+                scoop_cutters.append(fh_cyl)
+
+        if scoop_cutters:
+            for cutter in scoop_cutters:
+                try:
+                    plate = plate - cutter
+                except Exception:
+                    pass
 
     # Apply flat-targeted labels
     flat_labels = [l for l in design.labels if l.target == "flat" and l.text.strip()]

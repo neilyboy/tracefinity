@@ -79,6 +79,7 @@ export interface BinParams {
   cutout_chamfer_mm: number
   pocket_bottom_radius_mm: number
   flat_thickness_mm: number
+  use_flat_insert: boolean
 }
 
 export interface Design {
@@ -143,4 +144,5 @@ export const DEFAULT_PARAMS: BinParams = {
   cutout_chamfer_mm: 0.0,
   pocket_bottom_radius_mm: 0.0,
   flat_thickness_mm: 2.0,
+  use_flat_insert: false,
 }
