@@ -215,17 +215,14 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords to build123d coords.
-            # NO Y-flip for text: PrusaSlicer displays Y matching SVG Y-down.
-            # (Tool cutout uses Y-flip for polygon winding, but text position
-            # does not need it — text is created fresh in build123d.)
+            # Convert label coords (SVG: Y-down) to build123d coords (Y-up).
+            # Y-flip + negated rotation: this was verified correct for text.
+            # (Tool cutout uses the same Y-flip but for polygon winding.)
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
-            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+            y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
 
-            # NO rotation negation for flat text: without Y-flip, the coordinate
-            # system is still Y-down (matching SVG), so build123d's CCW rotation
-            # appears as CW visually — which already matches SVG's CW rotation.
-            rot = label.rotation_deg if abs(label.rotation_deg) > 0.01 else 0
+            # Negate rotation: SVG uses CW (Y-down), build123d uses CCW (Y-up)
+            rot = -label.rotation_deg if abs(label.rotation_deg) > 0.01 else 0
 
             if label.cutout:
                 # Cut through the entire plate
