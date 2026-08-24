@@ -19,7 +19,7 @@ export default function BinParamsPanel() {
       <Section title="Grid Size (42mm units)">
         <NumInput label="Width" value={p.grid_w} min={1} max={20} onChange={(v) => setParams({ grid_w: v })} />
         <NumInput label="Length" value={p.grid_l} min={1} max={20} onChange={(v) => setParams({ grid_l: v })} />
-        <div style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+        <div style={hintStyle}>
           Footprint: <strong style={{ color: '#a1a1aa' }}>{(p.grid_w * 42).toFixed(0)}×{(p.grid_l * 42).toFixed(0)}mm</strong>
           {' '}({(p.grid_w * 42 / 25.4).toFixed(1)}×{(p.grid_l * 42 / 25.4).toFixed(1)}in)
         </div>
@@ -27,12 +27,12 @@ export default function BinParamsPanel() {
 
       <Section title="Height">
         <NumInput label="Height (7mm units)" value={p.height_units} min={1} max={20} onChange={(v) => setParams({ height_units: v })} />
-        <div style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+        <div style={hintStyle}>
           Total: <strong style={{ color: '#a1a1aa' }}>{(p.height_units * 7).toFixed(0)}mm</strong>
           {' '}({(p.height_units * 7 / 25.4).toFixed(2)}in)
           {p.lip && <span> + lip 4.4mm = <strong style={{ color: '#a1a1aa' }}>{(p.height_units * 7 + 4.4).toFixed(1)}mm</strong></span>}
         </div>
-        <div style={{ fontSize: 10, color: '#52525b', marginTop: 2 }}>
+        <div style={{ ...hintStyle, color: '#52525b' }}>
           Pocket depth: {p.pocket_depth_mm.toFixed(1)}mm · Floor: {Math.max(2.25, 4).toFixed(1)}mm
         </div>
       </Section>
@@ -42,17 +42,28 @@ export default function BinParamsPanel() {
         <NumInput label="Base (mm)" value={p.base_thickness_mm} step={0.1} min={0.4} max={5} onChange={(v) => setParams({ base_thickness_mm: v })} />
       </Section>
 
-      <Section title="Pockets">
-        <NumInput label="Default depth (mm)" value={p.pocket_depth_mm} step={0.5} min={1} max={100} onChange={(v) => setParams({ pocket_depth_mm: v })} />
-        <NumInput label="Default margin (mm)" value={p.tool_margin_mm} step={0.1} min={0} max={10} onChange={(v) => setParams({ tool_margin_mm: v })} />
-        <NumInput label="Corner radius (mm)" value={p.pocket_corner_radius_mm} step={0.5} min={0} max={20} onChange={(v) => setParams({ pocket_corner_radius_mm: v })} />
-        <NumInput label="Cutout chamfer (mm)" value={p.cutout_chamfer_mm} step={0.1} min={0} max={3} onChange={(v) => setParams({ cutout_chamfer_mm: v })} />
-        <NumInput label="Bottom radius (mm)" value={p.pocket_bottom_radius_mm} step={0.5} min={0} max={10} onChange={(v) => setParams({ pocket_bottom_radius_mm: v })} />
+      <Section title="Tool Pockets — Defaults">
+        <NumInput label="Depth (mm)" value={p.pocket_depth_mm} step={0.5} min={1} max={100} onChange={(v) => setParams({ pocket_depth_mm: v })} />
+        <NumInput label="Margin (mm)" value={p.tool_margin_mm} step={0.1} min={0} max={10} onChange={(v) => setParams({ tool_margin_mm: v })} />
+        <div style={hintStyle}>
+          Per-tool overrides available in Tool Properties →
+        </div>
+        <details style={{ marginTop: 6 }}>
+          <summary style={summaryStyle}>Advanced pocket geometry</summary>
+          <NumInput label="Corner radius (mm)" value={p.pocket_corner_radius_mm} step={0.5} min={0} max={20} onChange={(v) => setParams({ pocket_corner_radius_mm: v })} />
+          <NumInput label="Cutout chamfer (mm)" value={p.cutout_chamfer_mm} step={0.1} min={0} max={3} onChange={(v) => setParams({ cutout_chamfer_mm: v })} />
+          <NumInput label="Bottom radius (mm)" value={p.pocket_bottom_radius_mm} step={0.5} min={0} max={10} onChange={(v) => setParams({ pocket_bottom_radius_mm: v })} />
+        </details>
       </Section>
 
-      <Section title="Magnet & Screw Holes">
+      <Section title="Bottom Holes">
         <Toggle label="Magnet holes (6×2mm)" checked={p.magnet_holes} onChange={(v) => setParams({ magnet_holes: v })} />
         <Toggle label="Screw holes (M3)" checked={p.screw_holes} onChange={(v) => setParams({ screw_holes: v })} />
+        {p.screw_holes && (
+          <div style={hintStyle}>
+            M3 through-holes inside magnet pockets. Invisible when magnets are on — look up into the magnet cavity to see them.
+          </div>
+        )}
       </Section>
 
       <Section title="Finger Access">
@@ -60,19 +71,33 @@ export default function BinParamsPanel() {
         {p.scoop && <NumInput label="Scoop depth (mm)" value={p.scoop_depth_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ scoop_depth_mm: v })} />}
         {p.scoop && (
           <div style={hintStyle}>
-            Cuts a semi-cylindrical scoop on the front wall of the bin
-            so fingers can slide under items.
+            Semi-cylindrical scoop on the front wall so fingers can slide under items.
           </div>
         )}
         <div style={{ borderTop: '1px solid #27272a', margin: '6px 0' }} />
         <div style={hintStyle}>
-          <span style={{ color: '#fca5a5' }}>●</span> <strong style={{ color: '#a1a1aa' }}>Finger holes</strong> — placed per-tool in the editor (red dashed circles). Use the <em>◯ Finger Hole</em> button in the toolbar or <em>+ Add Finger Hole</em> in Tool Properties. Multiple holes can be placed per tool.
+          <span style={{ color: '#fca5a5' }}>●</span> <strong style={{ color: '#a1a1aa' }}>Finger holes</strong> — placed per-tool in the editor (red dashed circles). Use the <em>◯ Finger Hole</em> button in the toolbar or <em>+ Add Finger Hole</em> in Tool Properties. Multiple holes per tool.
         </div>
       </Section>
 
-      <Section title="Stacking & Labels">
+      <Section title="Lip & Print Tabs">
         <Toggle label="Stacking lip" checked={p.lip} onChange={(v) => setParams({ lip: v })} />
-        <Toggle label="Label tab" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
+        {p.lip && (
+          <>
+            <div style={{ ...hintStyle, marginBottom: 6 }}>
+              Print support tabs help the lip print cleanly without sagging.
+            </div>
+            <RadioGroup
+              value={p.tabs}
+              options={[{ v: 'none', l: 'No tabs' }, { v: 'split', l: 'Split' }, { v: 'aligned', l: 'Aligned' }]}
+              onChange={(v) => setParams({ tabs: v as any })}
+            />
+          </>
+        )}
+      </Section>
+
+      <Section title="Label Tab">
+        <Toggle label="Engraved label on front" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
         {p.label_tab && (
           <>
             <input
@@ -88,14 +113,6 @@ export default function BinParamsPanel() {
         )}
       </Section>
 
-      <Section title="Tabs">
-        <RadioGroup
-          value={p.tabs}
-          options={[{ v: 'none', l: 'None' }, { v: 'split', l: 'Split' }, { v: 'aligned', l: 'Aligned' }]}
-          onChange={(v) => setParams({ tabs: v as any })}
-        />
-      </Section>
-
       <Section title="Compartments">
         <NumInput label="Along X" value={p.compartments_x} min={1} max={10} onChange={(v) => setParams({ compartments_x: v })} />
         <NumInput label="Along Y" value={p.compartments_y} min={1} max={10} onChange={(v) => setParams({ compartments_y: v })} />
@@ -108,17 +125,14 @@ export default function BinParamsPanel() {
       )}
 
       <Section title="Flat Insert (Two-Tone)">
-        <Toggle label="Use flat insert layer" checked={p.use_flat_insert} onChange={(v) => setParams({ use_flat_insert: v })} />
+        <Toggle label="Enable flat insert layer" checked={p.use_flat_insert} onChange={(v) => setParams({ use_flat_insert: v })} />
         {p.use_flat_insert && (
           <>
             <NumInput label="Plate thickness (mm)" value={p.flat_thickness_mm} step={0.5} min={0.4} max={20} onChange={(v) => setParams({ flat_thickness_mm: v })} />
-            <div style={{ fontSize: 11, color: '#71717a', marginTop: 4, lineHeight: 1.4 }}>
-              Prints the tray in one color and the flat STL in another.
-              The flat piece sits inside the lip, showing the tray color
-              through tool and text cutouts. Finger scoops are also cut
-              through the flat piece.
+            <div style={hintStyle}>
+              Print the tray in one color and the flat STL in another. The flat piece sits inside the lip, showing the tray color through tool and text cutouts.
               <br /><br />
-              <strong style={{ color: '#a78bfa' }}>Tray:</strong> Top surface is recessed by {p.flat_thickness_mm.toFixed(1)}mm inside the lip to accept the insert.
+              <strong style={{ color: '#a78bfa' }}>Tray:</strong> Top surface recessed by {p.flat_thickness_mm.toFixed(1)}mm inside the lip to accept the insert.
               <br />
               <strong style={{ color: '#a78bfa' }}>Flat STL:</strong> Sized to fit inside the lip walls ({((p.grid_w * 42 - 1 - 2 * p.wall_thickness_mm)).toFixed(1)}×{(p.grid_l * 42 - 1 - 2 * p.wall_thickness_mm).toFixed(1)}mm).
             </div>
@@ -201,4 +215,9 @@ const inputStyle: React.CSSProperties = {
 
 const hintStyle: React.CSSProperties = {
   fontSize: 10, color: '#71717a', marginTop: 4, lineHeight: 1.4,
+}
+
+const summaryStyle: React.CSSProperties = {
+  fontSize: 10, color: '#52525b', cursor: 'pointer', userSelect: 'none',
+  marginBottom: 4,
 }

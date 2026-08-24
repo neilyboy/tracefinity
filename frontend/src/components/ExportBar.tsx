@@ -55,7 +55,7 @@ export default function ExportBar() {
   return (
     <div style={{
       borderTop: '1px solid #27272a', padding: '10px 16px', background: '#18181b',
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0,
     }}>
       <input
         type="text" value={design.name}

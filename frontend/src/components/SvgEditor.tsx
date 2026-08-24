@@ -241,7 +241,7 @@ export default function SvgEditor() {
       onKeyDown={handleKeyDown}
     >
       {/* Toolbar */}
-      <div style={{ display: 'flex', gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
         <button
           onClick={undo}
           disabled={historyIndex <= 0}
@@ -354,8 +354,9 @@ export default function SvgEditor() {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${viewW} ${viewH}`}
+          preserveAspectRatio="xMidYMin meet"
           style={{
-            width: viewW * zoom * 3, height: viewH * zoom * 3, maxWidth: '100%',
+            width: '100%', height: '100%', maxWidth: viewW * zoom * 4, maxHeight: viewH * zoom * 4,
             cursor: placingFingerHole ? 'crosshair' : 'default',
           }}
           onPointerMove={handlePointerMove}
