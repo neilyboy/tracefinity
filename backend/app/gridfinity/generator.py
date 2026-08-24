@@ -146,8 +146,18 @@ def generate_flat_outlines(design: Design) -> Solid:
     plate = Part(Box(plate_w, plate_l, plate_thickness))
     plate = plate.moved(Location((0, 0, plate_thickness / 2)))
 
-    # Cut tool outlines through the plate
+    grid_w_mm = p.grid_w * C.GRID_UNIT_MM
+    grid_l_mm = p.grid_l * C.GRID_UNIT_MM
+    plate_half_w = plate_w / 2
+    plate_half_l = plate_l / 2
+
+    # Collect ALL cutters (tool outlines + finger holes + auto scoops) and
+    # subtract them in a single boolean operation. Subtracting cylinders one
+    # by one from a plate that already has complex tool cutouts causes OCP
+    # numerical precision issues (partial/incorrect subtraction).
     cutters = []
+
+    # --- Tool outline cutters ---
     for outline in design.outlines:
         if not outline.visible:
             continue
@@ -177,8 +187,6 @@ def generate_flat_outlines(design: Design) -> Solid:
         # Build the cutout solid.
         # Y-flip: SVG Y-down → build123d Y-up (PrusaSlicer shows Y+ at top).
         # Y-flip reverses winding (CW→CCW), so reverse points to restore CCW.
-        grid_w_mm = p.grid_w * C.GRID_UNIT_MM
-        grid_l_mm = p.grid_l * C.GRID_UNIT_MM
         pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed][::-1]
         try:
             face = Polygon(pts)
@@ -190,35 +198,7 @@ def generate_flat_outlines(design: Design) -> Solid:
         except Exception:
             continue
 
-    if cutters:
-        # Union all cutters
-        combined = cutters[0]
-        for c in cutters[1:]:
-            try:
-                combined = combined + c
-            except Exception:
-                pass
-
-        # Intersect with plate bounds to keep cutouts inside
-        interior = Box(plate_w, plate_l, plate_thickness * 3)
-        interior = interior.moved(Location((0, 0, plate_thickness)))
-        try:
-            combined = combined & interior
-        except Exception:
-            pass
-
-        plate = plate - combined
-
-    # Cut finger scoops and user-placed finger holes through the flat plate.
-    # These always apply to the flat STL — the plate is a thin stencil and
-    # scoops/holes help lift tools out. They are not gated on use_flat_insert.
-    scoop_cutters = []
-    grid_w_mm = p.grid_w * C.GRID_UNIT_MM
-    grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-    plate_half_w = plate_w / 2
-    plate_half_l = plate_l / 2
-
-    # Auto finger scoops at tool tips (when finger_scoop is enabled)
+    # --- Auto finger scoops at tool tips ---
     if getattr(p, 'finger_scoop', True):
         for outline in design.outlines:
             if not outline.visible:
@@ -260,12 +240,11 @@ def generate_flat_outlines(design: Design) -> Solid:
             scoop_x_local = max(min(scoop_x_local, plate_half_w - scoop_radius * 0.3), -plate_half_w + scoop_radius * 0.3)
             scoop_y_local = max(min(scoop_y_local, plate_half_l - scoop_radius * 0.3), -plate_half_l + scoop_radius * 0.3)
 
-            # Cut a cylinder through the plate
             scoop_cyl = Cylinder(scoop_radius, plate_thickness * 3)
-            scoop_cyl = scoop_cyl.moved(Location((scoop_x_local, scoop_y_local, -plate_thickness)))
-            scoop_cutters.append(scoop_cyl)
+            scoop_cyl = scoop_cyl.moved(Location((scoop_x_local, scoop_y_local, 0)))
+            cutters.append(scoop_cyl)
 
-    # User-placed finger holes — always cut through the flat plate
+    # --- User-placed finger holes ---
     for outline in design.outlines:
         if not outline.visible:
             continue
@@ -273,15 +252,27 @@ def generate_flat_outlines(design: Design) -> Solid:
             fh_x_local = hole.x - grid_w_mm / 2
             fh_y_local = grid_l_mm / 2 - hole.y
             fh_cyl = Cylinder(hole.radius_mm, plate_thickness * 3)
-            fh_cyl = fh_cyl.moved(Location((fh_x_local, fh_y_local, -plate_thickness)))
-            scoop_cutters.append(fh_cyl)
+            fh_cyl = fh_cyl.moved(Location((fh_x_local, fh_y_local, 0)))
+            cutters.append(fh_cyl)
 
-    if scoop_cutters:
-        for cutter in scoop_cutters:
+    if cutters:
+        # Union all cutters
+        combined = cutters[0]
+        for c in cutters[1:]:
             try:
-                plate = plate - cutter
+                combined = combined + c
             except Exception:
                 pass
+
+        # Intersect with plate bounds to keep cutouts inside
+        interior = Box(plate_w, plate_l, plate_thickness * 3)
+        interior = interior.moved(Location((0, 0, plate_thickness)))
+        try:
+            combined = combined & interior
+        except Exception:
+            pass
+
+        plate = plate - combined
 
     # Apply flat-targeted labels
     flat_labels = [l for l in design.labels if l.target == "flat" and l.text.strip()]
