@@ -222,59 +222,6 @@ def build_finger_hole(
     return sphere
 
 
-def build_finger_scoop(
-    outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l_mm: float
-) -> Solid | None:
-    """Build an automatic finger scoop at the far end of a tool pocket.
-
-    This is the auto-placed scoop (when finger_scoop is enabled).
-    Users can also place custom finger holes via the finger_holes field.
-    """
-    outer = to_np(outline.outer)
-    if len(outer) < 3:
-        return None
-
-    pocket_depth = outline.pocket_depth_mm if outline.pocket_depth_mm is not None else params.pocket_depth_mm
-    total_h = params.height_units * C.HEIGHT_UNIT_MM
-
-    # Apply rotation if specified
-    cx = float(np.mean(outer[:, 0]))
-    cy = float(np.mean(outer[:, 1]))
-    if abs(outline.rotation_deg) > 0.01:
-        outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
-
-    # Find the point on the outline farthest from the centroid
-    dists = np.sqrt((outer[:, 0] - cx) ** 2 + (outer[:, 1] - cy) ** 2)
-    far_idx = int(np.argmax(dists))
-    far_pt = outer[far_idx]
-
-    # Direction from centroid to far point
-    dx = far_pt[0] - cx
-    dy = far_pt[1] - cy
-    dist = np.sqrt(dx * dx + dy * dy)
-    if dist < 1e-6:
-        return None
-    ux, uy = dx / dist, dy / dist
-
-    margin = outline.margin_mm if outline.margin_mm is not None else params.tool_margin_mm
-    scoop_radius = params.finger_scoop_diameter_mm / 2
-    scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
-    scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
-
-    # Convert to bin-local coords, flipping Y (SVG Y-down → build123d Y-up)
-    grid_w_mm = params.grid_w * C.GRID_UNIT_MM
-    grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    scoop_x_local = scoop_x - grid_w_mm / 2
-    scoop_y_local = grid_l_mm / 2 - scoop_y
-
-    # Build a sphere with center at the top surface.
-    # Only the bottom half cuts into the bin, creating a bowl-shaped scoop.
-    sphere = Sphere(scoop_radius)
-    sphere = sphere.moved(Location((scoop_x_local, scoop_y_local, total_h)))
-
-    return sphere
-
-
 def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinParams) -> Part:
     """Subtract all tool pockets and finger holes from the bin solid.
 
@@ -287,7 +234,7 @@ def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinPa
     bin_l = params.grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
-    # Build all pockets, scoops, and finger holes.
+    # Build all pockets and finger holes.
     cutters = []
     for outline in outlines:
         if not outline.visible:
@@ -295,12 +242,6 @@ def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinPa
         pocket = build_pocket(outline, params, bin_w, bin_l)
         if pocket is not None:
             cutters.append(pocket)
-
-        # Auto finger scoop if enabled
-        if getattr(params, 'finger_scoop', True):
-            scoop = build_finger_scoop(outline, params, bin_w, bin_l)
-            if scoop is not None:
-                cutters.append(scoop)
 
         # User-placed finger holes
         for hole in outline.finger_holes:

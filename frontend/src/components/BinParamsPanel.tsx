@@ -65,17 +65,8 @@ export default function BinParamsPanel() {
           </div>
         )}
         <div style={{ borderTop: '1px solid #27272a', margin: '6px 0' }} />
-        <Toggle label="Auto finger scoop at tool tips" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
-        {p.finger_scoop && <NumInput label="Scoop diameter (mm)" value={p.finger_scoop_diameter_mm} step={1} min={5} max={40} onChange={(v) => setParams({ finger_scoop_diameter_mm: v })} />}
-        {p.finger_scoop && (
-          <div style={hintStyle}>
-            <span style={{ color: '#fbbf24' }}>●</span> Shown as a yellow dashed circle at each tool's farthest point.
-            Creates a finger cutout at the tool tip for lifting tools out.
-          </div>
-        )}
-        <div style={{ borderTop: '1px solid #27272a', margin: '6px 0' }} />
         <div style={hintStyle}>
-          <span style={{ color: '#fca5a5' }}>●</span> <strong style={{ color: '#a1a1aa' }}>User finger holes</strong> — placed per-tool in the editor (red dashed circles). Use the <em>◯ Finger Hole</em> button in the toolbar or <em>+ Add Finger Hole</em> in Tool Properties.
+          <span style={{ color: '#fca5a5' }}>●</span> <strong style={{ color: '#a1a1aa' }}>Finger holes</strong> — placed per-tool in the editor (red dashed circles). Use the <em>◯ Finger Hole</em> button in the toolbar or <em>+ Add Finger Hole</em> in Tool Properties. Multiple holes can be placed per tool.
         </div>
       </Section>
 

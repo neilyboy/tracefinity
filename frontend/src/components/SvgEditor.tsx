@@ -522,41 +522,6 @@ export default function SvgEditor() {
                   </g>
                 ))}
 
-                {/* Auto finger scoop preview (at tool tip, when enabled) */}
-                {p.finger_scoop && (() => {
-                  // Find farthest point from centroid (rotation preserves distances,
-                  // so we can compute in unrotated coords and render inside the rotated <g>)
-                  let farPt = tool.outer[0]
-                  let maxDist = 0
-                  for (const pt of tool.outer) {
-                    const d = Math.sqrt((pt.x - cx) ** 2 + (pt.y - cy) ** 2)
-                    if (d > maxDist) { maxDist = d; farPt = pt }
-                  }
-                  const dx = farPt.x - cx, dy = farPt.y - cy
-                  const dist = Math.sqrt(dx * dx + dy * dy)
-                  if (dist < 1e-6) return null
-                  const ux = dx / dist, uy = dy / dist
-                  const scoopR = p.finger_scoop_diameter_mm / 2
-                  const sx = farPt.x + ux * (margin + scoopR * 0.3)
-                  const sy = farPt.y + uy * (margin + scoopR * 0.3)
-                  return (
-                    <g style={{ pointerEvents: 'none' }}>
-                      <circle
-                        cx={pad + sx} cy={pad + sy} r={scoopR}
-                        fill="rgba(251,191,36,0.08)" stroke="#fbbf24"
-                        strokeWidth={0.3} strokeDasharray="2,1.5"
-                      />
-                      <text
-                        x={pad + sx} y={pad + sy + 1}
-                        fontSize={2} fill="#fbbf24" textAnchor="middle"
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        scoop
-                      </text>
-                    </g>
-                  )
-                })()}
-
                 {/* Invisible thick path for easy tool selection/dragging */}
                 <path
                   d={outerD}

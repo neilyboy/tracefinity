@@ -148,13 +148,10 @@ def generate_flat_outlines(design: Design) -> Solid:
 
     grid_w_mm = p.grid_w * C.GRID_UNIT_MM
     grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-    plate_half_w = plate_w / 2
-    plate_half_l = plate_l / 2
 
-    # Collect ALL cutters (tool outlines + finger holes + auto scoops) and
-    # subtract them in a single boolean operation. Subtracting cylinders one
-    # by one from a plate that already has complex tool cutouts causes OCP
-    # numerical precision issues (partial/incorrect subtraction).
+    # Collect ALL cutters (tool outlines + finger holes) and subtract them
+    # in a single boolean operation. Subtracting cylinders one by one from
+    # a plate with complex tool cutouts causes OCP numerical precision issues.
     cutters = []
 
     # --- Tool outline cutters ---
@@ -197,52 +194,6 @@ def generate_flat_outlines(design: Design) -> Solid:
             cutters.append(cutter)
         except Exception:
             continue
-
-    # --- Auto finger scoops at tool tips ---
-    if getattr(p, 'finger_scoop', True):
-        for outline in design.outlines:
-            if not outline.visible:
-                continue
-            outer = to_np(outline.outer)
-            if len(outer) < 3:
-                continue
-
-            # Apply rotation to find the correct far-end position
-            cx = float(np.mean(outer[:, 0]))
-            cy = float(np.mean(outer[:, 1]))
-            if abs(outline.rotation_deg) > 0.01:
-                outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
-
-            # Find the point on the outline farthest from the centroid
-            dists = np.sqrt((outer[:, 0] - cx) ** 2 + (outer[:, 1] - cy) ** 2)
-            far_idx = int(np.argmax(dists))
-            far_pt = outer[far_idx]
-
-            # Direction from centroid to far point
-            dx = far_pt[0] - cx
-            dy = far_pt[1] - cy
-            dist = np.sqrt(dx * dx + dy * dy)
-            if dist < 1e-6:
-                continue
-            ux, uy = dx / dist, dy / dist
-
-            margin = outline.margin_mm if outline.margin_mm is not None else p.tool_margin_mm
-            scoop_radius = p.finger_scoop_diameter_mm / 2
-            scoop_x = far_pt[0] + ux * (margin + scoop_radius * 0.3)
-            scoop_y = far_pt[1] + uy * (margin + scoop_radius * 0.3)
-
-            # Convert to bin-local coords with Y-flip
-            scoop_x_local = scoop_x - grid_w_mm / 2
-            scoop_y_local = grid_l_mm / 2 - scoop_y
-
-            # Clamp scoop center to be inside the plate so it creates a proper
-            # semicircular notch at the edge instead of being entirely outside.
-            scoop_x_local = max(min(scoop_x_local, plate_half_w - scoop_radius * 0.3), -plate_half_w + scoop_radius * 0.3)
-            scoop_y_local = max(min(scoop_y_local, plate_half_l - scoop_radius * 0.3), -plate_half_l + scoop_radius * 0.3)
-
-            scoop_cyl = Cylinder(scoop_radius, plate_thickness * 3)
-            scoop_cyl = scoop_cyl.moved(Location((scoop_x_local, scoop_y_local, 0)))
-            cutters.append(scoop_cyl)
 
     # --- User-placed finger holes ---
     for outline in design.outlines:
