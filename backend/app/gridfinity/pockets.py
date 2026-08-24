@@ -46,10 +46,14 @@ from . import constants as C
 
 
 def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> np.ndarray:
-    """Rotate points around a center by angle in degrees."""
+    """Rotate points around a center by angle in degrees.
+
+    SVG uses clockwise rotation (Y-down), but this rotation matrix is CCW (Y-up).
+    Negate the angle to match SVG's visual rotation direction.
+    """
     if abs(angle_deg) < 0.01:
         return pts
-    angle_rad = np.radians(angle_deg)
+    angle_rad = np.radians(-angle_deg)  # negate: SVG CW → build123d CCW
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
     dx = pts[:, 0] - cx
     dy = pts[:, 1] - cy
@@ -88,33 +92,28 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     margin = outline.margin_mm if outline.margin_mm is not None else params.tool_margin_mm
     pocket_depth = outline.pocket_depth_mm if outline.pocket_depth_mm is not None else params.pocket_depth_mm
 
-    # Apply rotation if specified
+    # Apply rotation if specified (negated inside _rotate_points: SVG CW → CCW)
     cx = float(np.mean(outer[:, 0]))
     cy = float(np.mean(outer[:, 1]))
     if abs(outline.rotation_deg) > 0.01:
         outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
-    # Offset the outer polygon outward by the margin (clearance).
-    # NEGATED: SVG is Y-down, offset_polygon assumes Y-up CCW, so positive
-    # margin goes inward. Negate to make it go outward.
-    offset_outer = offset_polygon(outer, -margin)
+    # Smooth FIRST on raw polygon (matching SVG editor's smoothClosedPath),
+    # then offset the smoothed polygon. This preserves nice rounded curves.
+    smoothed = catmull_rom_smooth(outer, samples_per_segment=20, tension=0.3)
 
-    # Apply Catmull-Rom smoothing FIRST (before simplification) to match the
-    # SVG editor's smooth curves. Smoothing before simplification preserves
-    # sharp tips and rounded ends that simplification would otherwise remove.
-    # 20 samples per segment gives smooth curves even at sharp tips.
-    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=20, tension=0.3)
+    # Offset by margin (NEGATED: SVG Y-down, offset_polygon assumes Y-up).
+    offset_outer = offset_polygon(smoothed, -margin)
 
-    # Simplify AFTER smoothing to reduce point count for OCP boolean stability.
-    # Use a smaller epsilon since the smoothed curve has many close points.
-    smoothed = _simplify_polygon(smoothed, epsilon=0.15)
+    # Light simplification for OCP boolean stability
+    offset_outer = _simplify_polygon(offset_outer, epsilon=0.15)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # SVG editor has Y going DOWN; build123d has Y going UP.
     # Flip Y on each point: y_new = grid_l - y_old.
     # Y-flip reverses winding, so reverse the list to restore CCW for build123d.
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed][::-1]
+    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer][::-1]
     try:
         outer_face = Polygon(pts)
     except Exception:

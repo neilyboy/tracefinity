@@ -74,9 +74,9 @@ def _apply_labels(bin_solid, labels, params) -> Part:
             # Extrude to create the text solid
             text_solid = extrude(text_face, amount=label.depth_mm)
 
-            # Rotate around Z axis (text rotation in the XY plane)
+            # Rotate around Z axis — negate angle: SVG CW (Y-down) → build123d CCW (Y-up)
             if abs(label.rotation_deg) > 0.01:
-                text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+                text_solid = text_solid.rotate(axis=Axis.Z, angle=-label.rotation_deg)
 
             # Position: text sits on top surface
             # Convert label coords (SVG: top-left origin, Y-down) to build123d coords
@@ -137,30 +137,30 @@ def generate_flat_outlines(design: Design) -> Solid:
 
         margin = outline.margin_mm if outline.margin_mm is not None else p.tool_margin_mm
 
-        # Apply rotation
+        # Apply rotation (negated inside _rotate_points: SVG CW → build123d CCW)
         cx = float(np.mean(outer[:, 0]))
         cy = float(np.mean(outer[:, 1]))
         if abs(outline.rotation_deg) > 0.01:
             outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
+        # Smooth FIRST on raw polygon (matching SVG editor's smoothClosedPath),
+        # then offset the smoothed polygon. This preserves the nice rounded
+        # curves seen in the editor, especially at sharp tips.
+        smoothed = catmull_rom_smooth(outer, samples_per_segment=20, tension=0.3)
+
         # Offset by margin (NEGATED: SVG is Y-down, offset_polygon assumes Y-up,
         # so positive margin goes inward. Negate to make it go outward.)
-        offset_outer = offset_polygon(outer, -margin)
+        offset_outer = offset_polygon(smoothed, -margin)
 
-        # Apply Catmull-Rom smoothing FIRST (before simplification) to match
-        # the SVG editor's smooth curves. 20 samples per segment for smooth
-        # curves even at sharp tips.
-        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=20, tension=0.3)
-        # Simplify after smoothing with small epsilon to reduce point count
-        smoothed = _simplify_polygon(smoothed, epsilon=0.15)
+        # Light simplification to reduce point count for OCP stability
+        offset_outer = _simplify_polygon(offset_outer, epsilon=0.15)
 
         # Build the cutout solid.
-        # NO Y-flip for flat export: SVG Y-down matches PrusaSlicer's Y display
-        # (Y+ at bottom of screen, toward the user). SVG polygon has positive
-        # signed area (= CCW for build123d), so no point reversal needed.
+        # Y-flip: SVG Y-down → build123d Y-up (PrusaSlicer shows Y+ at top).
+        # Y-flip reverses winding (CW→CCW), so reverse points to restore CCW.
         grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(float(pt[0]), float(pt[1])) for pt in smoothed]
+        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer][::-1]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
@@ -216,25 +216,27 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords to build123d coords.
-            # NO Y-flip for flat export: SVG Y-down matches PrusaSlicer's Y
-            # display direction. Text is created fresh in build123d so it
-            # reads correctly without any mirroring.
+            # Convert label coords (SVG: Y-down) to build123d coords (Y-up).
+            # Y-flip so export matches PrusaSlicer (Y+ at top of screen).
+            # Text is created fresh in build123d so it reads correctly.
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
-            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
+            y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
+
+            # Negate rotation: SVG uses CW (Y-down), build123d uses CCW (Y-up)
+            rot = -label.rotation_deg if abs(label.rotation_deg) > 0.01 else 0
 
             if label.cutout:
                 # Cut through the entire plate
                 text_solid = extrude(text_face, amount=plate_thickness * 3)
-                if abs(label.rotation_deg) > 0.01:
-                    text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+                if rot != 0:
+                    text_solid = text_solid.rotate(axis=Axis.Z, angle=rot)
                 text_solid = text_solid.moved(Location((x_local, y_local, -plate_thickness)))
                 plate = plate - text_solid
             else:
                 # Raised on top surface
                 text_solid = extrude(text_face, amount=label.depth_mm)
-                if abs(label.rotation_deg) > 0.01:
-                    text_solid = text_solid.rotate(axis=Axis.Z, angle=label.rotation_deg)
+                if rot != 0:
+                    text_solid = text_solid.rotate(axis=Axis.Z, angle=rot)
                 text_solid = text_solid.moved(Location((x_local, y_local, plate_thickness)))
                 plate = plate + text_solid
 
