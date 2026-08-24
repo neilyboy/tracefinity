@@ -50,13 +50,36 @@ export default function BinParamsPanel() {
         <NumInput label="Bottom radius (mm)" value={p.pocket_bottom_radius_mm} step={0.5} min={0} max={10} onChange={(v) => setParams({ pocket_bottom_radius_mm: v })} />
       </Section>
 
-      <Section title="Features">
+      <Section title="Magnet & Screw Holes">
         <Toggle label="Magnet holes (6×2mm)" checked={p.magnet_holes} onChange={(v) => setParams({ magnet_holes: v })} />
         <Toggle label="Screw holes (M3)" checked={p.screw_holes} onChange={(v) => setParams({ screw_holes: v })} />
-        <Toggle label="Scoop (finger cutout)" checked={p.scoop} onChange={(v) => setParams({ scoop: v })} />
+      </Section>
+
+      <Section title="Finger Access">
+        <Toggle label="Front edge scoop" checked={p.scoop} onChange={(v) => setParams({ scoop: v })} />
         {p.scoop && <NumInput label="Scoop depth (mm)" value={p.scoop_depth_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ scoop_depth_mm: v })} />}
-        <Toggle label="Finger scoop (auto tool edge)" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
-        {p.finger_scoop && <NumInput label="Finger scoop Ø (mm)" value={p.finger_scoop_diameter_mm} step={1} min={5} max={40} onChange={(v) => setParams({ finger_scoop_diameter_mm: v })} />}
+        {p.scoop && (
+          <div style={hintStyle}>
+            Cuts a semi-cylindrical scoop on the front wall of the bin
+            so fingers can slide under items.
+          </div>
+        )}
+        <div style={{ borderTop: '1px solid #27272a', margin: '6px 0' }} />
+        <Toggle label="Auto finger scoop at tool tips" checked={p.finger_scoop} onChange={(v) => setParams({ finger_scoop: v })} />
+        {p.finger_scoop && <NumInput label="Scoop diameter (mm)" value={p.finger_scoop_diameter_mm} step={1} min={5} max={40} onChange={(v) => setParams({ finger_scoop_diameter_mm: v })} />}
+        {p.finger_scoop && (
+          <div style={hintStyle}>
+            <span style={{ color: '#fbbf24' }}>●</span> Shown as a yellow dashed circle at each tool's farthest point.
+            Creates a finger cutout at the tool tip for lifting tools out.
+          </div>
+        )}
+        <div style={{ borderTop: '1px solid #27272a', margin: '6px 0' }} />
+        <div style={hintStyle}>
+          <span style={{ color: '#fca5a5' }}>●</span> <strong style={{ color: '#a1a1aa' }}>User finger holes</strong> — placed per-tool in the editor (red dashed circles). Use the <em>◯ Finger Hole</em> button in the toolbar or <em>+ Add Finger Hole</em> in Tool Properties.
+        </div>
+      </Section>
+
+      <Section title="Stacking & Labels">
         <Toggle label="Stacking lip" checked={p.lip} onChange={(v) => setParams({ lip: v })} />
         <Toggle label="Label tab" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
         {p.label_tab && (
@@ -183,4 +206,8 @@ function RadioGroup({ value, options, onChange }: {
 const inputStyle: React.CSSProperties = {
   width: 70, padding: '4px 6px', background: '#27272a', border: '1px solid #3f3f46',
   borderRadius: 4, color: '#e4e4e7', fontSize: 12,
+}
+
+const hintStyle: React.CSSProperties = {
+  fontSize: 10, color: '#71717a', marginTop: 4, lineHeight: 1.4,
 }
