@@ -95,7 +95,9 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
         outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
     # Offset the outer polygon outward by the margin (clearance).
-    offset_outer = offset_polygon(outer, margin)
+    # NEGATED: SVG is Y-down, offset_polygon assumes Y-up CCW, so positive
+    # margin goes inward. Negate to make it go outward.
+    offset_outer = offset_polygon(outer, -margin)
 
     # Apply Catmull-Rom smoothing FIRST (before simplification) to match the
     # SVG editor's smooth curves. Smoothing before simplification preserves

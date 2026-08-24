@@ -143,8 +143,9 @@ def generate_flat_outlines(design: Design) -> Solid:
         if abs(outline.rotation_deg) > 0.01:
             outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
-        # Offset by margin
-        offset_outer = offset_polygon(outer, margin)
+        # Offset by margin (NEGATED: SVG is Y-down, offset_polygon assumes Y-up,
+        # so positive margin goes inward. Negate to make it go outward.)
+        offset_outer = offset_polygon(outer, -margin)
 
         # Apply Catmull-Rom smoothing FIRST (before simplification) to match
         # the SVG editor's smooth curves. 20 samples per segment for smooth
@@ -154,12 +155,12 @@ def generate_flat_outlines(design: Design) -> Solid:
         smoothed = _simplify_polygon(smoothed, epsilon=0.15)
 
         # Build the cutout solid.
-        # Flip Y only (SVG Y-down → build123d Y-up). Text is created fresh in
-        # build123d so it reads correctly without X mirroring.
-        # Y-flip reverses winding, so reverse points to restore CCW.
+        # NO Y-flip for flat export: SVG Y-down matches PrusaSlicer's Y display
+        # (Y+ at bottom of screen, toward the user). SVG polygon has positive
+        # signed area (= CCW for build123d), so no point reversal needed.
         grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed][::-1]
+        pts = [(float(pt[0]), float(pt[1])) for pt in smoothed]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
@@ -215,11 +216,12 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
                 )
             text_face = text_sketch.sketch
 
-            # Convert label coords (SVG: Y-down) to build123d coords (Y-up).
-            # Y-flip only — text is created fresh in build123d so it reads
-            # correctly. X is not mirrored.
+            # Convert label coords to build123d coords.
+            # NO Y-flip for flat export: SVG Y-down matches PrusaSlicer's Y
+            # display direction. Text is created fresh in build123d so it
+            # reads correctly without any mirroring.
             x_local = label.x - params.grid_w * C.GRID_UNIT_MM / 2
-            y_local = params.grid_l * C.GRID_UNIT_MM / 2 - label.y
+            y_local = label.y - params.grid_l * C.GRID_UNIT_MM / 2
 
             if label.cutout:
                 # Cut through the entire plate
