@@ -143,24 +143,23 @@ def generate_flat_outlines(design: Design) -> Solid:
         if abs(outline.rotation_deg) > 0.01:
             outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
-        # Smooth FIRST on raw polygon (matching SVG editor's smoothClosedPath),
-        # then offset the smoothed polygon. This preserves the nice rounded
-        # curves seen in the editor, especially at sharp tips.
-        smoothed = catmull_rom_smooth(outer, samples_per_segment=20, tension=0.3)
+        # Offset the RAW polygon first (fewer points = no self-intersections),
+        # then smooth the offset result. Smoothing 600+ points then offsetting
+        # causes self-intersections at sharp curves, producing invalid solids.
+        offset_outer = offset_polygon(outer, -margin)
 
-        # Offset by margin (NEGATED: SVG is Y-down, offset_polygon assumes Y-up,
-        # so positive margin goes inward. Negate to make it go outward.)
-        offset_outer = offset_polygon(smoothed, -margin)
+        # Smooth the offset polygon to match SVG editor's smooth curves
+        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=0.3)
 
-        # Light simplification to reduce point count for OCP stability
-        offset_outer = _simplify_polygon(offset_outer, epsilon=0.15)
+        # Simplify to reduce point count for OCP boolean stability
+        smoothed = _simplify_polygon(smoothed, epsilon=0.2)
 
         # Build the cutout solid.
         # Y-flip: SVG Y-down → build123d Y-up (PrusaSlicer shows Y+ at top).
         # Y-flip reverses winding (CW→CCW), so reverse points to restore CCW.
         grid_w_mm = p.grid_w * C.GRID_UNIT_MM
         grid_l_mm = p.grid_l * C.GRID_UNIT_MM
-        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in offset_outer][::-1]
+        pts = [(float(pt[0]), grid_l_mm - float(pt[1])) for pt in smoothed][::-1]
         try:
             face = Polygon(pts)
             sketch = Sketch() + face

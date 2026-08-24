@@ -98,22 +98,23 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     if abs(outline.rotation_deg) > 0.01:
         outer = _rotate_points(outer, outline.rotation_deg, cx, cy)
 
-    # Smooth FIRST on raw polygon (matching SVG editor's smoothClosedPath),
-    # then offset the smoothed polygon. This preserves nice rounded curves.
-    smoothed = catmull_rom_smooth(outer, samples_per_segment=20, tension=0.3)
+    # Offset the RAW polygon first (fewer points = no self-intersections),
+    # then smooth the offset result. Smoothing 600+ points then offsetting
+    # causes self-intersections at sharp curves, producing invalid solids.
+    offset_outer = offset_polygon(outer, -margin)
 
-    # Offset by margin (NEGATED: SVG Y-down, offset_polygon assumes Y-up).
-    offset_outer = offset_polygon(smoothed, -margin)
+    # Smooth the offset polygon to match SVG editor's smooth curves
+    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=0.3)
 
-    # Light simplification for OCP boolean stability
-    offset_outer = _simplify_polygon(offset_outer, epsilon=0.15)
+    # Simplify for OCP boolean stability
+    smoothed = _simplify_polygon(smoothed, epsilon=0.2)
 
     # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
     # SVG editor has Y going DOWN; build123d has Y going UP.
     # Flip Y on each point: y_new = grid_l - y_old.
     # Y-flip reverses winding, so reverse the list to restore CCW for build123d.
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in offset_outer][::-1]
+    pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed][::-1]
     try:
         outer_face = Polygon(pts)
     except Exception:
