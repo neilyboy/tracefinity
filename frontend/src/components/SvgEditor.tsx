@@ -5,6 +5,7 @@ import { GRID_UNIT_MM } from '../editor/constants'
 import { smoothClosedPath } from '../utils/smoothPath'
 import { fontKeyToCssFamily } from '../editor/fontLoader'
 import type { Point, FingerHole, TextLabel, ToolOutline } from '../types'
+import AddShapeDialog from './AddShapeDialog'
 
 export default function SvgEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
@@ -13,7 +14,7 @@ export default function SvgEditor() {
     addVertex, deleteVertex, deleteTool, pushHistory, updateTool,
     undo, redo, history, historyIndex,
     addLabel, updateLabel, deleteLabel, moveLabel,
-    addTool,
+    addTool, addTools,
     symmetryAxis, symmetryMode, setSymmetryAxis, setSymmetryMode,
     mirrorHalf, symmetrize,
   } = useEditor()
@@ -167,46 +168,10 @@ export default function SvgEditor() {
   // Add a new tool with a basic shape
   const [showAddTool, setShowAddTool] = useState(false)
 
-  const makeRectTool = (w: number, h: number): ToolOutline => {
-    const cx = binW / 2, cy = binL / 2
-    const id = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    return {
-      id, label: '', visible: true, rotation_deg: 0,
-      outer: [
-        { x: cx - w/2, y: cy - h/2 },
-        { x: cx + w/2, y: cy - h/2 },
-        { x: cx + w/2, y: cy + h/2 },
-        { x: cx - w/2, y: cy + h/2 },
-      ],
-      holes: [], finger_holes: [],
-      margin_mm: null, pocket_depth_mm: null,
-    }
-  }
-
-  const makeCircleTool = (r: number, segments = 32): ToolOutline => {
-    const cx = binW / 2, cy = binL / 2
-    const id = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    const outer: Point[] = []
-    for (let i = 0; i < segments; i++) {
-      const a = (i / segments) * Math.PI * 2
-      outer.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) })
-    }
-    return {
-      id, label: '', visible: true, rotation_deg: 0,
-      outer, holes: [], finger_holes: [],
-      margin_mm: null, pocket_depth_mm: null,
-    }
-  }
-
-  const handleAddShape = (shape: 'rect' | 'circle' | 'small_rect') => {
-    let tool: ToolOutline
-    if (shape === 'rect') tool = makeRectTool(40, 80)
-    else if (shape === 'small_rect') tool = makeRectTool(20, 40)
-    else tool = makeCircleTool(20)
+  const handleAddShape = (tool: ToolOutline) => {
     addTool(tool)
     selectTool(tool.id)
     pushHistory()
-    setShowAddTool(false)
   }
 
   // Add a new text label at the center of the bin
@@ -375,31 +340,13 @@ export default function SvgEditor() {
           </>
         )}
         <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
-        {/* Add Tool dropdown */}
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={() => setShowAddTool(!showAddTool)}
-            style={toolBtn(false)}
-            title="Add a new tool shape"
-          >
-            ＋ Add Tool ▾
-          </button>
-          {showAddTool && (
-            <>
-              <div onClick={() => setShowAddTool(false)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
-              <div style={{
-                position: 'absolute', top: '100%', left: 0, zIndex: 999,
-                background: '#18181b', border: '1px solid #3f3f46', borderRadius: 4,
-                marginTop: 2, minWidth: 140, padding: 4,
-              }}>
-                <div style={{ fontSize: 9, color: '#71717a', padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Shapes</div>
-                <div onClick={() => handleAddShape('rect')} style={dropItemStyle}>▭ Rectangle 40×80mm</div>
-                <div onClick={() => handleAddShape('small_rect')} style={dropItemStyle}>▭ Small 20×40mm</div>
-                <div onClick={() => handleAddShape('circle')} style={dropItemStyle}>◯ Circle Ø40mm</div>
-              </div>
-            </>
-          )}
-        </div>
+        <button
+          onClick={() => setShowAddTool(true)}
+          style={toolBtn(false)}
+          title="Add a new tool shape with custom dimensions"
+        >
+          ＋ Add Tool
+        </button>
         <button
           onClick={handleAddLabel}
           style={toolBtn(false)}
@@ -653,6 +600,14 @@ export default function SvgEditor() {
           })}
         </svg>
       </div>
+
+      <AddShapeDialog
+        open={showAddTool}
+        onClose={() => setShowAddTool(false)}
+        onCreate={handleAddShape}
+        binW={binW}
+        binL={binL}
+      />
     </div>
   )
 }
@@ -663,9 +618,4 @@ function toolBtn(active: boolean): React.CSSProperties {
     background: active ? '#3b0764' : '#27272a', color: active ? '#a78bfa' : '#a1a1aa',
     cursor: 'pointer', fontSize: 12,
   }
-}
-
-const dropItemStyle: React.CSSProperties = {
-  padding: '4px 8px', fontSize: 12, cursor: 'pointer', color: '#a1a1aa',
-  borderRadius: 3,
 }

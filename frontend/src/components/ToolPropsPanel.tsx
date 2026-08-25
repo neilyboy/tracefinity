@@ -6,7 +6,7 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const [rotating, setRotating] = useState(false)
   const [saveName, setSaveName] = useState('')
@@ -16,6 +16,12 @@ export default function ToolPropsPanel() {
   const [libraryTools, setLibraryTools] = useState<ToolLibrarySummary[]>([])
   const [libLoading, setLibLoading] = useState(false)
   const [scalePct, setScalePct] = useState(100)
+  const [dupCount, setDupCount] = useState(4)
+  const [dupSpacing, setDupSpacing] = useState(5)
+  const [gridRows, setGridRows] = useState(4)
+  const [gridCols, setGridCols] = useState(5)
+  const [gridSpacingX, setGridSpacingX] = useState(5)
+  const [gridSpacingY, setGridSpacingY] = useState(5)
 
   const refreshLibrary = async () => {
     setLibLoading(true)
@@ -344,10 +350,93 @@ export default function ToolPropsPanel() {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 4, marginTop: 12, flexWrap: 'wrap' }}>
-        <button onClick={handleDuplicate} style={btnStyle} title="Duplicate this tool">
+      {/* Array / Duplicate section */}
+      <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Duplicate & Array
+      </div>
+
+      {/* Quick duplicate */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button onClick={handleDuplicate} style={{ ...btnStyle, flex: 1 }} title="Duplicate this tool (offset 10mm)">
           ⧉ Duplicate
         </button>
+      </div>
+
+      {/* Duplicate N times in a row */}
+      <div style={{ marginBottom: 8, padding: 8, background: '#18181b', borderRadius: 4, border: '1px solid #3f3f46' }}>
+        <div style={{ fontSize: 10, color: '#71717a', marginBottom: 4 }}>Linear repeat (copies to the right):</div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="number" value={dupCount} min={1} max={50} step={1}
+            onChange={(e) => setDupCount(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ ...inputStyle, width: 50 }}
+            title="Number of copies"
+          />
+          <span style={{ fontSize: 11, color: '#52525b' }}>copies</span>
+          <input
+            type="number" value={dupSpacing} min={0} max={50} step={0.5}
+            onChange={(e) => setDupSpacing(parseFloat(e.target.value) || 0)}
+            style={{ ...inputStyle, width: 50 }}
+            title="Spacing between copies (mm)"
+          />
+          <span style={{ fontSize: 11, color: '#52525b' }}>mm gap</span>
+          <button
+            onClick={() => duplicateToolN(tool.id, dupCount, dupSpacing)}
+            style={{ ...smallBtn, borderColor: '#7c3aed', color: '#a78bfa' }}
+          >
+            Create
+          </button>
+        </div>
+      </div>
+
+      {/* Grid array */}
+      <div style={{ marginBottom: 8, padding: 8, background: '#18181b', borderRadius: 4, border: '1px solid #3f3f46' }}>
+        <div style={{ fontSize: 10, color: '#71717a', marginBottom: 4 }}>Grid array (rows × columns):</div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+          <input
+            type="number" value={gridRows} min={1} max={20} step={1}
+            onChange={(e) => setGridRows(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ ...inputStyle, width: 40 }}
+            title="Rows"
+          />
+          <span style={{ fontSize: 11, color: '#52525b' }}>×</span>
+          <input
+            type="number" value={gridCols} min={1} max={20} step={1}
+            onChange={(e) => setGridCols(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ ...inputStyle, width: 40 }}
+            title="Columns"
+          />
+          <span style={{ fontSize: 11, color: '#52525b' }}>grid</span>
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="number" value={gridSpacingX} min={0} max={50} step={0.5}
+            onChange={(e) => setGridSpacingX(parseFloat(e.target.value) || 0)}
+            style={{ ...inputStyle, width: 45 }}
+            title="X spacing (mm)"
+          />
+          <span style={{ fontSize: 10, color: '#52525b' }}>X gap</span>
+          <input
+            type="number" value={gridSpacingY} min={0} max={50} step={0.5}
+            onChange={(e) => setGridSpacingY(parseFloat(e.target.value) || 0)}
+            style={{ ...inputStyle, width: 45 }}
+            title="Y spacing (mm)"
+          />
+          <span style={{ fontSize: 10, color: '#52525b' }}>Y gap</span>
+          <button
+            onClick={() => arrayTool(tool.id, gridRows, gridCols, gridSpacingX, gridSpacingY)}
+            disabled={gridRows < 2 && gridCols < 2}
+            style={{ ...smallBtn, borderColor: '#7c3aed', color: '#a78bfa', opacity: (gridRows < 2 && gridCols < 2) ? 0.4 : 1 }}
+          >
+            Create
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: '#52525b', marginTop: 4 }}>
+          Creates {(gridRows * gridCols) - 1} copies around this tool in a grid pattern.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 4, marginTop: 12, flexWrap: 'wrap' }}>
         <button
           onClick={() => updateTool(tool.id, { visible: !tool.visible })}
           style={btnStyle}

@@ -28,7 +28,10 @@ interface EditorState {
   updateTool: (id: string, updates: Partial<ToolOutline>) => void
   deleteTool: (id: string) => void
   addTool: (tool: ToolOutline) => void
+  addTools: (tools: ToolOutline[]) => void
   duplicateTool: (id: string) => void
+  duplicateToolN: (id: string, count: number, spacing: number) => void
+  arrayTool: (id: string, rows: number, cols: number, spacingX: number, spacingY: number) => void
   moveTool: (id: string, dx: number, dy: number) => void
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
@@ -115,6 +118,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => ({ design: { ...s.design, outlines: [...s.design.outlines, tool] } }))
   },
 
+  addTools: (tools) => {
+    get().pushHistory()
+    set((s) => ({ design: { ...s.design, outlines: [...s.design.outlines, ...tools] } }))
+  },
+
   duplicateTool: (id) => {
     const tool = get().design.outlines.find((o) => o.id === id)
     if (!tool) return
@@ -136,6 +144,82 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => ({
       design: { ...s.design, outlines: [...s.design.outlines, dup] },
       selectedToolId: newId,
+    }))
+  },
+
+  duplicateToolN: (id, count, spacing) => {
+    const tool = get().design.outlines.find((o) => o.id === id)
+    if (!tool || count < 1) return
+    get().pushHistory()
+    // Compute bounding box to determine offset distance
+    const xs = tool.outer.map((p) => p.x)
+    const ys = tool.outer.map((p) => p.y)
+    const w = Math.max(...xs) - Math.min(...xs)
+    const h = Math.max(...ys) - Math.min(...ys)
+    const offsetX = w + spacing
+    const dups: ToolOutline[] = []
+    for (let i = 1; i <= count; i++) {
+      const newId = `tool_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`
+      dups.push({
+        ...tool,
+        id: newId,
+        label: tool.label,
+        outer: tool.outer.map((p) => ({ x: p.x + offsetX * i, y: p.y })),
+        holes: tool.holes.map((hp) => hp.map((p) => ({ x: p.x + offsetX * i, y: p.y }))),
+        finger_holes: (tool.finger_holes ?? []).map((fh) => ({
+          ...fh,
+          x: fh.x + offsetX * i,
+          y: fh.y,
+        })),
+      })
+    }
+    set((s) => ({
+      design: { ...s.design, outlines: [...s.design.outlines, ...dups] },
+    }))
+  },
+
+  arrayTool: (id, rows, cols, spacingX, spacingY) => {
+    const tool = get().design.outlines.find((o) => o.id === id)
+    if (!tool || (rows < 2 && cols < 2)) return
+    get().pushHistory()
+    // Compute bounding box
+    const xs = tool.outer.map((p) => p.x)
+    const ys = tool.outer.map((p) => p.y)
+    const w = Math.max(...xs) - Math.min(...xs)
+    const h = Math.max(...ys) - Math.min(...ys)
+    const stepX = w + spacingX
+    const stepY = h + spacingY
+    const cx = xs.reduce((a, b) => a + b, 0) / xs.length
+    const cy = ys.reduce((a, b) => a + b, 0) / ys.length
+    const startX = cx - ((cols - 1) * stepX) / 2
+    const startY = cy - ((rows - 1) * stepY) / 2
+    const dups: ToolOutline[] = []
+    let idx = 0
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (row === 0 && col === 0) continue // skip original position
+        idx++
+        const targetX = startX + col * stepX
+        const targetY = startY + row * stepY
+        const dx = targetX - cx
+        const dy = targetY - cy
+        const newId = `tool_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`
+        dups.push({
+          ...tool,
+          id: newId,
+          label: tool.label,
+          outer: tool.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+          holes: tool.holes.map((hp) => hp.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+          finger_holes: (tool.finger_holes ?? []).map((fh) => ({
+            ...fh,
+            x: fh.x + dx,
+            y: fh.y + dy,
+          })),
+        })
+      }
+    }
+    set((s) => ({
+      design: { ...s.design, outlines: [...s.design.outlines, ...dups] },
     }))
   },
 
