@@ -176,7 +176,8 @@ def generate_flat_outlines(design: Design) -> Solid:
         offset_outer = offset_polygon(outer, -margin)
 
         # Smooth the offset polygon to match SVG editor's smooth curves
-        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=0.3)
+        smoothing = getattr(outline, 'smoothing', 0.3)
+        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=smoothing)
 
         # Simplify to reduce point count for OCP boolean stability
         smoothed = _simplify_polygon(smoothed, epsilon=0.2)

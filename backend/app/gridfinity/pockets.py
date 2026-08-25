@@ -104,7 +104,8 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     offset_outer = offset_polygon(outer, -margin)
 
     # Smooth the offset polygon to match SVG editor's smooth curves
-    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=0.3)
+    smoothing = getattr(outline, 'smoothing', 0.3)
+    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=smoothing)
 
     # Simplify for OCP boolean stability
     smoothed = _simplify_polygon(smoothed, epsilon=0.2)

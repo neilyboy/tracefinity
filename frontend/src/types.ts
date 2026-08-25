@@ -49,6 +49,7 @@ export interface ToolOutline {
   visible: boolean
   rotation_deg: number
   finger_holes: FingerHole[]
+  smoothing: number  // 0.0 = sharp polygon, 0.3 = balanced, 1.0 = max curves
 }
 
 export interface BinParams {

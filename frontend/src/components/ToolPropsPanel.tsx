@@ -306,6 +306,25 @@ export default function ToolPropsPanel() {
         </div>
       </Field>
 
+      <Field label={`Path smoothing (${((tool.smoothing ?? 0.3) * 100).toFixed(0)}%)`}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="range" min={0} max={100} value={Math.round((tool.smoothing ?? 0.3) * 100)} step={5}
+            onChange={(e) => updateTool(tool.id, { smoothing: parseInt(e.target.value) / 100 })}
+            style={{ flex: 1 }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+          <button onClick={() => updateTool(tool.id, { smoothing: 0.0 })} style={smallBtn}>Sharp</button>
+          <button onClick={() => updateTool(tool.id, { smoothing: 0.3 })} style={smallBtn}>Balanced</button>
+          <button onClick={() => updateTool(tool.id, { smoothing: 0.6 })} style={smallBtn}>Smooth</button>
+          <button onClick={() => updateTool(tool.id, { smoothing: 1.0 })} style={smallBtn}>Max</button>
+        </div>
+        <div style={{ fontSize: 10, color: '#52525b', marginTop: 4, lineHeight: 1.4 }}>
+          0% = sharp corners (polygon), 30% = balanced, 100% = maximum curve smoothing. Affects both preview and exported geometry.
+        </div>
+      </Field>
+
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Tool Library
       </div>

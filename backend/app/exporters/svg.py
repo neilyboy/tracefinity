@@ -56,14 +56,14 @@ def export_svg(design: Design) -> str:
             continue
         offset_outer = offset_polygon(outer, margin)
         # Translate from paper coords to SVG coords (pad offset).
-        d = _polygon_to_path(offset_outer, dx=pad, dy=pad)
+        d = _polygon_to_path(offset_outer, dx=pad, dy=pad, tension=getattr(outline, 'smoothing', 0.3))
         parts.append(f'<path d="{d}" fill="none" stroke="red" stroke-width="0.3"/>')
         # Holes
         for hole in outline.holes:
             hole_pts = to_np(hole)
             if len(hole_pts) < 3:
                 continue
-            d = _polygon_to_path(hole_pts, dx=pad, dy=pad)
+            d = _polygon_to_path(hole_pts, dx=pad, dy=pad, tension=getattr(outline, 'smoothing', 0.3))
             parts.append(f'<path d="{d}" fill="none" stroke="red" stroke-width="0.3"/>')
         # Label text
         if outline.label:
@@ -96,16 +96,20 @@ def export_svg(design: Design) -> str:
     return '\n'.join(parts)
 
 
-def _polygon_to_path(pts, dx: float = 0, dy: float = 0) -> str:
+def _polygon_to_path(pts, dx: float = 0, dy: float = 0, tension: float = 0.3) -> str:
     """Convert an (N,2) array to a smooth SVG path 'd' string (closed).
 
     Uses Catmull-Rom splines converted to cubic bezier curves for smooth,
     rounded outlines — same technique as tooltrace.ai.
     """
-    if len(pts) < 3:
-        return ""
+    if len(pts) < 3 or tension <= 0.001:
+        # Sharp polygon mode — straight lines
+        cmds = [f"M {pts[0][0] + dx:.2f} {pts[0][1] + dy:.2f}"]
+        for p in pts[1:]:
+            cmds.append(f"L {p[0] + dx:.2f} {p[1] + dy:.2f}")
+        cmds.append("Z")
+        return " ".join(cmds)
     n = len(pts)
-    tension = 0.5
     cmds = [f"M {pts[0][0] + dx:.2f} {pts[0][1] + dy:.2f}"]
     for i in range(n):
         p0 = pts[(i - 1) % n]

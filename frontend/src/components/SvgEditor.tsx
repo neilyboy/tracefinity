@@ -431,7 +431,7 @@ export default function SvgEditor() {
               ? `rotate(${rot} ${cx + pad} ${cy + pad})`
               : undefined
 
-            const outerD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad, y: pt.y + pad })))
+            const outerD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3)
 
             return (
               <g key={tool.id} transform={transform}>
@@ -441,7 +441,7 @@ export default function SvgEditor() {
 
                 {/* Holes */}
                 {tool.holes.map((hole, hi) => {
-                  const hd = smoothClosedPath(hole.map(pt => ({ x: pt.x + pad, y: pt.y + pad })))
+                  const hd = smoothClosedPath(hole.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3)
                   return <path key={hi} d={hd} fill="#0f1115" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.3} />
                 })}
 

@@ -38,6 +38,8 @@ class ToolOutline(BaseModel):
     rotation_deg: float = 0.0
     # User-placed finger holes for this tool
     finger_holes: list[FingerHole] = Field(default_factory=list)
+    # Path smoothing tension (0.0 = sharp polygon, 0.3 = balanced, 1.0 = max curves)
+    smoothing: float = 0.3
 
 
 class TextLabel(BaseModel):

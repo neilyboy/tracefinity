@@ -104,6 +104,10 @@ export function createTool(
   cy: number,
 ): ToolOutline {
   const id = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  // Sharp shapes (rect, triangle) default to low smoothing so corners stay crisp.
+  // Curved shapes (circle, hex, slot, rounded_rect) default to 0 since they
+  // already have the right geometry — smoothing would distort them.
+  const smoothing = 0.0
   return {
     id,
     label: '',
@@ -114,6 +118,7 @@ export function createTool(
     finger_holes: [],
     margin_mm: null,
     pocket_depth_mm: null,
+    smoothing,
   }
 }
 

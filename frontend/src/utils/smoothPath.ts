@@ -12,19 +12,15 @@ export interface Pt {
  * Uses Catmull-Rom splines converted to cubic bezier curves.
  *
  * @param pts Array of {x, y} points (at least 3)
+ * @param tension Controls how much curves bulge (0.0 = sharp polygon, 0.3 = balanced, 1.0 = max)
  * @returns SVG path string like "M x y C ... Z"
  */
-export function smoothClosedPath(pts: Pt[]): string {
+export function smoothClosedPath(pts: Pt[], tension: number = 0.3): string {
   const n = pts.length
-  if (n < 3) {
-    // Not enough points for curves — fall back to straight lines
+  if (n < 3 || tension <= 0.001) {
+    // Not enough points for curves, or tension is zero — use straight lines
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ') + ' Z'
   }
-
-  // Tension factor — controls how much curves bulge between control points.
-  // 0.3 = balanced: smooth curves on rounded ends, straight edges stay
-  // straight when there are multiple control points on them.
-  const tension = 0.3
 
   const segments: string[] = []
   segments.push(`M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`)
