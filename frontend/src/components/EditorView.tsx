@@ -4,13 +4,11 @@ import SvgEditor from './SvgEditor'
 import BinParamsPanel from './BinParamsPanel'
 import ToolPropsPanel from './ToolPropsPanel'
 import ExportBar from './ExportBar'
-import { Undo2, Redo2, Home, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Home, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function EditorView() {
-  const { undo, redo, reset, history, historyIndex } = useEditor()
-  const canUndo = historyIndex > 0
-  const canRedo = historyIndex < history.length - 1
+  const { reset } = useEditor()
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
 
@@ -22,7 +20,7 @@ export default function EditorView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Editor toolbar */}
+      {/* Top toolbar — just Home and panel toggles */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
         borderBottom: '1px solid #27272a', background: '#18181b', flexShrink: 0,
@@ -30,12 +28,7 @@ export default function EditorView() {
         <button onClick={() => reset()} style={iconBtn} title="New / Upload">
           <Home size={16} />
         </button>
-        <button onClick={undo} disabled={!canUndo} style={{ ...iconBtn, opacity: canUndo ? 1 : 0.3 }} title="Undo">
-          <Undo2 size={16} />
-        </button>
-        <button onClick={redo} disabled={!canRedo} style={{ ...iconBtn, opacity: canRedo ? 1 : 0.3 }} title="Redo">
-          <Redo2 size={16} />
-        </button>
+        <span style={{ fontSize: 13, color: '#71717a', marginLeft: 4 }}>Tracefinity</span>
         <span style={{ flex: 1 }} />
         <button onClick={() => setLeftOpen(!leftOpen)} style={iconBtn} title="Toggle bin parameters panel">
           {leftOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}

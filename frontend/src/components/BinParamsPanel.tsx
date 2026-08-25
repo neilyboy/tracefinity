@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useEditor } from '../editor/useEditorState'
 
 export default function BinParamsPanel() {
@@ -7,14 +8,6 @@ export default function BinParamsPanel() {
   return (
     <div style={{ padding: 12, overflow: 'auto' }}>
       <h3 style={{ fontSize: 13, color: '#a1a1aa', marginTop: 0, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bin Parameters</h3>
-
-      <Section title="Output Mode">
-        <RadioGroup
-          value={p.output_mode}
-          options={[{ v: 'gridfinity', l: 'Gridfinity (3D)' }, { v: 'foam', l: 'Foam (2D)' }]}
-          onChange={(v) => setParams({ output_mode: v as any })}
-        />
-      </Section>
 
       <Section title="Grid Size (42mm units)">
         <NumInput label="Width" value={p.grid_w} min={1} max={20} onChange={(v) => setParams({ grid_w: v })} />
@@ -37,12 +30,12 @@ export default function BinParamsPanel() {
         </div>
       </Section>
 
-      <Section title="Walls & Base">
+      <Section title="Walls & Base" defaultOpen={false}>
         <NumInput label="Wall (mm)" value={p.wall_thickness_mm} step={0.1} min={0.4} max={5} onChange={(v) => setParams({ wall_thickness_mm: v })} />
         <NumInput label="Base (mm)" value={p.base_thickness_mm} step={0.1} min={0.4} max={5} onChange={(v) => setParams({ base_thickness_mm: v })} />
       </Section>
 
-      <Section title="Tool Pockets — Defaults">
+      <Section title="Tool Pockets — Defaults" defaultOpen={false}>
         <NumInput label="Depth (mm)" value={p.pocket_depth_mm} step={0.5} min={1} max={100} onChange={(v) => setParams({ pocket_depth_mm: v })} />
         <NumInput label="Margin (mm)" value={p.tool_margin_mm} step={0.1} min={0} max={10} onChange={(v) => setParams({ tool_margin_mm: v })} />
         <div style={hintStyle}>
@@ -56,7 +49,7 @@ export default function BinParamsPanel() {
         </details>
       </Section>
 
-      <Section title="Bottom Holes">
+      <Section title="Bottom Holes" defaultOpen={false}>
         <Toggle label="Magnet holes (6×2mm)" checked={p.magnet_holes} onChange={(v) => setParams({ magnet_holes: v })} />
         <Toggle label="Screw holes (M3)" checked={p.screw_holes} onChange={(v) => setParams({ screw_holes: v })} />
         {p.screw_holes && (
@@ -66,7 +59,7 @@ export default function BinParamsPanel() {
         )}
       </Section>
 
-      <Section title="Finger Access">
+      <Section title="Finger Access" defaultOpen={false}>
         <Toggle label="Front edge scoop" checked={p.scoop} onChange={(v) => setParams({ scoop: v })} />
         {p.scoop && <NumInput label="Scoop depth (mm)" value={p.scoop_depth_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ scoop_depth_mm: v })} />}
         {p.scoop && (
@@ -80,51 +73,37 @@ export default function BinParamsPanel() {
         </div>
       </Section>
 
-      <Section title="Lip & Print Tabs">
+      <Section title="Lip & Print Tabs" defaultOpen={false}>
         <Toggle label="Stacking lip" checked={p.lip} onChange={(v) => setParams({ lip: v })} />
         {p.lip && (
           <>
             <div style={{ ...hintStyle, marginBottom: 6 }}>
-              Print support tabs help the lip print cleanly without sagging.
+              The stacking lip allows bins to stack on top of each other.
+              Print support tabs help the lip overhang print cleanly without sagging.
             </div>
             <RadioGroup
               value={p.tabs}
               options={[{ v: 'none', l: 'No tabs' }, { v: 'split', l: 'Split' }, { v: 'aligned', l: 'Aligned' }]}
               onChange={(v) => setParams({ tabs: v as any })}
             />
+            <div style={hintStyle}>
+              <strong style={{ color: '#a1a1aa' }}>No tabs:</strong> clean look, lip may sag on printers without cooling.<br/>
+              <strong style={{ color: '#a1a1aa' }}>Split:</strong> small tabs on all 4 sides with gaps.<br/>
+              <strong style={{ color: '#a1a1aa' }}>Aligned:</strong> continuous tabs on front and back only.
+            </div>
           </>
         )}
       </Section>
 
-      <Section title="Label Tab">
-        <Toggle label="Engraved label on front" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
-        {p.label_tab && (
-          <>
-            <input
-              type="text"
-              placeholder="Label text..."
-              value={p.label_text}
-              onChange={(e) => setParams({ label_text: e.target.value })}
-              style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid #3f3f46', background: '#18181b', color: '#e4e4e7', fontSize: 13, marginTop: 4 }}
-            />
-            <NumInput label="Font size (mm)" value={p.label_font_size_mm} step={0.5} min={3} max={20} onChange={(v) => setParams({ label_font_size_mm: v })} />
-            <NumInput label="Label depth (mm)" value={p.label_depth_mm} step={0.1} min={0.2} max={3} onChange={(v) => setParams({ label_depth_mm: v })} />
-          </>
-        )}
-      </Section>
-
-      <Section title="Compartments">
+      <Section title="Compartments (Dividers)" defaultOpen={false}>
+        <div style={hintStyle}>
+          Adds internal divider walls to create separate compartments. Note: dividers may interfere with tool pockets — best for simple storage bins without tool cutouts.
+        </div>
         <NumInput label="Along X" value={p.compartments_x} min={1} max={10} onChange={(v) => setParams({ compartments_x: v })} />
         <NumInput label="Along Y" value={p.compartments_y} min={1} max={10} onChange={(v) => setParams({ compartments_y: v })} />
       </Section>
 
-      {p.output_mode === 'foam' && (
-        <Section title="Foam">
-          <NumInput label="Sheet thickness (mm)" value={p.foam_thickness_mm} step={1} min={1} max={50} onChange={(v) => setParams({ foam_thickness_mm: v })} />
-        </Section>
-      )}
-
-      <Section title="Flat Insert (Two-Tone)">
+      <Section title="Flat Insert (Two-Tone)" defaultOpen={false}>
         <Toggle label="Enable flat insert layer" checked={p.use_flat_insert} onChange={(v) => setParams({ use_flat_insert: v })} />
         {p.use_flat_insert && (
           <>
@@ -143,11 +122,21 @@ export default function BinParamsPanel() {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600 }}>{title}</div>
-      {children}
+    <div style={{ marginBottom: 8, borderBottom: '1px solid #27272a' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          fontSize: 11, color: '#71717a', fontWeight: 600, cursor: 'pointer',
+          userSelect: 'none', padding: '6px 0', display: 'flex', alignItems: 'center', gap: 4,
+        }}
+      >
+        <span style={{ fontSize: 9, color: '#52525b', width: 10 }}>{open ? '▼' : '▶'}</span>
+        {title}
+      </div>
+      {open && <div style={{ paddingBottom: 8, paddingTop: 2 }}>{children}</div>}
     </div>
   )
 }

@@ -6,7 +6,7 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const [rotating, setRotating] = useState(false)
   const [saveName, setSaveName] = useState('')
@@ -64,8 +64,35 @@ export default function ToolPropsPanel() {
         <h3 style={{ fontSize: 13, color: '#a1a1aa', marginTop: 0, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Tool Library
         </h3>
+
+        {/* Tools in current design */}
+        {design.outlines.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Tools in this design ({design.outlines.length})
+            </div>
+            {design.outlines.map((t, i) => (
+              <div
+                key={t.id}
+                onClick={() => selectTool(t.id)}
+                style={{
+                  padding: '6px 8px', marginBottom: 2, borderRadius: 4, cursor: 'pointer',
+                  background: '#27272a', border: '1px solid #3f3f46', fontSize: 12,
+                  color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ color: '#52525b', fontSize: 10 }}>{i + 1}.</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t.label || `Tool ${i + 1}`}
+                </span>
+                {!t.visible && <span style={{ fontSize: 10, color: '#52525b' }}>hidden</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <p style={{ fontSize: 12, color: '#71717a', marginBottom: 12, lineHeight: 1.5 }}>
-          No tool selected. Add tools from your library below, or select a tool in the editor to edit it.
+          No tool selected. Click a tool above, add one with <strong style={{ color: '#a1a1aa' }}>＋ Add Tool</strong> in the toolbar, or load from your library below.
         </p>
         <LibraryBrowser
           tools={libraryTools}
@@ -114,14 +141,6 @@ export default function ToolPropsPanel() {
     updateTool(tool.id, { rotation_deg: newAngle % 360 })
   }
 
-  const handleAddFingerHole = () => {
-    const pts = tool.outer
-    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
-    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
-    const newHole = { x: cx, y: cy, radius_mm: 15.0, depth_mm: null as number | null }
-    updateTool(tool.id, { finger_holes: [...(tool.finger_holes ?? []), newHole] })
-  }
-
   const handleRemoveFingerHole = (idx: number) => {
     const holes = [...(tool.finger_holes ?? [])]
     holes.splice(idx, 1)
@@ -152,9 +171,31 @@ export default function ToolPropsPanel() {
 
   return (
     <div style={{ padding: 12 }}>
-      <h3 style={{ fontSize: 13, color: '#a1a1aa', marginTop: 0, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      <h3 style={{ fontSize: 13, color: '#a1a1aa', marginTop: 0, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Tool {idx + 1} Properties
       </h3>
+
+      {/* Tool selector strip */}
+      {design.outlines.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+          {design.outlines.map((t, i) => (
+            <button
+              key={t.id}
+              onClick={() => selectTool(t.id)}
+              style={{
+                padding: '2px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer',
+                border: `1px solid ${t.id === tool.id ? '#7c3aed' : '#3f3f46'}`,
+                background: t.id === tool.id ? '#3b0764' : '#27272a',
+                color: t.id === tool.id ? '#a78bfa' : '#71717a',
+                whiteSpace: 'nowrap',
+              }}
+              title={t.label || `Tool ${i + 1}`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Field label="Label">
         <input
@@ -209,11 +250,13 @@ export default function ToolPropsPanel() {
       </Field>
 
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        Finger Holes — click on tool in editor to place
+        Finger Holes
       </div>
-      <button onClick={handleAddFingerHole} style={{ ...btnStyle, width: '100%', marginBottom: 8 }}>
-        + Add Finger Hole at Center
-      </button>
+      {(tool.finger_holes ?? []).length === 0 && (
+        <div style={{ fontSize: 11, color: '#52525b', marginBottom: 8, lineHeight: 1.4 }}>
+          Use the <strong style={{ color: '#a1a1aa' }}>◯ Finger Hole</strong> button in the toolbar above to place finger holes on this tool.
+        </div>
+      )}
       {(tool.finger_holes ?? []).map((hole, i) => (
         <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 10, color: '#52525b', minWidth: 60 }}>
