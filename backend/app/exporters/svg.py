@@ -54,16 +54,16 @@ def export_svg(design: Design) -> str:
         outer = to_np(outline.outer)
         if len(outer) < 3:
             continue
-        offset_outer = offset_polygon(outer, margin)
+        offset_outer = offset_polygon(outer, -margin)  # negative = outward for CW polygons
         # Translate from paper coords to SVG coords (pad offset).
-        d = _polygon_to_path(offset_outer, dx=pad, dy=pad, tension=getattr(outline, 'smoothing', 0.3))
+        d = _polygon_to_path(offset_outer, dx=pad, dy=pad, tension=outline.smoothing)
         parts.append(f'<path d="{d}" fill="none" stroke="red" stroke-width="0.3"/>')
         # Holes
         for hole in outline.holes:
             hole_pts = to_np(hole)
             if len(hole_pts) < 3:
                 continue
-            d = _polygon_to_path(hole_pts, dx=pad, dy=pad, tension=getattr(outline, 'smoothing', 0.3))
+            d = _polygon_to_path(hole_pts, dx=pad, dy=pad, tension=outline.smoothing)
             parts.append(f'<path d="{d}" fill="none" stroke="red" stroke-width="0.3"/>')
         # Label text
         if outline.label:

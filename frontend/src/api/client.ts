@@ -79,25 +79,37 @@ export async function saveDesign(design: Design): Promise<Design> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(design),
   })
-  if (!res.ok) throw new Error('Save failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Save failed')
+  }
   return res.json()
 }
 
 export async function loadDesign(id: string): Promise<Design> {
   const res = await fetch(`${API}/designs/${id}`)
-  if (!res.ok) throw new Error('Load failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Load failed')
+  }
   return res.json()
 }
 
 export async function listDesigns(): Promise<DesignSummary[]> {
   const res = await fetch(`${API}/designs`)
-  if (!res.ok) throw new Error('List failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'List failed')
+  }
   return res.json()
 }
 
 export async function deleteDesign(id: string): Promise<void> {
   const res = await fetch(`${API}/designs/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Delete failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Delete failed')
+  }
 }
 
 export async function exportDesign(design: Design, fmt: ExportFormat): Promise<Blob> {
@@ -137,13 +149,19 @@ export interface ToolLibrarySummary {
 
 export async function listToolLibrary(): Promise<ToolLibrarySummary[]> {
   const res = await fetch(`${API}/tools`)
-  if (!res.ok) throw new Error('List tools failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'List tools failed')
+  }
   return res.json()
 }
 
 export async function loadToolFromLibrary(id: string): Promise<ToolOutline> {
   const res = await fetch(`${API}/tools/${id}`)
-  if (!res.ok) throw new Error('Load tool failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Load tool failed')
+  }
   return res.json()
 }
 
@@ -157,17 +175,26 @@ export async function saveToolToLibrary(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tool, name, category }),
   })
-  if (!res.ok) throw new Error('Save tool failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Save tool failed')
+  }
   return res.json()
 }
 
 export async function deleteToolFromLibrary(id: string): Promise<void> {
   const res = await fetch(`${API}/tools/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Delete tool failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Delete tool failed')
+  }
 }
 
 export async function listFonts(): Promise<FontInfo[]> {
   const res = await fetch(`${API}/designs/fonts/list`)
-  if (!res.ok) throw new Error('List fonts failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'List fonts failed')
+  }
   return res.json()
 }

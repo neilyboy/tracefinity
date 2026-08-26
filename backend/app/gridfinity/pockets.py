@@ -48,12 +48,13 @@ from . import constants as C
 def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> np.ndarray:
     """Rotate points around a center by angle in degrees.
 
-    SVG uses clockwise rotation (Y-down), but this rotation matrix is CCW (Y-up).
-    Negate the angle to match SVG's visual rotation direction.
+    SVG uses clockwise rotation (Y-down). This rotation matrix is CCW (Y-up).
+    Negate the angle so that the rotation in build123d (after Y-flip) matches
+    what the user sees in the SVG editor.
     """
     if abs(angle_deg) < 0.01:
         return pts
-    angle_rad = np.radians(angle_deg)  # no negation: keep SVG's CW direction
+    angle_rad = np.radians(-angle_deg)  # negate: SVG CW → build123d CCW after Y-flip
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
     dx = pts[:, 0] - cx
     dy = pts[:, 1] - cy
@@ -104,8 +105,7 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     offset_outer = offset_polygon(outer, -margin)
 
     # Smooth the offset polygon to match SVG editor's smooth curves
-    smoothing = getattr(outline, 'smoothing', 0.3)
-    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=smoothing)
+    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=outline.smoothing)
 
     # Simplify for OCP boolean stability
     smoothed = _simplify_polygon(smoothed, epsilon=0.2)

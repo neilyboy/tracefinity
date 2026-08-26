@@ -43,7 +43,7 @@ def export_dxf(design: Design) -> bytes:
         outer = to_np(outline.outer)
         if len(outer) < 3:
             continue
-        offset_outer = offset_polygon(outer, margin)
+        offset_outer = offset_polygon(outer, -margin)  # negative = outward for CW polygons
         _add_polyline(msp, offset_outer, layer="CUT")
         for hole in outline.holes:
             hole_pts = to_np(hole)

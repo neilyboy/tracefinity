@@ -644,12 +644,14 @@ export default function SvgEditor() {
                   const dist = Math.sqrt((pt.x - next.x) ** 2 + (pt.y - next.y) ** 2)
                   const isClustered = dist < 2 // less than 2mm apart
                   // Highlight mirrored vertex pair when symmetry is live
-                  const isMirrored = symmetryAxis && symmetryMode === 'live' && drag?.type === 'vertex' &&
+                  const draggedTool = drag?.type === 'vertex' ? design.outlines.find(o => o.id === drag.toolId) : null
+                  const draggedVertex = draggedTool && drag?.vertexIdx !== undefined ? draggedTool.outer[drag.vertexIdx] : null
+                  const isMirrored = symmetryAxis && symmetryMode === 'live' && draggedVertex && drag &&
                     drag.toolId === tool.id &&
                     (vi === drag.vertexIdx || (
                       symmetryAxis === 'x'
-                        ? Math.abs(pt.x - (2 * cx - design.outlines.find(o => o.id === drag.toolId)!.outer[drag.vertexIdx!].x)) < 0.5
-                        : Math.abs(pt.y - (2 * cy - design.outlines.find(o => o.id === drag.toolId)!.outer[drag.vertexIdx!].y)) < 0.5
+                        ? Math.abs(pt.x - (2 * cx - draggedVertex.x)) < 0.5
+                        : Math.abs(pt.y - (2 * cy - draggedVertex.y)) < 0.5
                     ))
                   return (
                     <circle
