@@ -48,13 +48,20 @@ from . import constants as C
 def _rotate_points(pts: np.ndarray, angle_deg: float, cx: float, cy: float) -> np.ndarray:
     """Rotate points around a center by angle in degrees.
 
-    SVG uses clockwise rotation (Y-down). This rotation matrix is CCW (Y-up).
-    Negate the angle so that the rotation in build123d (after Y-flip) matches
-    what the user sees in the SVG editor.
+    Rotation is applied in SVG coordinate space (Y-down) BEFORE the Y-flip
+    that converts to build123d coordinates (Y-up). The standard rotation
+    matrix with positive angle is CCW in math (Y-up) but appears CW in SVG
+    (Y-down), which matches the SVG editor's `rotate()` transform.
+
+    No negation is needed here — the Y-flip applied later handles the
+    coordinate system conversion. Negating would double-flip the rotation.
+
+    Note: Label text rotation IS negated (in generator.py) because labels
+    rotate in build123d space (after Y-flip) where positive = CCW.
     """
     if abs(angle_deg) < 0.01:
         return pts
-    angle_rad = np.radians(-angle_deg)  # negate: SVG CW → build123d CCW after Y-flip
+    angle_rad = np.radians(angle_deg)  # no negation: matches SVG's CW rotation
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
     dx = pts[:, 0] - cx
     dy = pts[:, 1] - cy
