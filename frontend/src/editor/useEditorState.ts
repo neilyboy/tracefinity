@@ -37,6 +37,7 @@ interface EditorState {
   arrayTool: (id: string, rows: number, cols: number, spacingX: number, spacingY: number) => void
   moveTool: (id: string, dx: number, dy: number) => void
   moveTools: (ids: string[], dx: number, dy: number) => void
+  rotateTools: (ids: string[], angleDeg: number) => void
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
   deleteVertex: (toolId: string, vertexIdx: number) => void
@@ -283,6 +284,50 @@ export const useEditor = create<EditorState>((set, get) => ({
               }
             : o,
         ),
+      },
+    }))
+  },
+
+  rotateTools: (ids, angleDeg) => {
+    if (ids.length === 0 || angleDeg === 0) return
+    get().pushHistory()
+    const tools = get().design.outlines.filter((o) => ids.includes(o.id))
+    if (tools.length === 0) return
+    // Compute group center (average of all tool centroids)
+    let sumCx = 0, sumCy = 0
+    for (const t of tools) {
+      const cx = t.outer.reduce((a, p) => a + p.x, 0) / t.outer.length
+      const cy = t.outer.reduce((a, p) => a + p.y, 0) / t.outer.length
+      sumCx += cx
+      sumCy += cy
+    }
+    const groupCx = sumCx / tools.length
+    const groupCy = sumCy / tools.length
+    const rad = (angleDeg * Math.PI) / 180
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
+    const idSet = new Set(ids)
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (!idSet.has(o.id)) return o
+          const rotatePt = (p: Point): Point => ({
+            x: groupCx + (p.x - groupCx) * cos - (p.y - groupCy) * sin,
+            y: groupCy + (p.x - groupCx) * sin + (p.y - groupCy) * cos,
+          })
+          return {
+            ...o,
+            outer: o.outer.map(rotatePt),
+            holes: o.holes.map((h) => h.map(rotatePt)),
+            finger_holes: (o.finger_holes ?? []).map((fh) => ({
+              ...fh,
+              x: groupCx + (fh.x - groupCx) * cos - (fh.y - groupCy) * sin,
+              y: groupCy + (fh.x - groupCx) * sin + (fh.y - groupCy) * cos,
+            })),
+            rotation_deg: ((o.rotation_deg ?? 0) + angleDeg) % 360,
+          }
+        }),
       },
     }))
   },

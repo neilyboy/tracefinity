@@ -6,7 +6,7 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, rotateTools, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const multiSelected = selectedToolIds.length > 1 ? selectedToolIds : []
   const [rotating, setRotating] = useState(false)
@@ -98,6 +98,25 @@ export default function ToolPropsPanel() {
         <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Group Actions
         </div>
+
+        {/* Rotation controls */}
+        <div style={{ marginBottom: 8, padding: 8, background: '#18181b', borderRadius: 4, border: '1px solid #3f3f46' }}>
+          <div style={{ fontSize: 10, color: '#71717a', marginBottom: 4 }}>Rotate all selected:</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => rotateTools(multiSelected, -90)} style={smallBtn} title="Rotate -90°">↺ 90°</button>
+            <button onClick={() => rotateTools(multiSelected, -45)} style={smallBtn} title="Rotate -45°">↺ 45°</button>
+            <button onClick={() => rotateTools(multiSelected, -15)} style={smallBtn} title="Rotate -15°">↺ 15°</button>
+            <button onClick={() => rotateTools(multiSelected, -5)} style={smallBtn} title="Rotate -5°">↺ 5°</button>
+            <button onClick={() => rotateTools(multiSelected, 5)} style={smallBtn} title="Rotate +5°">5° ↻</button>
+            <button onClick={() => rotateTools(multiSelected, 15)} style={smallBtn} title="Rotate +15°">15° ↻</button>
+            <button onClick={() => rotateTools(multiSelected, 45)} style={smallBtn} title="Rotate +45°">45° ↻</button>
+            <button onClick={() => rotateTools(multiSelected, 90)} style={smallBtn} title="Rotate +90°">90° ↻</button>
+          </div>
+          <div style={{ fontSize: 10, color: '#52525b', marginTop: 4 }}>
+            Rotates around the group center.
+          </div>
+        </div>
+
         <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => multiSelected.forEach((id) => deleteTool(id))}
@@ -303,6 +322,13 @@ export default function ToolPropsPanel() {
           <button onClick={handleAutoRotate} disabled={rotating} style={smallBtn} title="Auto-align to axes">
             {rotating ? '...' : 'Auto'}
           </button>
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+          <button onClick={() => rotateTools([tool.id], -15)} style={smallBtn} title="Rotate -15°">↺ 15°</button>
+          <button onClick={() => rotateTools([tool.id], -5)} style={smallBtn} title="Rotate -5°">↺ 5°</button>
+          <button onClick={() => rotateTools([tool.id], 5)} style={smallBtn} title="Rotate +5°">5° ↻</button>
+          <button onClick={() => rotateTools([tool.id], 15)} style={smallBtn} title="Rotate +15°">15° ↻</button>
+          <button onClick={() => rotateTools([tool.id], 45)} style={smallBtn} title="Rotate +45°">45° ↻</button>
         </div>
       </Field>
 
