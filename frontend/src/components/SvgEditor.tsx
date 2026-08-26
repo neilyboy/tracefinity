@@ -436,9 +436,9 @@ export default function SvgEditor() {
         <button
           onClick={() => setShowAddTool(true)}
           style={toolBtn(false)}
-          title="Add a new tool shape with custom dimensions"
+          title="Add a new shape with custom dimensions"
         >
-          ＋ Add Tool
+          ＋ Add Shape
         </button>
         <button
           onClick={handleAddLabel}
