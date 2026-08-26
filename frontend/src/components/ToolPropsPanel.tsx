@@ -6,8 +6,9 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
+  const multiSelected = selectedToolIds.length > 1 ? selectedToolIds : []
   const [rotating, setRotating] = useState(false)
   const [saveName, setSaveName] = useState('')
   const [saveCat, setSaveCat] = useState('General')
@@ -62,6 +63,85 @@ export default function ToolPropsPanel() {
     } catch (e) {
       console.error('Delete tool failed:', e)
     }
+  }
+
+  // Multi-select panel
+  if (multiSelected.length > 1) {
+    const multiTools = design.outlines.filter((o) => multiSelected.includes(o.id))
+    return (
+      <div style={{ padding: 12 }}>
+        <h3 style={{ fontSize: 13, color: '#a1a1aa', marginTop: 0, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {multiSelected.length} Tools Selected
+        </h3>
+
+        {/* Selected tools list */}
+        <div style={{ marginBottom: 12 }}>
+          {multiTools.map((t, i) => (
+            <div
+              key={t.id}
+              onClick={() => selectTool(t.id)}
+              style={{
+                padding: '4px 8px', marginBottom: 2, borderRadius: 4, cursor: 'pointer',
+                background: '#27272a', border: '1px solid #3f3f46', fontSize: 11,
+                color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span style={{ color: '#52525b', fontSize: 10 }}>{i + 1}.</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {t.label || `Tool ${design.outlines.indexOf(t) + 1}`}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Group actions */}
+        <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Group Actions
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => multiSelected.forEach((id) => deleteTool(id))}
+            style={{ ...btnStyle, color: '#fca5a5', borderColor: '#7f1d1d' }}
+          >
+            🗑 Delete All
+          </button>
+          <button
+            onClick={() => selectTool(multiSelected[0])}
+            style={btnStyle}
+          >
+            Select One
+          </button>
+          <button
+            onClick={() => selectTool(null)}
+            style={btnStyle}
+          >
+            Deselect All
+          </button>
+        </div>
+
+        <div style={{ fontSize: 11, color: '#52525b', lineHeight: 1.5 }}>
+          Drag any selected tool in the editor to move all {multiSelected.length} tools together.
+          Ctrl+click a tool to add/remove it from the selection.
+        </div>
+
+        {/* Labels section */}
+        {design.labels.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: '#71717a', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Text Labels
+            </div>
+            {design.labels.map((label) => (
+              <LabelEditor
+                key={label.id}
+                label={label}
+                onUpdate={(updates) => updateLabel(label.id, updates)}
+                onDelete={() => deleteLabel(label.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (!tool) {

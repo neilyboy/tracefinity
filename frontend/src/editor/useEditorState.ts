@@ -7,6 +7,7 @@ interface EditorState {
   // The current design being edited
   design: Design
   selectedToolId: string | null
+  selectedToolIds: string[]  // multi-select (includes selectedToolId)
   // UI state
   view: 'upload' | 'calibrate' | 'trace' | 'editor'
   loading: boolean
@@ -25,6 +26,8 @@ interface EditorState {
   setDesign: (design: Design) => void
   setParams: (params: Partial<BinParams>) => void
   selectTool: (id: string | null) => void
+  toggleToolSelection: (id: string) => void
+  selectTools: (ids: string[]) => void
   updateTool: (id: string, updates: Partial<ToolOutline>) => void
   deleteTool: (id: string) => void
   addTool: (tool: ToolOutline) => void
@@ -33,6 +36,7 @@ interface EditorState {
   duplicateToolN: (id: string, count: number, spacing: number) => void
   arrayTool: (id: string, rows: number, cols: number, spacingX: number, spacingY: number) => void
   moveTool: (id: string, dx: number, dy: number) => void
+  moveTools: (ids: string[], dx: number, dy: number) => void
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
   deleteVertex: (toolId: string, vertexIdx: number) => void
@@ -74,6 +78,7 @@ const emptyDesign: Design = {
 export const useEditor = create<EditorState>((set, get) => ({
   design: { ...emptyDesign },
   selectedToolId: null,
+  selectedToolIds: [],
   view: 'upload',
   loading: false,
   error: null,
@@ -86,14 +91,28 @@ export const useEditor = create<EditorState>((set, get) => ({
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
 
-  setDesign: (design) => set({ design, view: 'editor', selectedToolId: null, history: [design], historyIndex: 0 }),
+  setDesign: (design) => set({ design, view: 'editor', selectedToolId: null, selectedToolIds: [], history: [design], historyIndex: 0 }),
 
   setParams: (params) => {
     get().pushHistory()
     set((s) => ({ design: { ...s.design, params: { ...s.design.params, ...params } } }))
   },
 
-  selectTool: (id) => set({ selectedToolId: id }),
+  selectTool: (id) => set({ selectedToolId: id, selectedToolIds: id ? [id] : [] }),
+
+  toggleToolSelection: (id) => set((s) => {
+    const exists = s.selectedToolIds.includes(id)
+    const newIds = exists ? s.selectedToolIds.filter((x) => x !== id) : [...s.selectedToolIds, id]
+    return {
+      selectedToolIds: newIds,
+      selectedToolId: newIds.length === 1 ? newIds[0] : (newIds.length === 0 ? null : s.selectedToolId),
+    }
+  }),
+
+  selectTools: (ids) => set({
+    selectedToolIds: ids,
+    selectedToolId: ids.length === 1 ? ids[0] : (ids.length === 0 ? null : ids[0]),
+  }),
 
   updateTool: (id, updates) => {
     get().pushHistory()
@@ -229,6 +248,29 @@ export const useEditor = create<EditorState>((set, get) => ({
         ...s.design,
         outlines: s.design.outlines.map((o) =>
           o.id === id
+            ? {
+                ...o,
+                outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+                holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                finger_holes: (o.finger_holes ?? []).map((fh) => ({
+                  ...fh,
+                  x: fh.x + dx,
+                  y: fh.y + dy,
+                })),
+              }
+            : o,
+        ),
+      },
+    }))
+  },
+
+  moveTools: (ids, dx, dy) => {
+    const idSet = new Set(ids)
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) =>
+          idSet.has(o.id)
             ? {
                 ...o,
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
@@ -549,5 +591,5 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, history: [], historyIndex: -1 }),
+  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, selectedToolIds: [], history: [], historyIndex: -1 }),
 }))

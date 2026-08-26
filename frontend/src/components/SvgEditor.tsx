@@ -10,7 +10,8 @@ import AddShapeDialog from './AddShapeDialog'
 export default function SvgEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
   const {
-    design, selectedToolId, selectTool, updateVertex, moveTool,
+    design, selectedToolId, selectedToolIds, selectTool, toggleToolSelection, selectTools,
+    updateVertex, moveTool, moveTools,
     addVertex, deleteVertex, deleteTool, pushHistory, updateTool,
     undo, redo, history, historyIndex,
     addLabel, updateLabel, deleteLabel, moveLabel,
@@ -20,8 +21,9 @@ export default function SvgEditor() {
   } = useEditor()
 
   const [drag, setDrag] = useState<{
-    type: 'vertex' | 'tool' | 'fingerHole'
+    type: 'vertex' | 'tool' | 'fingerHole' | 'multi'
     toolId: string
+    toolIds?: string[]  // for multi-select drag
     vertexIdx?: number
     fingerHoleIdx?: number
     startMm: Point
@@ -70,9 +72,31 @@ export default function SvgEditor() {
     const tool = design.outlines.find((o) => o.id === toolId)
     if (!tool) return
     const mm = toMm(e.clientX, e.clientY)
-    setDrag({ type: 'tool', toolId, startMm: mm, startVertices: tool.outer.map((v) => ({ ...v })) })
-    lastMoveRef.current = { dx: 0, dy: 0 }
-    selectTool(toolId)
+
+    // Ctrl+click (or Cmd+click) toggles multi-select
+    if (e.ctrlKey || e.metaKey) {
+      toggleToolSelection(toolId)
+      // If now selected, start a multi-drag of all selected tools
+      const currentSelected = useEditor.getState().selectedToolIds
+      if (currentSelected.includes(toolId) && currentSelected.length > 1) {
+        setDrag({ type: 'multi', toolId, toolIds: currentSelected, startMm: mm, startVertices: tool.outer.map((v) => ({ ...v })) })
+        lastMoveRef.current = { dx: 0, dy: 0 }
+      }
+      ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+      return
+    }
+
+    // Regular click: if clicking an already-selected tool in a multi-select group,
+    // drag all of them. Otherwise, select just this one.
+    if (selectedToolIds.includes(toolId) && selectedToolIds.length > 1) {
+      // Drag all selected tools together
+      setDrag({ type: 'multi', toolId, toolIds: [...selectedToolIds], startMm: mm, startVertices: tool.outer.map((v) => ({ ...v })) })
+      lastMoveRef.current = { dx: 0, dy: 0 }
+    } else {
+      setDrag({ type: 'tool', toolId, startMm: mm, startVertices: tool.outer.map((v) => ({ ...v })) })
+      lastMoveRef.current = { dx: 0, dy: 0 }
+      selectTool(toolId)
+    }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }
 
@@ -95,6 +119,15 @@ export default function SvgEditor() {
       const incDy = sdy - lastMoveRef.current.dy
       if (incDx !== 0 || incDy !== 0) {
         moveTool(drag.toolId, incDx, incDy)
+        lastMoveRef.current = { dx: sdx, dy: sdy }
+      }
+    } else if (drag.type === 'multi' && drag.toolIds) {
+      const sdx = snapEnabled ? snapToGrid(dx, GRID_UNIT_MM / 4, true) : dx
+      const sdy = snapEnabled ? snapToGrid(dy, GRID_UNIT_MM / 4, true) : dy
+      const incDx = sdx - lastMoveRef.current.dx
+      const incDy = sdy - lastMoveRef.current.dy
+      if (incDx !== 0 || incDy !== 0) {
+        moveTools(drag.toolIds, incDx, incDy)
         lastMoveRef.current = { dx: sdx, dy: sdy }
       }
     } else if (drag.type === 'fingerHole' && drag.fingerHoleIdx !== undefined && drag.startHole) {
@@ -159,9 +192,12 @@ export default function SvgEditor() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!selectedToolId) return
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      deleteTool(selectedToolId)
+      if (selectedToolIds.length > 1) {
+        selectedToolIds.forEach((id) => deleteTool(id))
+      } else if (selectedToolId) {
+        deleteTool(selectedToolId)
+      }
     }
   }
 
@@ -362,9 +398,11 @@ export default function SvgEditor() {
         <span style={{ fontSize: 12, color: '#52525b' }}>
           {placingFingerHole
             ? 'Click anywhere on the selected tool to place a finger hole'
-            : symmetryAxis
-              ? `Symmetry ${symmetryAxis.toUpperCase()} ${symmetryMode === 'live' ? '(live mirror)' : '(manual)'} · Drag vertices to edit · Use Copy buttons to mirror halves`
-              : 'Drag vertices to edit · Double-click edge to add vertex · Del to remove tool'}
+            : selectedToolIds.length > 1
+              ? `${selectedToolIds.length} tools selected · Ctrl+click to add/remove · Drag to move all`
+              : symmetryAxis
+                ? `Symmetry ${symmetryAxis.toUpperCase()} ${symmetryMode === 'live' ? '(live mirror)' : '(manual)'} · Drag vertices to edit · Use Copy buttons to mirror halves`
+                : 'Drag vertices to edit · Double-click edge to add vertex · Ctrl+click tools to multi-select'}
         </span>
       </div>
 
@@ -389,7 +427,7 @@ export default function SvgEditor() {
               suppressClickRef.current = false
               return
             }
-            selectTool(null)
+            selectTool(null)  // clears both selectedToolId and selectedToolIds
           }}
         >
           {/* Bin outline */}
@@ -420,7 +458,7 @@ export default function SvgEditor() {
           {/* Tool outlines */}
           {design.outlines.map((tool) => {
             if (!tool.visible) return null
-            const isSelected = tool.id === selectedToolId
+            const isSelected = selectedToolIds.includes(tool.id)
             const margin = tool.margin_mm ?? p.tool_margin_mm
             // Compute centroid for rotation
             const cx = tool.outer.reduce((a, b) => a + b.x, 0) / tool.outer.length
