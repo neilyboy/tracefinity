@@ -23,6 +23,7 @@ export default function ToolPropsPanel() {
   const [gridCols, setGridCols] = useState(5)
   const [gridSpacingX, setGridSpacingX] = useState(5)
   const [gridSpacingY, setGridSpacingY] = useState(5)
+  const [customAngle, setCustomAngle] = useState(0)
 
   const refreshLibrary = async () => {
     setLibLoading(true)
@@ -112,8 +113,31 @@ export default function ToolPropsPanel() {
             <button onClick={() => rotateTools(multiSelected, 45)} style={smallBtn} title="Rotate +45°">45° ↻</button>
             <button onClick={() => rotateTools(multiSelected, 90)} style={smallBtn} title="Rotate +90°">90° ↻</button>
           </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 6 }}>
+            <input
+              type="number" value={customAngle} step={1}
+              onChange={(e) => setCustomAngle(parseFloat(e.target.value) || 0)}
+              style={{ ...inputStyle, width: 60 }}
+              placeholder="angle"
+            />
+            <span style={{ fontSize: 11, color: '#52525b' }}>°</span>
+            <button
+              onClick={() => { rotateTools(multiSelected, customAngle); setCustomAngle(0) }}
+              disabled={customAngle === 0}
+              style={{ ...smallBtn, borderColor: '#7c3aed', color: '#a78bfa', opacity: customAngle === 0 ? 0.4 : 1 }}
+            >
+              ↻ Apply
+            </button>
+            <button
+              onClick={() => { rotateTools(multiSelected, -customAngle); setCustomAngle(0) }}
+              disabled={customAngle === 0}
+              style={{ ...smallBtn, opacity: customAngle === 0 ? 0.4 : 1 }}
+            >
+              ↺ Apply
+            </button>
+          </div>
           <div style={{ fontSize: 10, color: '#52525b', marginTop: 4 }}>
-            Rotates around the group center.
+            Rotates around the group center. Use negative for counter-clockwise.
           </div>
         </div>
 
