@@ -40,6 +40,7 @@ export default function SvgEditor() {
   const [zoom, setZoom] = useState(1)
   const [placingFingerHole, setPlacingFingerHole] = useState(false)
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null)
+  const [marquee, setMarquee] = useState<{ startX: number; startY: number; x: number; y: number } | null>(null)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -150,6 +151,55 @@ export default function SvgEditor() {
       ;(e.target as Element).releasePointerCapture?.(e.pointerId)
     }
     setDrag(null)
+  }
+
+  // --- Marquee (rubber-band) selection ---
+  const handleSvgPointerDown = (e: React.PointerEvent) => {
+    if (placingFingerHole) return
+    // Only start marquee on direct click on the SVG element (not on a tool/vertex)
+    if (e.target !== e.currentTarget && (e.target as Element).tagName !== 'rect') return
+    const mm = toMm(e.clientX, e.clientY)
+    setMarquee({ startX: mm.x, startY: mm.y, x: mm.x, y: mm.y })
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+
+  const handleSvgPointerMove = (e: React.PointerEvent) => {
+    if (!marquee) return
+    const mm = toMm(e.clientX, e.clientY)
+    setMarquee({ ...marquee, x: mm.x, y: mm.y })
+  }
+
+  const handleSvgPointerUp = (e: React.PointerEvent) => {
+    if (!marquee) return
+    ;(e.currentTarget as Element).releasePointerCapture?.(e.pointerId)
+    // Find all tools whose bounding box intersects the marquee rect
+    const mx1 = Math.min(marquee.startX, marquee.x)
+    const my1 = Math.min(marquee.startY, marquee.y)
+    const mx2 = Math.max(marquee.startX, marquee.x)
+    const my2 = Math.max(marquee.startY, marquee.y)
+    // Only select if the marquee is at least 2mm in size (avoid accidental clicks)
+    if (Math.abs(mx2 - mx1) < 2 && Math.abs(my2 - my1) < 2) {
+      setMarquee(null)
+      return
+    }
+    const hitIds: string[] = []
+    for (const tool of design.outlines) {
+      if (!tool.visible) continue
+      const xs = tool.outer.map((p) => p.x)
+      const ys = tool.outer.map((p) => p.y)
+      const tx1 = Math.min(...xs), ty1 = Math.min(...ys)
+      const tx2 = Math.max(...xs), ty2 = Math.max(...ys)
+      // Rectangle intersection test
+      if (tx1 < mx2 && tx2 > mx1 && ty1 < my2 && ty2 > my1) {
+        hitIds.push(tool.id)
+      }
+    }
+    if (hitIds.length > 0) {
+      selectTools(hitIds)
+    } else {
+      selectTool(null)
+    }
+    setMarquee(null)
   }
 
   const handleEdgeClick = (e: React.MouseEvent, toolId: string, afterIdx: number) => {
@@ -402,7 +452,7 @@ export default function SvgEditor() {
               ? `${selectedToolIds.length} tools selected · Ctrl+click to add/remove · Drag to move all`
               : symmetryAxis
                 ? `Symmetry ${symmetryAxis.toUpperCase()} ${symmetryMode === 'live' ? '(live mirror)' : '(manual)'} · Drag vertices to edit · Use Copy buttons to mirror halves`
-                : 'Drag vertices to edit · Double-click edge to add vertex · Ctrl+click tools to multi-select'}
+                : 'Drag vertices to edit · Double-click edge to add vertex · Ctrl+click or drag-box to multi-select'}
         </span>
       </div>
 
@@ -414,10 +464,20 @@ export default function SvgEditor() {
           preserveAspectRatio="xMidYMin meet"
           style={{
             width: '100%', height: '100%', maxWidth: viewW * zoom * 4, maxHeight: viewH * zoom * 4,
-            cursor: placingFingerHole ? 'crosshair' : 'default',
+            cursor: placingFingerHole ? 'crosshair' : (marquee ? 'crosshair' : 'default'),
           }}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
+          onPointerDown={(e) => {
+            if (placingFingerHole) return
+            handleSvgPointerDown(e)
+          }}
+          onPointerMove={(e) => {
+            handlePointerMove(e)
+            handleSvgPointerMove(e)
+          }}
+          onPointerUp={(e) => {
+            handlePointerUp(e)
+            handleSvgPointerUp(e)
+          }}
           onClick={(e) => {
             if (placingFingerHole) {
               handlePlaceFingerHole(e)
@@ -427,6 +487,8 @@ export default function SvgEditor() {
               suppressClickRef.current = false
               return
             }
+            // Don't deselect on click if we just finished a marquee
+            if (marquee) return
             selectTool(null)  // clears both selectedToolId and selectedToolIds
           }}
         >
@@ -636,6 +698,21 @@ export default function SvgEditor() {
             </g>
             )
           })}
+
+          {/* Marquee selection rectangle */}
+          {marquee && (
+            <rect
+              x={pad + Math.min(marquee.startX, marquee.x)}
+              y={pad + Math.min(marquee.startY, marquee.y)}
+              width={Math.abs(marquee.x - marquee.startX)}
+              height={Math.abs(marquee.y - marquee.startY)}
+              fill="rgba(124, 58, 237, 0.1)"
+              stroke="#a78bfa"
+              strokeWidth={0.3}
+              strokeDasharray="2,1"
+              pointerEvents="none"
+            />
+          )}
         </svg>
       </div>
 
