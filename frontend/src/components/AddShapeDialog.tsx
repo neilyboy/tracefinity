@@ -296,16 +296,19 @@ export default function AddShapeDialog({ open, onClose, onCreate, binW, binL }: 
   const isRing = selected === 'ring'
   const isStructural = selected === 'l_shape' || selected === 't_shape' || selected === 'cross'
 
-  const showW = !isCircle  // circle uses diameter as w
-  const showH = !(isCircle || isRound && !isEllipse && !isSlot)
+  // All shapes show Width (or Diameter for round shapes).
+  // Round shapes (circle, hex, pentagon, octagon) only use one dimension.
+  // Star and Ring use Diameter + their special params.
+  const showW = true
+  const showH = !isRound && !isStar && !isRing  // round/star/ring shapes don't need height
   const showR = isRoundedRect
   const showR2 = isTrapezoid
   const showPoints = isStar
   const showInnerR = isStar
   const showThickness = isRing || isStructural
 
-  const labelW = isCircle ? 'Diameter (mm)' : isRound ? 'Diameter (mm)' : 'Width (mm)'
-  const labelH = isEllipse || isSlot ? 'Height (mm)' : 'Height (mm)'
+  const labelW = isRound || isStar || isRing ? 'Diameter (mm)' : 'Width (mm)'
+  const labelH = 'Height (mm)'
 
   const extra = { r2, points, innerR, thickness }
 
