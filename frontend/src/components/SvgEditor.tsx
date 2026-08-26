@@ -37,7 +37,7 @@ export default function SvgEditor() {
   const suppressClickRef = useRef(false)
 
   const [snapEnabled, setSnapEnabled] = useState(true)
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(0.5)
   const [placingFingerHole, setPlacingFingerHole] = useState(false)
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ startX: number; startY: number; x: number; y: number } | null>(null)
@@ -46,7 +46,7 @@ export default function SvgEditor() {
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
   const binL = p.grid_l * GRID_UNIT_MM
-  const pad = 10
+  const pad = 80  // workspace margin around the tray (mm)
   const viewW = binW + 2 * pad
   const viewH = binL + 2 * pad
 
@@ -157,13 +157,13 @@ export default function SvgEditor() {
   // --- Marquee (rubber-band) selection ---
   const handleSvgPointerDown = (e: React.PointerEvent) => {
     if (placingFingerHole) return
-    // Start marquee on click on the SVG background or the bin outline rect.
+    // Start marquee on click on the SVG background or any background element.
     // Tool paths have their own pointer handlers with stopPropagation, so they
     // won't reach here. Vertex circles also stopPropagation.
     const target = e.target as Element
     const tag = target.tagName
-    // Allow starting on SVG element itself, rect (bin background), or line (grid)
-    if (tag !== 'svg' && tag !== 'rect' && tag !== 'line') return
+    // Allow starting on SVG element itself, rect (workspace/tray bg), line (grid/ruler), text (ruler labels)
+    if (tag !== 'svg' && tag !== 'rect' && tag !== 'line' && tag !== 'text') return
     const mm = toMm(e.clientX, e.clientY)
     setMarquee({ startX: mm.x, startY: mm.y, x: mm.x, y: mm.y })
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
@@ -447,10 +447,11 @@ export default function SvgEditor() {
         >
           🏷 Add Label
         </button>
-        <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))} style={toolBtn(false)}>−</button>
-        <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Fit to screen">Fit</button>
+        <button onClick={() => setZoom((z) => Math.max(0.15, z - 0.2))} style={toolBtn(false)}>−</button>
+        <button onClick={() => setZoom(0.5)} style={toolBtn(false)} title="Fit workspace to screen">Fit</button>
+        <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Zoom to tray (100%)">Tray</button>
         <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom((z) => Math.min(4, z + 0.2))} style={toolBtn(false)}>+</button>
+        <button onClick={() => setZoom((z) => Math.min(8, z + 0.2))} style={toolBtn(false)}>+</button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#52525b' }}>
           {placingFingerHole
@@ -470,7 +471,7 @@ export default function SvgEditor() {
           viewBox={`0 0 ${viewW} ${viewH}`}
           preserveAspectRatio="xMidYMin meet"
           style={{
-            width: '100%', height: '100%', maxWidth: viewW * zoom * 4, maxHeight: viewH * zoom * 4,
+            width: '100%', height: '100%', maxWidth: viewW * zoom * 8, maxHeight: viewH * zoom * 8,
             cursor: placingFingerHole ? 'crosshair' : (marquee ? 'crosshair' : 'default'),
           }}
           onPointerDown={(e) => {
@@ -502,13 +503,47 @@ export default function SvgEditor() {
             selectTool(null)  // clears both selectedToolId and selectedToolIds
           }}
         >
-          {/* Bin outline */}
+          {/* Workspace background (entire SVG area) */}
+          <rect x={0} y={0} width={viewW} height={viewH} fill="#0a0b0e" />
+
+          {/* Workspace grid (10mm fine grid, very subtle) */}
+          <g stroke="#151618" strokeWidth={0.15}>
+            {Array.from({ length: Math.ceil(viewW / 10) + 1 }, (_, i) => (
+              <line key={`wsx${i}`} x1={i * 10} y1={0} x2={i * 10} y2={viewH} />
+            ))}
+            {Array.from({ length: Math.ceil(viewH / 10) + 1 }, (_, i) => (
+              <line key={`wsy${i}`} x1={0} y1={i * 10} x2={viewW} y2={i * 10} />
+            ))}
+          </g>
+
+          {/* Workspace grid (50mm major grid, slightly more visible) */}
+          <g stroke="#1c1e22" strokeWidth={0.25}>
+            {Array.from({ length: Math.ceil(viewW / 50) + 1 }, (_, i) => (
+              <line key={`wsX${i}`} x1={i * 50} y1={0} x2={i * 50} y2={viewH} />
+            ))}
+            {Array.from({ length: Math.ceil(viewH / 50) + 1 }, (_, i) => (
+              <line key={`wsY${i}`} x1={0} y1={i * 50} x2={viewW} y2={i * 50} />
+            ))}
+          </g>
+
+          {/* Tray shadow (subtle drop shadow effect) */}
           <rect
-            x={pad} y={pad} width={binW} height={binL}
-            fill="#18181b" stroke="#3f3f46" strokeWidth={0.5} rx={3.75} ry={3.75}
+            x={pad + 1} y={pad + 1.5} width={binW} height={binL}
+            fill="#000000" opacity={0.4} rx={3.75} ry={3.75}
           />
 
-          {/* Grid overlay */}
+          {/* Tray area (the actual Gridfinity bin) */}
+          <rect
+            x={pad} y={pad} width={binW} height={binL}
+            fill="#18181b" stroke="#52525b" strokeWidth={0.6} rx={3.75} ry={3.75}
+          />
+
+          {/* Tray label (top-left corner) */}
+          <text x={pad + 3} y={pad - 3} fontSize={4} fill="#52525b" fontWeight="bold">
+            {p.grid_w}×{p.grid_l} Gridfinity
+          </text>
+
+          {/* Grid overlay (Gridfinity unit grid lines inside tray) */}
           <g stroke="#27272a" strokeWidth={0.2} strokeDasharray="2,2">
             {Array.from({ length: p.grid_w - 1 }, (_, i) => (
               <line key={`vx${i}`} x1={pad + (i + 1) * GRID_UNIT_MM} y1={pad} x2={pad + (i + 1) * GRID_UNIT_MM} y2={pad + binL} />
@@ -516,6 +551,42 @@ export default function SvgEditor() {
             {Array.from({ length: p.grid_l - 1 }, (_, i) => (
               <line key={`hy${i}`} x1={pad} y1={pad + (i + 1) * GRID_UNIT_MM} x2={pad + binW} y2={pad + (i + 1) * GRID_UNIT_MM} />
             ))}
+          </g>
+
+          {/* Ruler marks — top edge (mm scale) */}
+          <g stroke="#3f3f46" strokeWidth={0.2}>
+            {Array.from({ length: Math.ceil(binW / 10) + 1 }, (_, i) => {
+              const x = pad + i * 10
+              const isMajor = i % 5 === 0
+              return (
+                <g key={`rT${i}`}>
+                  <line x1={x} y1={pad - (isMajor ? 4 : 2)} x2={x} y2={pad} />
+                  {isMajor && (
+                    <text x={x} y={pad - 5} fontSize={2.5} fill="#52525b" textAnchor="middle">
+                      {i * 10}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
+          </g>
+
+          {/* Ruler marks — left edge (mm scale) */}
+          <g stroke="#3f3f46" strokeWidth={0.2}>
+            {Array.from({ length: Math.ceil(binL / 10) + 1 }, (_, i) => {
+              const y = pad + i * 10
+              const isMajor = i % 5 === 0
+              return (
+                <g key={`rL${i}`}>
+                  <line x1={pad - (isMajor ? 4 : 2)} y1={y} x2={pad} y2={y} />
+                  {isMajor && (
+                    <text x={pad - 5} y={y + 1} fontSize={2.5} fill="#52525b" textAnchor="end">
+                      {i * 10}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
           </g>
 
           {/* Magnet holes */}
