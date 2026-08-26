@@ -41,6 +41,7 @@ export default function SvgEditor() {
   const [placingFingerHole, setPlacingFingerHole] = useState(false)
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ startX: number; startY: number; x: number; y: number } | null>(null)
+  const marqueeJustFinishedRef = useRef(false)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -156,8 +157,13 @@ export default function SvgEditor() {
   // --- Marquee (rubber-band) selection ---
   const handleSvgPointerDown = (e: React.PointerEvent) => {
     if (placingFingerHole) return
-    // Only start marquee on direct click on the SVG element (not on a tool/vertex)
-    if (e.target !== e.currentTarget && (e.target as Element).tagName !== 'rect') return
+    // Start marquee on click on the SVG background or the bin outline rect.
+    // Tool paths have their own pointer handlers with stopPropagation, so they
+    // won't reach here. Vertex circles also stopPropagation.
+    const target = e.target as Element
+    const tag = target.tagName
+    // Allow starting on SVG element itself, rect (bin background), or line (grid)
+    if (tag !== 'svg' && tag !== 'rect' && tag !== 'line') return
     const mm = toMm(e.clientX, e.clientY)
     setMarquee({ startX: mm.x, startY: mm.y, x: mm.x, y: mm.y })
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
@@ -200,6 +206,7 @@ export default function SvgEditor() {
       selectTool(null)
     }
     setMarquee(null)
+    marqueeJustFinishedRef.current = true
   }
 
   const handleEdgeClick = (e: React.MouseEvent, toolId: string, afterIdx: number) => {
@@ -487,8 +494,11 @@ export default function SvgEditor() {
               suppressClickRef.current = false
               return
             }
-            // Don't deselect on click if we just finished a marquee
-            if (marquee) return
+            // Don't deselect on click if we just finished a marquee selection
+            if (marqueeJustFinishedRef.current) {
+              marqueeJustFinishedRef.current = false
+              return
+            }
             selectTool(null)  // clears both selectedToolId and selectedToolIds
           }}
         >
