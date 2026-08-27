@@ -51,9 +51,10 @@ async def export_design(payload: dict):
         )
 
     # 3D formats require build123d
-    if fmt in ("stl", "3mf", "step", "stl_flat"):
+    if fmt in ("stl", "3mf", "step", "stl_flat", "stl_lid"):
         try:
             from ..gridfinity.generator import generate_gridfinity, generate_flat_outlines
+            from ..gridfinity.lid_builder import generate_lid
             from ..exporters.mesh import export_stl, export_3mf
             from ..exporters.step import export_step
 
@@ -64,6 +65,12 @@ async def export_design(payload: dict):
                 content = export_stl(solid)
                 media = "model/stl"
                 filename = f"{name}_{file_id}_flat.stl"
+            elif fmt == "stl_lid":
+                # Bin lid: snaps onto the bin, with Gridfinity base on bottom
+                solid = generate_lid(design)
+                content = export_stl(solid)
+                media = "model/stl"
+                filename = f"{name}_{file_id}_lid.stl"
             else:
                 solid = generate_gridfinity(design)
 

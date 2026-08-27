@@ -1,7 +1,7 @@
 // TypeScript types mirroring the backend Pydantic schemas.
 
 export type PaperSize = 'letter' | 'a4'
-export type ExportFormat = 'svg' | 'dxf' | 'stl' | '3mf' | 'step' | 'stl_flat'
+export type ExportFormat = 'svg' | 'dxf' | 'stl' | '3mf' | 'step' | 'stl_flat' | 'stl_lid'
 export type OutputMode = 'foam' | 'gridfinity'
 
 export interface Point {

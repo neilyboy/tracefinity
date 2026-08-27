@@ -12,6 +12,10 @@ export default function UploadPanel() {
   const [savedDesigns, setSavedDesigns] = useState<DesignSummary[]>([])
   const [libraryCount, setLibraryCount] = useState(0)
   const [showSaved, setShowSaved] = useState(false)
+  const [showBlankBin, setShowBlankBin] = useState(false)
+  const [blankW, setBlankW] = useState(3)
+  const [blankL, setBlankL] = useState(2)
+  const [blankH, setBlankH] = useState(4)
 
   const loading = useEditor((s) => s.loading)
 
@@ -50,9 +54,25 @@ export default function UploadPanel() {
   }
 
   const handleDesignFromScratch = () => {
+    setShowBlankBin(true)
+  }
+
+  const handleCreateBlankBin = () => {
     reset()
     setPaperSize(paperSize)
+    useEditor.setState((s) => ({
+      design: {
+        ...s.design,
+        params: {
+          ...s.design.params,
+          grid_w: blankW,
+          grid_l: blankL,
+          height_units: blankH,
+        },
+      },
+    }))
     setView('editor')
+    setShowBlankBin(false)
   }
 
   const handleLoadDesign = async (id: string) => {
@@ -215,6 +235,63 @@ export default function UploadPanel() {
           >
             Close
           </button>
+        </div>
+      )}
+
+      {/* Blank bin dialog */}
+      {showBlankBin && (
+        <div
+          onClick={() => setShowBlankBin(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.7)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 100,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#18181b', borderRadius: 12, padding: 24,
+              border: '1px solid #3f3f46', width: 360,
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: 16, fontSize: 16, color: '#e4e4e7' }}>
+              New Blank Bin
+            </h3>
+            <p style={{ color: '#a1a1aa', fontSize: 13, marginBottom: 16 }}>
+              Set the initial dimensions. You can adjust everything later in the editor.
+            </p>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+              <label style={{ flex: 1 }}>
+                <span style={{ color: '#a1a1aa', fontSize: 12, display: 'block', marginBottom: 4 }}>Width (cells)</span>
+                <input type="number" min={1} max={10} value={blankW}
+                  onChange={(e) => setBlankW(Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{ width: '100%', padding: '8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 14, boxSizing: 'border-box' }} />
+              </label>
+              <label style={{ flex: 1 }}>
+                <span style={{ color: '#a1a1aa', fontSize: 12, display: 'block', marginBottom: 4 }}>Length (cells)</span>
+                <input type="number" min={1} max={10} value={blankL}
+                  onChange={(e) => setBlankL(Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{ width: '100%', padding: '8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 14, boxSizing: 'border-box' }} />
+              </label>
+              <label style={{ flex: 1 }}>
+                <span style={{ color: '#a1a1aa', fontSize: 12, display: 'block', marginBottom: 4 }}>Height (7mm)</span>
+                <input type="number" min={1} max={20} value={blankH}
+                  onChange={(e) => setBlankH(Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{ width: '100%', padding: '8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 14, boxSizing: 'border-box' }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowBlankBin(false)}
+                style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #3f3f46', background: '#27272a', color: '#a1a1aa', cursor: 'pointer', fontSize: 13 }}>
+                Cancel
+              </button>
+              <button onClick={handleCreateBlankBin}
+                style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #7c3aed', background: '#7c3aed', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                Create Bin
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
