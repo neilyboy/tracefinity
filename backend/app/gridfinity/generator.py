@@ -188,6 +188,27 @@ def generate_flat_outlines(design: Design) -> Solid:
         try:
             face = Polygon(pts)
             sketch = Sketch() + face
+
+            # Subtract holes from the cutter (holes = areas where material stays)
+            if outline.holes:
+                for hole_pts_raw in outline.holes:
+                    hole_np = to_np(hole_pts_raw)
+                    if len(hole_np) < 3:
+                        continue
+                    if abs(outline.rotation_deg) > 0.01:
+                        hcx = float(np.mean(hole_np[:, 0]))
+                        hcy = float(np.mean(hole_np[:, 1]))
+                        hole_np = _rotate_points(hole_np, outline.rotation_deg, hcx, hcy)
+                    offset_hole = offset_polygon(hole_np, -margin)
+                    smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
+                    smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+                    hole_pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed_hole]
+                    try:
+                        hole_face = Polygon(hole_pts)
+                        sketch = sketch - hole_face
+                    except Exception:
+                        pass
+
             cutter = extrude(sketch, amount=plate_thickness * 3)
             # Position in bin-local coords using grid dimensions (42mm units)
             cutter = cutter.moved(Location((-grid_w_mm / 2, -grid_l_mm / 2, -plate_thickness)))

@@ -93,6 +93,29 @@ export default function BinParamsPanel() {
             </div>
           </>
         )}
+
+        <div style={{ borderTop: '1px solid #27272a', margin: '8px 0', paddingTop: 8 }}>
+          <Toggle label="Label tab (front wall)" checked={p.label_tab} onChange={(v) => setParams({ label_tab: v })} />
+          {p.label_tab && (
+            <>
+              <div style={hintStyle}>
+                Adds a flat tab on the front wall for labeling. Optional embossed text.
+              </div>
+              <input
+                type="text"
+                placeholder="Label text (optional)"
+                value={p.label_text}
+                onChange={(e) => setParams({ label_text: e.target.value })}
+                style={{ width: '100%', padding: '6px 8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 13, boxSizing: 'border-box', marginBottom: 6 }}
+              />
+              <NumInput label="Font size (mm)" value={p.label_font_size_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ label_font_size_mm: v })} />
+              <NumInput label="Emboss depth (mm)" value={p.label_depth_mm} step={0.1} min={0} max={2} onChange={(v) => setParams({ label_depth_mm: v })} />
+              <div style={hintStyle}>
+                0 = flat tab (write on it), 0.6+ = raised text embossed on the tab.
+              </div>
+            </>
+          )}
+        </div>
       </Section>
 
       <Section title="Compartments (Dividers)" defaultOpen={false}>

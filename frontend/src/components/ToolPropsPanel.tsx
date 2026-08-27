@@ -6,7 +6,7 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, rotateTools, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, rotateTools, alignTools, distributeTools, deleteLabel, updateLabel, mirrorTool } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const multiSelected = selectedToolIds.length > 1 ? selectedToolIds : []
   const [rotating, setRotating] = useState(false)
@@ -139,6 +139,33 @@ export default function ToolPropsPanel() {
           <div style={{ fontSize: 10, color: '#52525b', marginTop: 4 }}>
             Rotates around the group center. Use negative for counter-clockwise.
           </div>
+        </div>
+
+        {/* Alignment controls */}
+        <div style={{ marginBottom: 8, padding: 8, background: '#18181b', borderRadius: 4, border: '1px solid #3f3f46' }}>
+          <div style={{ fontSize: 10, color: '#71717a', marginBottom: 4 }}>Align selected:</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => alignTools(multiSelected, 'left')} style={smallBtn} title="Align left edges">⬅ Left</button>
+            <button onClick={() => alignTools(multiSelected, 'center-h')} style={smallBtn} title="Align horizontal centers">↔ Center</button>
+            <button onClick={() => alignTools(multiSelected, 'right')} style={smallBtn} title="Align right edges">Right ➡</button>
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+            <button onClick={() => alignTools(multiSelected, 'top')} style={smallBtn} title="Align top edges">⬆ Top</button>
+            <button onClick={() => alignTools(multiSelected, 'center-v')} style={smallBtn} title="Align vertical centers">↕ Center</button>
+            <button onClick={() => alignTools(multiSelected, 'bottom')} style={smallBtn} title="Align bottom edges">Bottom ⬇</button>
+          </div>
+          {multiSelected.length >= 3 && (
+            <>
+              <div style={{ fontSize: 10, color: '#71717a', marginTop: 6, marginBottom: 4 }}>Distribute spacing:</div>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <button onClick={() => distributeTools(multiSelected, 'h')} style={smallBtn} title="Even horizontal spacing">↔ Horiz</button>
+                <button onClick={() => distributeTools(multiSelected, 'v')} style={smallBtn} title="Even vertical spacing">↕ Vert</button>
+              </div>
+              <div style={{ fontSize: 10, color: '#52525b', marginTop: 4 }}>
+                Evenly spaces tools between leftmost and rightmost (or top/bottom).
+              </div>
+            </>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>

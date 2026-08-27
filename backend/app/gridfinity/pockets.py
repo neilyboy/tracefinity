@@ -117,7 +117,7 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     # Simplify for OCP boolean stability
     smoothed = _simplify_polygon(smoothed, epsilon=0.2)
 
-    # Build a sketch from the polygon — NO holes (solid pocket, not doughnut).
+    # Build a sketch from the polygon.
     # SVG editor has Y going DOWN; build123d has Y going UP.
     # Flip Y on each point: y_new = grid_l - y_old.
     # Y-flip reverses winding, so reverse the list to restore CCW for build123d.
@@ -129,6 +129,29 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
         return None
 
     sketch = Sketch() + outer_face
+
+    # Subtract holes from the pocket sketch (through-holes in the pocket floor)
+    if outline.holes:
+        for hole_pts_raw in outline.holes:
+            hole_np = to_np(hole_pts_raw)
+            if len(hole_np) < 3:
+                continue
+            # Apply same rotation as outer
+            if abs(outline.rotation_deg) > 0.01:
+                hcx = float(np.mean(hole_np[:, 0]))
+                hcy = float(np.mean(hole_np[:, 1]))
+                hole_np = _rotate_points(hole_np, outline.rotation_deg, hcx, hcy)
+            # Offset hole inward (negative = smaller hole = tighter fit)
+            offset_hole = offset_polygon(hole_np, -margin)
+            smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
+            smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+            hole_pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed_hole]
+            # Holes need CW winding for subtraction (reverse of outer's CCW)
+            try:
+                hole_face = Polygon(hole_pts)
+                sketch = sketch - hole_face
+            except Exception:
+                pass  # skip invalid holes
 
     # Extrude to create the pocket solid.
     total_h = params.height_units * C.HEIGHT_UNIT_MM

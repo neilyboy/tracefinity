@@ -38,6 +38,8 @@ interface EditorState {
   moveTool: (id: string, dx: number, dy: number) => void
   moveTools: (ids: string[], dx: number, dy: number) => void
   rotateTools: (ids: string[], angleDeg: number) => void
+  alignTools: (ids: string[], alignment: 'left' | 'right' | 'center-h' | 'top' | 'bottom' | 'center-v') => void
+  distributeTools: (ids: string[], axis: 'h' | 'v') => void
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
   deleteVertex: (toolId: string, vertexIdx: number) => void
@@ -326,6 +328,110 @@ export const useEditor = create<EditorState>((set, get) => ({
               y: groupCy + (fh.x - groupCx) * sin + (fh.y - groupCy) * cos,
             })),
             rotation_deg: ((o.rotation_deg ?? 0) + angleDeg) % 360,
+          }
+        }),
+      },
+    }))
+  },
+
+  alignTools: (ids, alignment) => {
+    if (ids.length < 2) return
+    get().pushHistory()
+    const tools = get().design.outlines.filter((o) => ids.includes(o.id))
+    if (tools.length < 2) return
+    // Compute bounding boxes for each tool
+    const bboxes = tools.map((t) => {
+      const xs = t.outer.map((p) => p.x)
+      const ys = t.outer.map((p) => p.y)
+      return { id: t.id, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+    })
+    // Compute target alignment line
+    let target: number
+    let getVal: (bb: typeof bboxes[0]) => number
+    let setVal: (bb: typeof bboxes[0]) => number  // current position to offset from
+    switch (alignment) {
+      case 'left':   target = Math.min(...bboxes.map(b => b.minX)); getVal = b => b.minX; break
+      case 'right':  target = Math.max(...bboxes.map(b => b.maxX)); getVal = b => b.maxX; break
+      case 'center-h': target = bboxes.reduce((s, b) => s + (b.minX + b.maxX) / 2, 0) / bboxes.length; getVal = b => (b.minX + b.maxX) / 2; break
+      case 'top':    target = Math.min(...bboxes.map(b => b.minY)); getVal = b => b.minY; break
+      case 'bottom': target = Math.max(...bboxes.map(b => b.maxY)); getVal = b => b.maxY; break
+      case 'center-v': target = bboxes.reduce((s, b) => s + (b.minY + b.maxY) / 2, 0) / bboxes.length; getVal = b => (b.minY + b.maxY) / 2; break
+      default: return
+    }
+    // Compute offsets and apply
+    const offsets = new Map<string, { dx: number; dy: number }>()
+    for (const bb of bboxes) {
+      const isHorizontal = alignment === 'left' || alignment === 'right' || alignment === 'center-h'
+      const dx = isHorizontal ? target - getVal(bb) : 0
+      const dy = isHorizontal ? 0 : target - getVal(bb)
+      offsets.set(bb.id, { dx, dy })
+    }
+    const idSet = new Set(ids)
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (!idSet.has(o.id)) return o
+          const off = offsets.get(o.id)!
+          if (off.dx === 0 && off.dy === 0) return o
+          const movePt = (p: Point): Point => ({ x: p.x + off.dx, y: p.y + off.dy })
+          return {
+            ...o,
+            outer: o.outer.map(movePt),
+            holes: o.holes.map((h) => h.map(movePt)),
+            finger_holes: (o.finger_holes ?? []).map((fh) => ({ ...fh, x: fh.x + off.dx, y: fh.y + off.dy })),
+          }
+        }),
+      },
+    }))
+  },
+
+  distributeTools: (ids, axis) => {
+    if (ids.length < 3) return  // need at least 3 to distribute
+    get().pushHistory()
+    const tools = get().design.outlines.filter((o) => ids.includes(o.id))
+    if (tools.length < 3) return
+    // Compute centroids
+    const centroids = tools.map((t) => {
+      const cx = t.outer.reduce((a, p) => a + p.x, 0) / t.outer.length
+      const cy = t.outer.reduce((a, p) => a + p.y, 0) / t.outer.length
+      return { id: t.id, cx, cy }
+    })
+    // Sort by position along axis
+    if (axis === 'h') {
+      centroids.sort((a, b) => a.cx - b.cx)
+    } else {
+      centroids.sort((a, b) => a.cy - b.cy)
+    }
+    // Compute total span and even spacing
+    const first = axis === 'h' ? centroids[0].cx : centroids[0].cy
+    const last = axis === 'h' ? centroids[centroids.length - 1].cx : centroids[centroids.length - 1].cy
+    const step = (last - first) / (centroids.length - 1)
+    // Compute offsets
+    const offsets = new Map<string, { dx: number; dy: number }>()
+    for (let i = 0; i < centroids.length; i++) {
+      const target = first + step * i
+      const c = centroids[i]
+      if (axis === 'h') {
+        offsets.set(c.id, { dx: target - c.cx, dy: 0 })
+      } else {
+        offsets.set(c.id, { dx: 0, dy: target - c.cy })
+      }
+    }
+    const idSet = new Set(ids)
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (!idSet.has(o.id)) return o
+          const off = offsets.get(o.id)!
+          if (off.dx === 0 && off.dy === 0) return o
+          const movePt = (p: Point): Point => ({ x: p.x + off.dx, y: p.y + off.dy })
+          return {
+            ...o,
+            outer: o.outer.map(movePt),
+            holes: o.holes.map((h) => h.map(movePt)),
+            finger_holes: (o.finger_holes ?? []).map((fh) => ({ ...fh, x: fh.x + off.dx, y: fh.y + off.dy })),
           }
         }),
       },
