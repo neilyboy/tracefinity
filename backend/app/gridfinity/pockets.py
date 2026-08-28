@@ -161,22 +161,15 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     chamfer_extra = max(params.cutout_chamfer_mm, 2.0)
     extrude_depth = pocket_depth + chamfer_extra
 
-    # Extrude upward (+Z) from the sketch plane (Z=0) to Z=extrude_depth.
-    pocket = extrude(sketch, amount=extrude_depth)
-
-    # --- Apply pocket bottom shape (spherical or cylindrical) ---
-    # The pocket solid is NEGATIVE space — it gets subtracted from the bin
-    # to create the tool cutout. To make a curved (concave) bottom, we
-    # create a curved solid and clip it to the pocket footprint (so it
-    # does NOT overflow the tool outline), then add it to the pocket.
     pocket_shape = getattr(outline, 'pocket_shape', 'flat')
     bottom_radius = getattr(outline, 'pocket_bottom_radius_mm', None)
     if bottom_radius is None:
-        # Default: 8mm is a good default for screwdrivers and round tools.
-        # For cylindrical, this is the cutout depth (capped to tool half-width).
         bottom_radius = min(pocket_depth, 8.0)
 
-    if pocket_shape in ('spherical', 'cylindrical') and bottom_radius > 0:
+    if pocket_shape == 'cylindrical' and bottom_radius > 0:
+        # --- Cylindrical: REVOLUTION only, no flat extrusion ---
+        # The revolution starts at the FLOOR TOP (where the tool sits) and
+        # goes down into the solid floor material. No flat pocket is created.
         try:
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
@@ -197,8 +190,85 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             angle_deg = float(np.degrees(np.arctan2(major_axis[1], major_axis[0])))
             max_radius = minor_len / 2 if minor_len > 0 else bottom_radius
 
-            if pocket_shape == 'spherical':
-                # Sphere centered at the pocket floor (Z=0).
+            desired_depth = bottom_radius
+            if desired_depth >= max_radius:
+                desired_depth = max_radius
+
+            # --- Extract upper half profile ---
+            n_pts = len(major_proj)
+            upper_x = []
+            upper_y = []
+            for i in range(n_pts):
+                x1, y1 = major_proj[i], minor_proj[i]
+                x2, y2 = major_proj[(i + 1) % n_pts], minor_proj[(i + 1) % n_pts]
+                if y1 >= 0:
+                    upper_x.append(float(x1))
+                    upper_y.append(float(y1))
+                if (y1 > 0 and y2 < 0) or (y1 < 0 and y2 > 0):
+                    t = y1 / (y1 - y2)
+                    cx = x1 + t * (x2 - x1)
+                    upper_x.append(float(cx))
+                    upper_y.append(0.0)
+
+            if len(upper_x) < 3:
+                raise ValueError("Not enough upper half points for revolution")
+
+            profile_pts = list(zip(upper_x, upper_y))
+            if abs(profile_pts[0][1]) > 0.01:
+                profile_pts.insert(0, (profile_pts[0][0], 0.0))
+            if abs(profile_pts[-1][1]) > 0.01:
+                profile_pts.append((profile_pts[-1][0], 0.0))
+
+            profile = Polygon(profile_pts)
+            revolved = revolve(profile, axis=Axis.X, revolution_arc=360)
+            revolved = revolved.rotate(axis=Axis.Z, angle=angle_deg)
+
+            # Compute the floor top Z in the pocket's local frame.
+            # The bin has: base (Z=0 to BASE_HEIGHT_MM), floor (Z=BASE_HEIGHT_MM to
+            # BASE_HEIGHT_MM+floor_h), walls (hollow above floor).
+            # The pocket is moved by pocket_bottom_z = total_h - pocket_depth.
+            # So the floor top in local frame = floor_top_z - pocket_bottom_z.
+            floor_h = max(pocket_depth, C.FLOOR_THICKNESS)
+            floor_h = min(floor_h, total_h - C.BASE_HEIGHT_MM)
+            if floor_h < 1.0:
+                floor_h = 1.0
+            floor_top_z = C.BASE_HEIGHT_MM + floor_h
+            pocket_bottom_z = total_h - pocket_depth
+            floor_top_local = floor_top_z - pocket_bottom_z
+
+            # Position the revolution so it starts at the FLOOR TOP.
+            # The revolution axis (Z=0 in local) should be at:
+            # - floor_top_local when desired_depth = max_radius (axis at floor top)
+            # - floor_top_local + (max_radius - desired_depth) when shallower
+            #   (axis above floor top, only bottom desired_depth cuts into floor)
+            z_axis = floor_top_local + (max_radius - desired_depth)
+            revolved = revolved.moved(Location((cx_local, cy_local, z_axis)))
+
+            # Mask: footprint from Z = (floor_top_local - desired_depth) to floor_top_local
+            # This clips the revolution to the desired depth and to the floor area.
+            down_mask = extrude(sketch, amount=desired_depth)
+            down_mask = down_mask.moved(Location((0, 0, floor_top_local - desired_depth)))
+            curve_list = revolved.intersect(down_mask)
+            if curve_list:
+                pocket = curve_list[0]
+            else:
+                # Fallback to flat extrusion if revolution fails
+                pocket = extrude(sketch, amount=extrude_depth)
+        except Exception:
+            # Fallback to flat extrusion if revolution fails
+            pocket = extrude(sketch, amount=extrude_depth)
+    else:
+        # --- Flat or Spherical: use flat extrusion as base ---
+        pocket = extrude(sketch, amount=extrude_depth)
+
+        if pocket_shape == 'spherical' and bottom_radius > 0:
+            try:
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                pts_array = np.array(pts)
+                cx_local = float(np.mean(xs))
+                cy_local = float(np.mean(ys))
+
                 sphere_r = bottom_radius
                 max_depth = min(sphere_r, pocket_depth * 0.5)
                 sphere = Sphere(sphere_r)
@@ -208,77 +278,8 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
                 curve_list = sphere.intersect(down_mask)
                 if curve_list:
                     pocket = pocket + curve_list[0]
-            else:
-                # Cylindrical: REVOLUTION of the tool's half-profile around
-                # its major (length) axis. This creates a true cylindrical
-                # cutout that follows the tool's actual shape — like a lathe
-                # operation. The half-profile is the upper half of the tool
-                # outline (y >= 0 in the major-axis frame), revolved 360°
-                # around the major axis.
-                #
-                # The revolution axis Z position is customizable:
-                # - Default (pocket_bottom_radius_mm = null): axis at Z=0
-                #   (the pocket floor), cutting exactly half the tool width
-                # - Custom: axis at Z = max_radius - desired_depth, so the
-                #   cutout depth = desired_depth (shallower if axis is above)
-
-                desired_depth = bottom_radius  # reinterpret as cutout depth
-                if desired_depth >= max_radius:
-                    desired_depth = max_radius  # cap at full half-width
-                # Axis Z position: when desired_depth = max_radius, axis at Z=0
-                # When desired_depth < max_radius, axis above Z=0 (shallower cut)
-                z_axis = max_radius - desired_depth
-
-                # --- Extract upper half profile ---
-                # Transform all outline points to the major-axis frame:
-                # x = projection onto major axis, y = projection onto minor axis
-                # The upper half is where y >= 0
-                n_pts = len(major_proj)
-                upper_x = []
-                upper_y = []
-                for i in range(n_pts):
-                    x1, y1 = major_proj[i], minor_proj[i]
-                    x2, y2 = major_proj[(i + 1) % n_pts], minor_proj[(i + 1) % n_pts]
-                    if y1 >= 0:
-                        upper_x.append(float(x1))
-                        upper_y.append(float(y1))
-                    # Insert crossing point where edge crosses y=0
-                    if (y1 > 0 and y2 < 0) or (y1 < 0 and y2 > 0):
-                        t = y1 / (y1 - y2)
-                        cx = x1 + t * (x2 - x1)
-                        upper_x.append(float(cx))
-                        upper_y.append(0.0)
-
-                if len(upper_x) < 3:
-                    raise ValueError("Not enough upper half points for revolution")
-
-                # Build closed profile: upper half + axis line back to start
-                # The profile is in the XY plane (X = position along major axis,
-                # Y = radius from axis). Revolve around X axis -> 3D solid.
-                profile_pts = list(zip(upper_x, upper_y))
-                # Ensure first and last points are on the axis (y=0)
-                if abs(profile_pts[0][1]) > 0.01:
-                    profile_pts.insert(0, (profile_pts[0][0], 0.0))
-                if abs(profile_pts[-1][1]) > 0.01:
-                    profile_pts.append((profile_pts[-1][0], 0.0))
-
-                profile = Polygon(profile_pts)
-                # Revolve 360° around X axis -> solid of revolution
-                revolved = revolve(profile, axis=Axis.X, revolution_arc=360)
-                # Rotate around Z to align X with the tool's major axis
-                revolved = revolved.rotate(axis=Axis.Z, angle=angle_deg)
-                # Translate to centroid + Z axis offset
-                revolved = revolved.moved(Location((cx_local, cy_local, z_axis)))
-
-                # Clip to pocket footprint and limit depth
-                max_depth = min(desired_depth, pocket_depth * 0.5)
-                down_mask = extrude(sketch, amount=max_depth)
-                down_mask = down_mask.moved(Location((0, 0, -max_depth)))
-                curve_list = revolved.intersect(down_mask)
-                if curve_list:
-                    pocket = pocket + curve_list[0]
-        except Exception:
-            pass  # revolution can fail on complex shapes — skip
+            except Exception:
+                pass  # spherical bottom can fail on complex shapes — skip
 
     # Apply chamfer on the top edge of the pocket (if enabled).
     # The top edges are the edges at the top of the extrusion.
