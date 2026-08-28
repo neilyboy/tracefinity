@@ -47,7 +47,7 @@ _INDEX = _STATIC_DIR / "index.html"
 @app.get("/")
 async def root():
     if _INDEX.exists():
-        return FileResponse(_INDEX)
+        return FileResponse(_INDEX, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     return {"message": "Tracefinity API running. Frontend not built. See /api/docs."}
 
 
@@ -64,5 +64,5 @@ async def spa_fallback(full_path: str):
     if candidate.is_file():
         return FileResponse(candidate)
     if _INDEX.exists():
-        return FileResponse(_INDEX)
+        return FileResponse(_INDEX, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     return {"detail": "Frontend not built."}
