@@ -74,6 +74,7 @@ export interface BinParams {
   label_font_size_mm: number
   label_depth_mm: number
   label_engrave: boolean
+  label_tab_inset: boolean
   compartments_x: number
   compartments_y: number
   foam_thickness_mm: number
@@ -140,6 +141,7 @@ export const DEFAULT_PARAMS: BinParams = {
   label_font_size_mm: 6.0,
   label_depth_mm: 0.6,
   label_engrave: false,
+  label_tab_inset: false,
   compartments_x: 1,
   compartments_y: 1,
   foam_thickness_mm: 10.0,

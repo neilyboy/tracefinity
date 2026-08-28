@@ -9,6 +9,8 @@ This creates a proper Gridfinity-compatible bin with:
 """
 from __future__ import annotations
 
+import math
+
 from build123d import (
     Axis,
     Box,
@@ -52,6 +54,7 @@ def build_bin(
     label_font_size_mm: float = 6.0,
     label_depth_mm: float = 0.6,
     label_engrave: bool = False,
+    label_tab_inset: bool = False,
     compartments_x: int = 1,
     compartments_y: int = 1,
     pocket_depth_mm: float = 15.0,
@@ -156,6 +159,7 @@ def build_bin(
         bin_solid = _add_label_tab(
             bin_solid, bin_w, bin_l, wall_thickness_mm, total_h,
             label_text, label_font_size_mm, label_depth_mm, label_engrave,
+            label_tab_inset,
         )
 
     # --- Print support tabs ---
@@ -347,53 +351,93 @@ def _add_print_tabs(bin_solid, bin_w, bin_l, total_h, tab_style) -> Part:
 
 def _add_label_tab(
     bin_solid, bin_w, bin_l, wall_thickness, total_h,
-    label_text, font_size, label_depth, engrave=False,
+    label_text, font_size, label_depth, engrave=False, inset=False,
 ) -> Part:
     """Add a label tab on the front wall of the bin with optional text.
 
-    The label tab is a flat area on the front of the bin where you can write
-    or stick a label. If label_text is provided, it's embossed (raised) or
-    engraved (cut in) on the tab depending on the engrave flag.
+    Two styles:
+    - Protruding (inset=False): tab sticks out from the front wall.
+      Text is embossed (raised) or engraved (cut in) on the tab.
+    - Inset (inset=True): a tapered pocket is cut into the front wall
+      at 40° so it prints without supports. Text is engraved at the
+      bottom of the pocket.
     """
-    # Tab dimensions: spans the full width, sits at the top of the front wall
     tab_w = min(C.LABEL_TAB_WIDTH_MM, bin_w - 2 * wall_thickness)
     tab_h = C.LABEL_TAB_HEIGHT_MM
-    tab_t = C.LABEL_TAB_THICKNESS_MM  # how far it sticks out
-
-    # Position: centered on front wall, near the top
-    tab_y = bin_l / 2 + tab_t / 2  # sticks out from the front
     tab_z = total_h - tab_h / 2 - 2  # near the top of the bin
 
-    tab = Box(tab_w, tab_t, tab_h)
-    tab = tab.moved(Location((0, tab_y, tab_z)))
-    bin_solid = bin_solid + Part(tab)
+    if inset:
+        # --- Inset tapered pocket ---
+        # Cut a pocket into the front wall with 40° tapered walls.
+        # The opening is at the outside (y = +bin_l/2), tapering inward.
+        # Depth = wall_thickness (cuts through the full wall).
+        # The taper angle is 40° from the face normal.
+        pocket_depth = wall_thickness
+        # Taper inset at bottom = depth * tan(40°)
+        taper = pocket_depth * math.tan(math.radians(40))
+        # Outer rectangle (at the face)
+        outer_w = tab_w
+        outer_h = tab_h
+        # Inner rectangle (at the bottom of the pocket, smaller)
+        inner_w = max(outer_w - 2 * taper, 4.0)
+        inner_h = max(outer_h - 2 * taper, 4.0)
 
-    # Add text if provided (embossed or engraved)
-    if label_text and label_depth > 0:
+        # Build the tapered pocket using a loft between two rectangles
+        outer_y = bin_l / 2  # at the outer face
+        inner_y = bin_l / 2 - pocket_depth  # at the bottom (inside)
+
+        with BuildPart(Plane.XY) as bp:
+            with BuildSketch(Plane.XY, Location((0, outer_y, tab_z))) as s1:
+                Rectangle(outer_w, outer_h)
+            with BuildSketch(Plane.XY, Location((0, inner_y, tab_z))) as s2:
+                Rectangle(inner_w, inner_h)
+            loft()
+        pocket = bp.part
+
         try:
-            # Create text sketch and extrude
-            with BuildSketch(Plane.XY) as text_sketch:
-                Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
-            text_face = text_sketch.sketch
-            text_solid = extrude(text_face, amount=label_depth)
-            # Text starts in XY plane: normal=+Z, up=+Y, right=+X
-            # We need it on the +Y face: normal=+Y, up=+Z, right=-X
-            # (right=-X because looking from +Y toward -Y, +X is to the viewer's left)
-            # Two rotations achieve this:
-            #   1. 180° around Y: flips X→-X and Z→-Z (mirrors text left-right)
-            #   2. +90° around X: maps Z→Y (normal outward) and Y→Z (up stays up)
-            text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
-            text_solid = text_solid.rotate(axis=Axis.X, angle=90)
-            if engrave:
-                # Engraved: cut text INTO the tab from the outside
-                # Position so the text solid overlaps the tab and subtract it
-                text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t - label_depth / 2, tab_z)))
-                bin_solid = bin_solid - Part(text_solid)
-            else:
-                # Embossed: text sits ON the tab, raised outward
-                text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t, tab_z)))
-                bin_solid = bin_solid + Part(text_solid)
+            bin_solid = bin_solid - Part(pocket)
         except Exception:
-            pass  # text rendering can fail if font not available — skip silently
+            pass
+
+        # Engrave text at the bottom of the pocket
+        if label_text and label_depth > 0:
+            try:
+                with BuildSketch(Plane.XY) as text_sketch:
+                    Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
+                text_face = text_sketch.sketch
+                text_solid = extrude(text_face, amount=label_depth)
+                # Same rotation as protruding mode
+                text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
+                text_solid = text_solid.rotate(axis=Axis.X, angle=90)
+                # Position at the bottom of the pocket, cutting inward
+                text_y = inner_y - label_depth / 2
+                text_solid = text_solid.moved(Location((0, text_y, tab_z)))
+                bin_solid = bin_solid - Part(text_solid)
+            except Exception:
+                pass
+    else:
+        # --- Protruding tab (original) ---
+        tab_t = C.LABEL_TAB_THICKNESS_MM
+        tab_y = bin_l / 2 + tab_t / 2
+        tab = Box(tab_w, tab_t, tab_h)
+        tab = tab.moved(Location((0, tab_y, tab_z)))
+        bin_solid = bin_solid + Part(tab)
+
+        if label_text and label_depth > 0:
+            try:
+                with BuildSketch(Plane.XY) as text_sketch:
+                    Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
+                text_face = text_sketch.sketch
+                text_solid = extrude(text_face, amount=label_depth)
+                text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
+                text_solid = text_solid.rotate(axis=Axis.X, angle=90)
+                if engrave:
+                    text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t - label_depth / 2, tab_z)))
+                    bin_solid = bin_solid - Part(text_solid)
+                else:
+                    text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t, tab_z)))
+                    bin_solid = bin_solid + Part(text_solid)
+            except Exception:
+                pass
 
     return bin_solid

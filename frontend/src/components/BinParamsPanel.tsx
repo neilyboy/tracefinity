@@ -109,13 +109,28 @@ export default function BinParamsPanel() {
                 style={{ width: '100%', padding: '6px 8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 13, boxSizing: 'border-box', marginBottom: 6 }}
               />
               <NumInput label="Font size (mm)" value={p.label_font_size_mm} step={0.5} min={2} max={20} onChange={(v) => setParams({ label_font_size_mm: v })} />
-              <Toggle label="Engrave (cut in) instead of emboss (raised)" checked={p.label_engrave} onChange={(v) => setParams({ label_engrave: v })} />
-              <NumInput label={p.label_engrave ? 'Engrave depth (mm)' : 'Emboss depth (mm)'} value={p.label_depth_mm} step={0.1} min={0} max={2} onChange={(v) => setParams({ label_depth_mm: v })} />
-              <div style={hintStyle}>
-                {p.label_engrave
-                  ? 'Text is cut into the tab surface. 0.6+ mm recommended for readability.'
-                  : '0 = flat tab (write on it), 0.6+ = raised text embossed on the tab.'}
-              </div>
+              <Toggle label="Inset tapered pocket (no supports needed)" checked={p.label_tab_inset} onChange={(v) => setParams({ label_tab_inset: v })} />
+              {p.label_tab_inset ? (
+                <>
+                  <div style={hintStyle}>
+                    Cuts a 40° tapered pocket into the front wall — prints clean without supports. Text is engraved at the bottom.
+                  </div>
+                  <NumInput label="Engrave depth (mm)" value={p.label_depth_mm} step={0.1} min={0.2} max={1.5} onChange={(v) => setParams({ label_depth_mm: v })} />
+                  <div style={hintStyle}>
+                    How deep the text is cut into the pocket floor. 0.4-0.8mm recommended.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Toggle label="Engrave (cut in) instead of emboss (raised)" checked={p.label_engrave} onChange={(v) => setParams({ label_engrave: v })} />
+                  <NumInput label={p.label_engrave ? 'Engrave depth (mm)' : 'Emboss depth (mm)'} value={p.label_depth_mm} step={0.1} min={0} max={2} onChange={(v) => setParams({ label_depth_mm: v })} />
+                  <div style={hintStyle}>
+                    {p.label_engrave
+                      ? 'Text is cut into the tab surface. 0.6+ mm recommended for readability.'
+                      : '0 = flat tab (write on it), 0.6+ = raised text embossed on the tab.'}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

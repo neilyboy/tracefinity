@@ -97,6 +97,7 @@ class BinParams(BaseModel):
     label_font_size_mm: float = Field(6.0, gt=0)
     label_depth_mm: float = Field(0.6, gt=0)
     label_engrave: bool = False  # False=embossed (raised), True=engraved (cut in)
+    label_tab_inset: bool = False  # False=protruding tab, True=inset tapered pocket (no supports)
     # Dividers: list of (x_unit_fraction, y_unit_fraction) creating compartment walls.
     # Simplified: number of compartments along x and y.
     compartments_x: int = Field(1, ge=1, le=10)
