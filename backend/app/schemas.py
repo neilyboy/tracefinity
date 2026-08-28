@@ -83,11 +83,11 @@ class BinParams(BaseModel):
     # Features
     magnet_holes: bool = True
     screw_holes: bool = False
-    scoop: bool = True
+    scoop: bool = False
     scoop_depth_mm: float = Field(8.0, gt=0)
     # Finger scoop: cylindrical cutout at tool edge for easy tool removal
     # (like Tooltrace.ai finger notches). Default 20mm diameter.
-    finger_scoop: bool = True
+    finger_scoop: bool = False
     finger_scoop_diameter_mm: float = Field(20.0, gt=0)
     tabs: Literal["none", "split", "aligned"] = "none"
     lip: bool = False

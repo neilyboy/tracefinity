@@ -369,16 +369,22 @@ def _add_label_tab(
     # Add embossed text if provided
     if label_text and label_depth > 0:
         try:
-            # Create text sketch and extrude it
+            # Create text sketch and extrude
             with BuildSketch(Plane.XY) as text_sketch:
                 Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
             text_face = text_sketch.sketch
             text_solid = extrude(text_face, amount=label_depth)
-            # Position text on the front face of the label tab
-            # Rotate -90° around X so text faces outward (+Y = front of bin)
-            # +90° would face it inward, making it read backwards from outside
-            text_solid = text_solid.rotate(axis=Axis.X, angle=-90)
-            text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t + label_depth / 2, tab_z)))
+            # Text starts in XY plane: normal=+Z, up=+Y, right=+X
+            # We need it on the +Y face: normal=+Y, up=+Z, right=-X
+            # (right=-X because looking from +Y toward -Y, +X is to the viewer's left)
+            # Two rotations achieve this:
+            #   1. 180° around Y: flips X→-X and Z→-Z (mirrors text left-right)
+            #   2. +90° around X: maps Z→Y (normal outward) and Y→Z (up stays up)
+            text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
+            text_solid = text_solid.rotate(axis=Axis.X, angle=90)
+            # After rotations, text center is at (0, label_depth/2, 0)
+            # Position so inner edge sits on the tab's outer face
+            text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t, tab_z)))
             bin_solid = bin_solid + Part(text_solid)
         except Exception:
             pass  # text rendering can fail if font not available — skip silently
