@@ -133,12 +133,26 @@ export default function SvgEditor() {
         lastMoveRef.current = { dx: sdx, dy: sdy }
       }
     } else if (drag.type === 'fingerHole' && drag.fingerHoleIdx !== undefined && drag.startHole) {
-      const newPos = {
-        x: snapFine(drag.startHole.x + dx, snapEnabled ? 0.5 : 0.01),
-        y: snapFine(drag.startHole.y + dy, snapEnabled ? 0.5 : 0.01),
-      }
       const tool = design.outlines.find((o) => o.id === drag.toolId)
       if (tool) {
+        // The tool's <g> is rendered with a CSS rotate transform around its
+        // centroid when rotation_deg != 0. Finger hole (x, y) is stored in the
+        // tool's LOCAL (unrotated) coordinate system, but (dx, dy) came from
+        // screen space. Inverse-rotate the delta to map back to local coords.
+        const rot = tool.rotation_deg ?? 0
+        let ldx = dx
+        let ldy = dy
+        if (rot !== 0) {
+          const r = -rot * Math.PI / 180  // negative = inverse rotation
+          const c = Math.cos(r)
+          const s = Math.sin(r)
+          ldx = dx * c - dy * s
+          ldy = dx * s + dy * c
+        }
+        const newPos = {
+          x: snapFine(drag.startHole.x + ldx, snapEnabled ? 0.5 : 0.01),
+          y: snapFine(drag.startHole.y + ldy, snapEnabled ? 0.5 : 0.01),
+        }
         const holes = [...(tool.finger_holes ?? [])]
         holes[drag.fingerHoleIdx] = { ...holes[drag.fingerHoleIdx], x: newPos.x, y: newPos.y }
         updateTool(drag.toolId, { finger_holes: holes })
@@ -224,9 +238,26 @@ export default function SvgEditor() {
     const mm = toMm(e.clientX, e.clientY)
     const tool = design.outlines.find((o) => o.id === selectedToolId)
     if (!tool) return
+    // Finger hole coords are stored in the tool's LOCAL (unrotated) frame.
+    // The click came in screen space, so inverse-rotate around the tool's
+    // centroid to get the local coordinates.
+    const rot = tool.rotation_deg ?? 0
+    let lx = mm.x
+    let ly = mm.y
+    if (rot !== 0) {
+      const cx = tool.outer.reduce((a, b) => a + b.x, 0) / tool.outer.length
+      const cy = tool.outer.reduce((a, b) => a + b.y, 0) / tool.outer.length
+      const r = -rot * Math.PI / 180
+      const c = Math.cos(r)
+      const s = Math.sin(r)
+      const dx = mm.x - cx
+      const dy = mm.y - cy
+      lx = cx + dx * c - dy * s
+      ly = cy + dx * s + dy * c
+    }
     const newHole: FingerHole = {
-      x: snapFine(mm.x, 0.5),
-      y: snapFine(mm.y, 0.5),
+      x: snapFine(lx, 0.5),
+      y: snapFine(ly, 0.5),
       radius_mm: 15.0,
       depth_mm: null,
     }
