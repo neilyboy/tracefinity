@@ -165,54 +165,65 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
     # --- Apply pocket bottom shape (spherical or cylindrical) ---
     # The pocket solid is NEGATIVE space — it gets subtracted from the bin
-    # to create the tool cutout. To make a curved (concave) bottom, we need
-    # to EXTEND the pocket downward by ADDING a sphere/cylinder below Z=0.
-    # This makes the cutout deeper in the center, creating a bowl/trough.
+    # to create the tool cutout. To make a curved (concave) bottom, we
+    # create a curved solid and clip it to the pocket footprint (so it
+    # does NOT overflow the tool outline), then add it to the pocket.
     pocket_shape = getattr(outline, 'pocket_shape', 'flat')
     bottom_radius = getattr(outline, 'pocket_bottom_radius_mm', None)
     if bottom_radius is None:
-        bottom_radius = pocket_depth  # default: curve spans full depth
+        # Default to a reasonable curve radius, capped by pocket depth.
+        # 8mm is a good default for screwdrivers and round tools.
+        bottom_radius = min(pocket_depth, 8.0)
 
-    if pocket_shape == 'spherical' and bottom_radius > 0:
-        # ADD a sphere below the floor to extend the cutout into a bowl.
+    if pocket_shape in ('spherical', 'cylindrical') and bottom_radius > 0:
         try:
-            cx_local = float(np.mean([p[0] for p in pts]))
-            cy_local = float(np.mean([p[1] for p in pts]))
-            # Center below floor: top of sphere pokes above Z=0 to create curve.
-            # z_center = -0.6*radius → top at 0.4*radius above floor
-            z_center = -bottom_radius + bottom_radius * 0.4
-            sphere = Sphere(bottom_radius)
-            sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
-            pocket = pocket + Part(sphere)
-        except Exception:
-            pass
+            # Limit how deep the curve extends below the pocket floor.
+            # The curve should not cut through the bin base.
+            # Use at most 50% of the pocket depth as the downward reach.
+            mask_depth = min(bottom_radius, pocket_depth * 0.5)
 
-    elif pocket_shape == 'cylindrical' and bottom_radius > 0:
-        # ADD a half-cylinder below the floor to extend the cutout into a trough.
-        try:
+            # Build a downward "mask" that has the same (X,Y) footprint
+            # as the pocket. The curve will be intersected with this mask
+            # so it stays inside the tool outline and does not go too deep.
+            down_mask = extrude(sketch, amount=mask_depth)
+            down_mask = down_mask.moved(Location((0, 0, -mask_depth)))
+
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
             bbox_w = max(xs) - min(xs)
             bbox_h = max(ys) - min(ys)
             cx_local = float(np.mean(xs))
             cy_local = float(np.mean(ys))
-            # Cylinder default axis is Z. Lay it along X or Y.
-            # +90° around Y: maps Z→X (cylinder lies along X) ✓
-            # -90° around X: maps Z→Y (cylinder lies along Y) ✓
-            if bbox_w >= bbox_h:
-                # Tool is wider than tall — cylinder runs along X
-                cyl_len = bbox_w + 4
-                cyl = Cylinder(bottom_radius, cyl_len)
-                cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
+
+            if pocket_shape == 'spherical':
+                # Sphere centered below floor. Top pokes above Z=0.
+                # The curve reaches down by mask_depth and pokes up by 40% of it.
+                z_center = -bottom_radius + mask_depth * 0.4
+                sphere = Sphere(bottom_radius)
+                sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
+                # Clip to pocket footprint and depth
+                curve_list = sphere.intersect(down_mask)
+                if curve_list:
+                    pocket = pocket + curve_list[0]
             else:
-                # Tool is taller than wide — cylinder runs along Y
-                cyl_len = bbox_h + 4
-                cyl = Cylinder(bottom_radius, cyl_len)
-                cyl = cyl.rotate(axis=Axis.X, angle=-90)  # lay along Y
-            # Center below floor so top of cylinder extends above Z=0
-            z_center = -bottom_radius + bottom_radius * 0.4
-            cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
-            pocket = pocket + Part(cyl)
+                # Cylindrical: half-cylinder along the tool's longest axis.
+                # Cylinder default axis is Z. Lay it along X or Y.
+                if bbox_w >= bbox_h:
+                    # Tool is wider than tall — cylinder runs along X
+                    cyl_len = bbox_w + 4
+                    cyl = Cylinder(bottom_radius, cyl_len)
+                    cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
+                else:
+                    # Tool is taller than wide — cylinder runs along Y
+                    cyl_len = bbox_h + 4
+                    cyl = Cylinder(bottom_radius, cyl_len)
+                    cyl = cyl.rotate(axis=Axis.X, angle=-90)  # lay along Y
+                z_center = -bottom_radius + mask_depth * 0.4
+                cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
+                # Clip to pocket footprint and depth
+                curve_list = cyl.intersect(down_mask)
+                if curve_list:
+                    pocket = pocket + curve_list[0]
         except Exception:
             pass  # cylindrical bottom can fail on complex shapes — skip
 
