@@ -370,9 +370,12 @@ def _add_label_tab(
         # --- Inset tapered pocket ---
         # Cut a pocket into the front wall with 40° tapered walls.
         # The opening is at the outside (y = +bin_l/2), tapering inward.
-        # Depth = wall_thickness (cuts through the full wall).
-        # The taper angle is 40° from the face normal.
-        pocket_depth = wall_thickness
+        # Leave material at the bottom for the text to be engraved into.
+        # pocket_depth must be < wall_thickness so the pocket doesn't
+        # break through to the bin interior.
+        text_depth = label_depth if (label_text and label_depth > 0) else 0
+        # Leave text_depth + 0.3mm of material at the bottom
+        pocket_depth = max(wall_thickness - text_depth - 0.3, 0.4)
         # Taper inset at bottom = depth * tan(40°)
         taper = pocket_depth * math.tan(math.radians(40))
         # Outer rectangle (at the face): width=X, height=Y(in sketch)
@@ -415,7 +418,9 @@ def _add_label_tab(
                 # Same rotation as protruding mode: 180° Y then +90° X
                 text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
                 text_solid = text_solid.rotate(axis=Axis.X, angle=90)
-                # Position at the bottom of the pocket (inner_y), cutting inward
+                # Position at the bottom of the pocket, cutting inward.
+                # After rotation, text extrudes in +Y (outward).
+                # Place at the pocket bottom so it cuts from there outward.
                 inner_y = bin_l / 2 - pocket_depth
                 text_solid = text_solid.moved(Location((0, inner_y, tab_z)))
                 bin_solid = bin_solid - Part(text_solid)
