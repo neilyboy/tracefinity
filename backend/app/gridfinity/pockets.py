@@ -177,17 +177,6 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
     if pocket_shape in ('spherical', 'cylindrical') and bottom_radius > 0:
         try:
-            # Limit how deep the curve extends below the pocket floor.
-            # The curve should not cut through the bin base.
-            # Use at most 50% of the pocket depth as the downward reach.
-            mask_depth = min(bottom_radius, pocket_depth * 0.5)
-
-            # Build a downward "mask" that has the same (X,Y) footprint
-            # as the pocket. The curve will be intersected with this mask
-            # so it stays inside the tool outline and does not go too deep.
-            down_mask = extrude(sketch, amount=mask_depth)
-            down_mask = down_mask.moved(Location((0, 0, -mask_depth)))
-
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
             pts_array = np.array(pts)
@@ -211,30 +200,44 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             angle_deg = float(np.degrees(np.arctan2(major_axis[1], major_axis[0])))
 
             if pocket_shape == 'spherical':
-                # Sphere centered below floor. Top pokes above Z=0.
-                # The curve reaches down by mask_depth and pokes up by 40% of it.
-                z_center = -bottom_radius + mask_depth * 0.4
-                sphere = Sphere(bottom_radius)
+                # Sphere centered at the pocket floor (Z=0).
+                # At Z=0, the cross-section is a full circle of radius = sphere_r,
+                # covering the tool footprint. Below Z=0, it curves down into a
+                # hemisphere. We take only the bottom half (Z < 0) via the mask.
+                sphere_r = bottom_radius
+                max_depth = min(sphere_r, pocket_depth * 0.5)
+                z_center = 0  # center at the pocket floor
+                sphere = Sphere(sphere_r)
                 sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
-                # Clip to pocket footprint and depth
+                # Mask: same footprint as pocket, from Z=-max_depth to Z=0
+                down_mask = extrude(sketch, amount=max_depth)
+                down_mask = down_mask.moved(Location((0, 0, -max_depth)))
                 curve_list = sphere.intersect(down_mask)
                 if curve_list:
                     pocket = pocket + curve_list[0]
             else:
-                # Cylindrical: half-cylinder along the tool's actual principal axis.
-                # Cylinder default axis is Z. First lay it along X, then rotate
-                # around Z by the tool's major-axis angle.
-                cyl_len = major_len + 4
-                cyl_radius = min(bottom_radius, minor_len / 2)
+                # Cylindrical: half-cylinder cradle along the tool's major axis.
+                # The cylinder is centered at Z=0 (the pocket floor). At Z=0,
+                # the cross-section perpendicular to the major axis is a full
+                # circle of radius cyl_radius, spanning the tool's full width.
+                # Below Z=0, it curves down into a U-shaped trough (hemisphere
+                # of the cylinder). We take only the bottom half via the mask.
+                cyl_radius = min(bottom_radius, minor_len / 2) if minor_len > 0 else bottom_radius
                 if cyl_radius <= 0:
                     cyl_radius = bottom_radius
+                cyl_len = major_len + 4
+                # Limit depth to avoid cutting through the bin base.
+                # The full half-cylinder reaches down by cyl_radius.
+                max_depth = min(cyl_radius, pocket_depth * 0.5)
                 cyl = Cylinder(cyl_radius, cyl_len)
                 cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
                 cyl = cyl.rotate(axis=Axis.Z, angle=angle_deg)  # align with tool
-                # Center below floor. Top pokes above by 40% of mask depth.
-                z_center = -cyl_radius + mask_depth * 0.4
+                # Center at Z=0 so the cross-section at the floor is the full circle.
+                z_center = 0
                 cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
-                # Clip to pocket footprint and depth
+                # Mask: same footprint as pocket, from Z=-max_depth to Z=0
+                down_mask = extrude(sketch, amount=max_depth)
+                down_mask = down_mask.moved(Location((0, 0, -max_depth)))
                 curve_list = cyl.intersect(down_mask)
                 if curve_list:
                     pocket = pocket + curve_list[0]
@@ -302,7 +305,7 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
 
 def build_finger_hole(
-    hole: FingerHole, params: BinParams, bin_w_mm: float, bin_l_mm: float
+    hole: FingerHole, outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l_mm: float
 ) -> Solid | None:
     """Build a spherical finger hole at a user-specified position.
 
@@ -314,14 +317,33 @@ def build_finger_hole(
     This means only the bottom half of the sphere cuts into the bin,
     creating a bowl-shaped scoop. The top half is above the bin and
     does nothing (it's outside the solid, so subtraction has no effect).
+
+    The hole's (x, y) is stored in the tool's LOCAL (unrotated) coordinate
+    system. If the tool has a rotation, we must rotate the hole position
+    around the tool's centroid to get its true position in SVG space.
     """
     total_h = params.height_units * C.HEIGHT_UNIT_MM
 
     # Convert to bin-local coords, flipping Y (SVG Y-down → build123d Y-up)
     grid_w_mm = params.grid_w * C.GRID_UNIT_MM
     grid_l_mm = params.grid_l * C.GRID_UNIT_MM
-    x_local = hole.x - grid_w_mm / 2
-    y_local = grid_l_mm / 2 - hole.y
+
+    # Apply tool rotation to the finger hole position.
+    # The hole (x, y) is in the tool's local (unrotated) frame.
+    # Rotate around the tool's centroid to get the global SVG position.
+    hx, hy = hole.x, hole.y
+    if abs(outline.rotation_deg) > 0.01:
+        outer = to_np(outline.outer)
+        cx = float(np.mean(outer[:, 0]))
+        cy = float(np.mean(outer[:, 1]))
+        angle = outline.rotation_deg * np.pi / 180
+        c, s = np.cos(angle), np.sin(angle)
+        dx, dy = hx - cx, hy - cy
+        hx = cx + dx * c - dy * s
+        hy = cy + dx * s + dy * c
+
+    x_local = hx - grid_w_mm / 2
+    y_local = grid_l_mm / 2 - hy
 
     # Place sphere center at the top surface.
     # Only the bottom half cuts into the bin material, creating a bowl.
@@ -355,7 +377,7 @@ def subtract_pockets(bin_solid: Part, outlines: list[ToolOutline], params: BinPa
 
         # User-placed finger holes
         for hole in outline.finger_holes:
-            fh = build_finger_hole(hole, params, bin_w, bin_l)
+            fh = build_finger_hole(hole, outline, params, bin_w, bin_l)
             if fh is not None:
                 cutters.append(fh)
 
