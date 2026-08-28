@@ -133,7 +133,7 @@ export const DEFAULT_PARAMS: BinParams = {
   finger_scoop: true,
   finger_scoop_diameter_mm: 20.0,
   tabs: 'none',
-  lip: true,
+  lip: false,
   label_tab: false,
   label_text: '',
   label_font_size_mm: 6.0,

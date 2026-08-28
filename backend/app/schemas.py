@@ -90,7 +90,7 @@ class BinParams(BaseModel):
     finger_scoop: bool = True
     finger_scoop_diameter_mm: float = Field(20.0, gt=0)
     tabs: Literal["none", "split", "aligned"] = "none"
-    lip: bool = True
+    lip: bool = False
     label_tab: bool = False
     # Label text (rendered as embossed text on the bin)
     label_text: str = ""
