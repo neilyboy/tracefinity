@@ -57,6 +57,10 @@ def build_bin(
     label_tab_inset: bool = False,
     compartments_x: int = 1,
     compartments_y: int = 1,
+    divider_thickness_mm: float = 1.2,
+    divider_taper_deg: float = 0,
+    divider_chamfer_mm: float = 0,
+    divider_corner_radius_mm: float = 0,
     pocket_depth_mm: float = 15.0,
     use_flat_insert: bool = False,
     flat_thickness_mm: float = 2.0,
@@ -148,6 +152,8 @@ def build_bin(
         bin_solid = _add_dividers(
             bin_solid, grid_w, grid_l, wall_thickness_mm, base_thickness_mm,
             total_h, compartments_x, compartments_y,
+            divider_thickness_mm, divider_taper_deg,
+            divider_chamfer_mm, divider_corner_radius_mm,
         )
 
     # --- Scoop ---
@@ -267,29 +273,103 @@ def _add_screw_holes(bin_solid, grid_w, grid_l) -> Part:
 def _add_dividers(
     bin_solid, grid_w, grid_l, wall_thickness, base_thickness, total_h,
     compartments_x, compartments_y,
+    div_thickness=1.2, taper_deg=0, chamfer_mm=0, corner_radius_mm=0,
 ) -> Part:
-    """Add internal divider walls to create compartments."""
+    """Add internal divider walls to create compartments.
+
+    Options:
+    - div_thickness: wall thickness of the dividers
+    - taper_deg: walls slope outward at top (wider opening for easy access)
+    - chamfer_mm: chamfer on top edges of dividers
+    - corner_radius_mm: rounded bottom corners for easy cleaning
+    """
+    import math
     bin_w = grid_w * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     bin_l = grid_l * C.GRID_UNIT_MM - 2 * C.BIN_CLEARANCE_MM
     wall_h = total_h - C.BASE_HEIGHT_MM - base_thickness
+    base_z = C.BASE_HEIGHT_MM + base_thickness
+
+    # Taper: how much wider the wall is at the top vs bottom
+    taper_offset = (wall_h / 2) * math.tan(math.radians(taper_deg)) if taper_deg > 0 else 0
+
+    def _make_divider(length, thickness, height, is_x_divider):
+        """Build a single divider wall, optionally tapered.
+
+        is_x_divider: True for walls running along Y (separating X compartments).
+                      False for walls running along X (separating Y compartments).
+        """
+        if taper_deg > 0:
+            # Build as a loft: narrow rectangle at bottom, wide at top
+            from build123d import BuildPart, BuildSketch, Rectangle, loft, Plane
+            bot_w = thickness
+            top_w = thickness + 2 * taper_offset
+            if is_x_divider:
+                # Wall runs along Y: width=X(thickness), length=Y
+                with BuildPart(Plane.XY) as bp:
+                    with BuildSketch(Plane.XY, Location((0, 0, 0))) as s1:
+                        Rectangle(bot_w, length)
+                    with BuildSketch(Plane.XY, Location((0, 0, height))) as s2:
+                        Rectangle(top_w, length)
+                    loft()
+            else:
+                # Wall runs along X: length=X, width=Y(thickness)
+                with BuildPart(Plane.XY) as bp:
+                    with BuildSketch(Plane.XY, Location((0, 0, 0))) as s1:
+                        Rectangle(length, bot_w)
+                    with BuildSketch(Plane.XY, Location((0, 0, height))) as s2:
+                        Rectangle(length, top_w)
+                    loft()
+            div = Part(bp.part)
+        else:
+            # Simple box
+            if is_x_divider:
+                div = Part(Box(thickness, length, height).moved(Location((0, 0, height / 2))))
+            else:
+                div = Part(Box(length, thickness, height).moved(Location((0, 0, height / 2))))
+
+        # Apply corner radius to bottom edges
+        if corner_radius_mm > 0:
+            try:
+                bb = div.bounding_box()
+                bottom_z = bb.min.Z
+                bottom_edges = [e for e in div.edges() if abs(e.center().Z - bottom_z) < 0.01]
+                if bottom_edges:
+                    div = div.fillet(corner_radius_mm, bottom_edges)
+            except Exception:
+                pass
+
+        # Apply chamfer to top edges
+        if chamfer_mm > 0:
+            try:
+                bb = div.bounding_box()
+                top_z = bb.max.Z
+                top_edges = [e for e in div.edges() if abs(e.center().Z - top_z) < 0.01]
+                if top_edges:
+                    div = div.chamfer(chamfer_mm, None, top_edges)
+            except Exception:
+                pass
+
+        return div
 
     if compartments_x > 1:
         inner_w = bin_w - 2 * wall_thickness
         spacing = inner_w / compartments_x
+        div_length = bin_l - 2 * wall_thickness
         for i in range(1, compartments_x):
             x = -inner_w / 2 + i * spacing
-            div = Box(wall_thickness, bin_l - 2 * wall_thickness, wall_h)
-            div = div.moved(Location((x, 0, C.BASE_HEIGHT_MM + base_thickness + wall_h / 2)))
-            bin_solid = bin_solid + Part(div)
+            div = _make_divider(div_length, div_thickness, wall_h, is_x_divider=True)
+            div = div.moved(Location((x, 0, base_z)))
+            bin_solid = bin_solid + div
 
     if compartments_y > 1:
         inner_l = bin_l - 2 * wall_thickness
         spacing = inner_l / compartments_y
+        div_length = bin_w - 2 * wall_thickness
         for i in range(1, compartments_y):
             y = -inner_l / 2 + i * spacing
-            div = Box(bin_w - 2 * wall_thickness, wall_thickness, wall_h)
-            div = div.moved(Location((0, y, C.BASE_HEIGHT_MM + base_thickness + wall_h / 2)))
-            bin_solid = bin_solid + Part(div)
+            div = _make_divider(div_length, div_thickness, wall_h, is_x_divider=False)
+            div = div.moved(Location((0, y, base_z)))
+            bin_solid = bin_solid + div
 
     return bin_solid
 

@@ -142,6 +142,26 @@ export default function BinParamsPanel() {
         </div>
         <NumInput label="Along X" value={p.compartments_x} min={1} max={10} onChange={(v) => setParams({ compartments_x: v })} />
         <NumInput label="Along Y" value={p.compartments_y} min={1} max={10} onChange={(v) => setParams({ compartments_y: v })} />
+        {(p.compartments_x > 1 || p.compartments_y > 1) && (
+          <>
+            <div style={{ borderTop: '1px solid #27272a', margin: '8px 0', paddingTop: 8 }}>
+              <div style={{ fontSize: 10, color: '#71717a', marginBottom: 6 }}>Divider options:</div>
+              <NumInput label="Wall thickness (mm)" value={p.divider_thickness_mm} step={0.2} min={0.4} max={5} onChange={(v) => setParams({ divider_thickness_mm: v })} />
+              <NumInput label="Wall taper (deg)" value={p.divider_taper_deg} step={1} min={0} max={30} onChange={(v) => setParams({ divider_taper_deg: v })} />
+              <div style={hintStyle}>
+                Tapers walls outward at the top — wider opening makes it easier to grab small parts. 15-20° recommended.
+              </div>
+              <NumInput label="Top chamfer (mm)" value={p.divider_chamfer_mm} step={0.1} min={0} max={2} onChange={(v) => setParams({ divider_chamfer_mm: v })} />
+              <div style={hintStyle}>
+                Chamfers the top edges of dividers for a cleaner look and easier printing.
+              </div>
+              <NumInput label="Bottom corner radius (mm)" value={p.divider_corner_radius_mm} step={0.5} min={0} max={3} onChange={(v) => setParams({ divider_corner_radius_mm: v })} />
+              <div style={hintStyle}>
+                Rounds the bottom corners of compartments — no sharp corners for small screws and parts to get stuck in.
+              </div>
+            </div>
+          </>
+        )}
       </Section>
 
       <Section title="Flat Insert (Two-Tone)" defaultOpen={false}>

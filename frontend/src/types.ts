@@ -77,6 +77,10 @@ export interface BinParams {
   label_tab_inset: boolean
   compartments_x: number
   compartments_y: number
+  divider_thickness_mm: number
+  divider_taper_deg: number
+  divider_chamfer_mm: number
+  divider_corner_radius_mm: number
   foam_thickness_mm: number
   pocket_corner_radius_mm: number
   cutout_chamfer_mm: number
@@ -144,6 +148,10 @@ export const DEFAULT_PARAMS: BinParams = {
   label_tab_inset: false,
   compartments_x: 1,
   compartments_y: 1,
+  divider_thickness_mm: 1.2,
+  divider_taper_deg: 0,
+  divider_chamfer_mm: 0,
+  divider_corner_radius_mm: 0,
   foam_thickness_mm: 10.0,
   pocket_corner_radius_mm: 2.0,
   cutout_chamfer_mm: 0.0,

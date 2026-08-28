@@ -102,6 +102,10 @@ class BinParams(BaseModel):
     # Simplified: number of compartments along x and y.
     compartments_x: int = Field(1, ge=1, le=10)
     compartments_y: int = Field(1, ge=1, le=10)
+    divider_thickness_mm: float = Field(1.2, gt=0, le=5)
+    divider_taper_deg: float = Field(0, ge=0, le=30)  # wall taper for easier access
+    divider_chamfer_mm: float = Field(0, ge=0, le=2)  # chamfer on top edges
+    divider_corner_radius_mm: float = Field(0, ge=0, le=3)  # rounded bottom corners
     # Foam sheet thickness (foam mode only)
     foam_thickness_mm: float = Field(10.0, gt=0)
     # Rounded corners on pockets (mm radius)
