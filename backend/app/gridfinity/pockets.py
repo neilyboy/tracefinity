@@ -164,33 +164,31 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     pocket = extrude(sketch, amount=extrude_depth)
 
     # --- Apply pocket bottom shape (spherical or cylindrical) ---
-    # This carves a curved bottom into the pocket instead of flat.
+    # The pocket solid is NEGATIVE space — it gets subtracted from the bin
+    # to create the tool cutout. To make a curved (concave) bottom, we need
+    # to EXTEND the pocket downward by ADDING a sphere/cylinder below Z=0.
+    # This makes the cutout deeper in the center, creating a bowl/trough.
     pocket_shape = getattr(outline, 'pocket_shape', 'flat')
     bottom_radius = getattr(outline, 'pocket_bottom_radius_mm', None)
     if bottom_radius is None:
         bottom_radius = pocket_depth  # default: curve spans full depth
 
     if pocket_shape == 'spherical' and bottom_radius > 0:
-        # Subtract a sphere from the bottom to create a bowl shape.
-        # The sphere center is below the pocket floor so only the top
-        # portion carves into the pocket, creating a concave bowl.
+        # ADD a sphere below the floor to extend the cutout into a bowl.
         try:
             cx_local = float(np.mean([p[0] for p in pts]))
             cy_local = float(np.mean([p[1] for p in pts]))
-            # Center the sphere below the floor (Z=0).
-            # At z_center = -radius, the top of the sphere is exactly at Z=0
-            # (the floor). This creates a hemisphere bowl.
-            # Move it up slightly so the curve isn't too deep:
+            # Center below floor: top of sphere pokes above Z=0 to create curve.
+            # z_center = -0.6*radius → top at 0.4*radius above floor
             z_center = -bottom_radius + bottom_radius * 0.4
             sphere = Sphere(bottom_radius)
             sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
-            pocket = pocket - Part(sphere)
+            pocket = pocket + Part(sphere)
         except Exception:
-            pass  # spherical bottom can fail on complex shapes — skip
+            pass
 
     elif pocket_shape == 'cylindrical' and bottom_radius > 0:
-        # Subtract a half-cylinder along the longest axis of the tool.
-        # This creates a trough shape — concave curve along one axis.
+        # ADD a half-cylinder below the floor to extend the cutout into a trough.
         try:
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
@@ -198,10 +196,9 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             bbox_h = max(ys) - min(ys)
             cx_local = float(np.mean(xs))
             cy_local = float(np.mean(ys))
-            # Cylinder default axis is Z. We need to lay it along X or Y.
+            # Cylinder default axis is Z. Lay it along X or Y.
             # +90° around Y: maps Z→X (cylinder lies along X) ✓
             # -90° around X: maps Z→Y (cylinder lies along Y) ✓
-            # (Using -90° for Y because +90° around X maps Z→-Y in build123d)
             if bbox_w >= bbox_h:
                 # Tool is wider than tall — cylinder runs along X
                 cyl_len = bbox_w + 4
@@ -212,12 +209,10 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
                 cyl_len = bbox_h + 4
                 cyl = Cylinder(bottom_radius, cyl_len)
                 cyl = cyl.rotate(axis=Axis.X, angle=-90)  # lay along Y
-            # Center below floor so the top of the cylinder carves into the pocket.
-            # z_center = -radius + 0.4*radius = -0.6*radius
-            # Top of cylinder at z = -0.6*radius + radius = 0.4*radius above floor
+            # Center below floor so top of cylinder extends above Z=0
             z_center = -bottom_radius + bottom_radius * 0.4
             cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
-            pocket = pocket - Part(cyl)
+            pocket = pocket + Part(cyl)
         except Exception:
             pass  # cylindrical bottom can fail on complex shapes — skip
 
