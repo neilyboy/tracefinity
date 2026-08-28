@@ -190,10 +190,25 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
-            bbox_w = max(xs) - min(xs)
-            bbox_h = max(ys) - min(ys)
+            pts_array = np.array(pts)
             cx_local = float(np.mean(xs))
             cy_local = float(np.mean(ys))
+
+            # Compute the tool's principal axis (major = length, minor = width).
+            # This lets us align the cylinder with the actual tool orientation,
+            # not just the bounding box (which is wrong for rotated thin tools).
+            centered = pts_array - np.array([cx_local, cy_local])
+            cov = np.cov(centered.T)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            major_axis = eigvecs[:, np.argmax(eigvals)]
+            minor_axis = eigvecs[:, np.argmin(eigvals)]
+            # Project all points onto the major and minor axes
+            major_proj = centered @ major_axis
+            minor_proj = centered @ minor_axis
+            major_len = float(max(major_proj) - min(major_proj))
+            minor_len = float(max(minor_proj) - min(minor_proj))
+            # Angle of the major axis from the +X axis (in degrees)
+            angle_deg = float(np.degrees(np.arctan2(major_axis[1], major_axis[0])))
 
             if pocket_shape == 'spherical':
                 # Sphere centered below floor. Top pokes above Z=0.
@@ -206,19 +221,18 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
                 if curve_list:
                     pocket = pocket + curve_list[0]
             else:
-                # Cylindrical: half-cylinder along the tool's longest axis.
-                # Cylinder default axis is Z. Lay it along X or Y.
-                if bbox_w >= bbox_h:
-                    # Tool is wider than tall — cylinder runs along X
-                    cyl_len = bbox_w + 4
-                    cyl = Cylinder(bottom_radius, cyl_len)
-                    cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
-                else:
-                    # Tool is taller than wide — cylinder runs along Y
-                    cyl_len = bbox_h + 4
-                    cyl = Cylinder(bottom_radius, cyl_len)
-                    cyl = cyl.rotate(axis=Axis.X, angle=-90)  # lay along Y
-                z_center = -bottom_radius + mask_depth * 0.4
+                # Cylindrical: half-cylinder along the tool's actual principal axis.
+                # Cylinder default axis is Z. First lay it along X, then rotate
+                # around Z by the tool's major-axis angle.
+                cyl_len = major_len + 4
+                cyl_radius = min(bottom_radius, minor_len / 2)
+                if cyl_radius <= 0:
+                    cyl_radius = bottom_radius
+                cyl = Cylinder(cyl_radius, cyl_len)
+                cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
+                cyl = cyl.rotate(axis=Axis.Z, angle=angle_deg)  # align with tool
+                # Center below floor. Top pokes above by 40% of mask depth.
+                z_center = -cyl_radius + mask_depth * 0.4
                 cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
                 # Clip to pocket footprint and depth
                 curve_list = cyl.intersect(down_mask)
