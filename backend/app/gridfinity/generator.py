@@ -31,6 +31,7 @@ def generate_gridfinity(design: Design) -> Solid:
         label_text=p.label_text,
         label_font_size_mm=p.label_font_size_mm,
         label_depth_mm=p.label_depth_mm,
+        label_engrave=p.label_engrave,
         compartments_x=p.compartments_x,
         compartments_y=p.compartments_y,
         pocket_depth_mm=p.pocket_depth_mm,

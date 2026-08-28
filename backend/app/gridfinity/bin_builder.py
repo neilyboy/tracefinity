@@ -51,6 +51,7 @@ def build_bin(
     label_text: str = "",
     label_font_size_mm: float = 6.0,
     label_depth_mm: float = 0.6,
+    label_engrave: bool = False,
     compartments_x: int = 1,
     compartments_y: int = 1,
     pocket_depth_mm: float = 15.0,
@@ -154,7 +155,7 @@ def build_bin(
     if label_tab:
         bin_solid = _add_label_tab(
             bin_solid, bin_w, bin_l, wall_thickness_mm, total_h,
-            label_text, label_font_size_mm, label_depth_mm,
+            label_text, label_font_size_mm, label_depth_mm, label_engrave,
         )
 
     # --- Print support tabs ---
@@ -346,12 +347,13 @@ def _add_print_tabs(bin_solid, bin_w, bin_l, total_h, tab_style) -> Part:
 
 def _add_label_tab(
     bin_solid, bin_w, bin_l, wall_thickness, total_h,
-    label_text, font_size, label_depth,
+    label_text, font_size, label_depth, engrave=False,
 ) -> Part:
-    """Add a label tab on the front wall of the bin with optional embossed text.
+    """Add a label tab on the front wall of the bin with optional text.
 
     The label tab is a flat area on the front of the bin where you can write
-    or stick a label. If label_text is provided, it's embossed (raised) on the tab.
+    or stick a label. If label_text is provided, it's embossed (raised) or
+    engraved (cut in) on the tab depending on the engrave flag.
     """
     # Tab dimensions: spans the full width, sits at the top of the front wall
     tab_w = min(C.LABEL_TAB_WIDTH_MM, bin_w - 2 * wall_thickness)
@@ -366,7 +368,7 @@ def _add_label_tab(
     tab = tab.moved(Location((0, tab_y, tab_z)))
     bin_solid = bin_solid + Part(tab)
 
-    # Add embossed text if provided
+    # Add text if provided (embossed or engraved)
     if label_text and label_depth > 0:
         try:
             # Create text sketch and extrude
@@ -382,10 +384,15 @@ def _add_label_tab(
             #   2. +90° around X: maps Z→Y (normal outward) and Y→Z (up stays up)
             text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
             text_solid = text_solid.rotate(axis=Axis.X, angle=90)
-            # After rotations, text center is at (0, label_depth/2, 0)
-            # Position so inner edge sits on the tab's outer face
-            text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t, tab_z)))
-            bin_solid = bin_solid + Part(text_solid)
+            if engrave:
+                # Engraved: cut text INTO the tab from the outside
+                # Position so the text solid overlaps the tab and subtract it
+                text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t - label_depth / 2, tab_z)))
+                bin_solid = bin_solid - Part(text_solid)
+            else:
+                # Embossed: text sits ON the tab, raised outward
+                text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t, tab_z)))
+                bin_solid = bin_solid + Part(text_solid)
         except Exception:
             pass  # text rendering can fail if font not available — skip silently
 
