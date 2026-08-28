@@ -173,24 +173,24 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     if pocket_shape == 'spherical' and bottom_radius > 0:
         # Subtract a sphere from the bottom to create a bowl shape.
         # The sphere center is below the pocket floor so only the top
-        # hemisphere carves into the pocket.
+        # portion carves into the pocket, creating a concave bowl.
         try:
-            # Compute centroid of the polygon for sphere position
             cx_local = float(np.mean([p[0] for p in pts]))
             cy_local = float(np.mean([p[1] for p in pts]))
+            # Center the sphere below the floor (Z=0).
+            # At z_center = -radius, the top of the sphere is exactly at Z=0
+            # (the floor). This creates a hemisphere bowl.
+            # Move it up slightly so the curve isn't too deep:
+            z_center = -bottom_radius + bottom_radius * 0.4
             sphere = Sphere(bottom_radius)
-            # Center below floor so the top of sphere is at Z=0
-            sphere = sphere.moved(Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3)))
-            pocket = pocket + Part(sphere)  # union first to ensure overlap
-            pocket = pocket - Part(Sphere(bottom_radius).moved(
-                Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3))
-            ))
+            sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
+            pocket = pocket - Part(sphere)
         except Exception:
             pass  # spherical bottom can fail on complex shapes — skip
 
     elif pocket_shape == 'cylindrical' and bottom_radius > 0:
         # Subtract a half-cylinder along the longest axis of the tool.
-        # Determine longest axis from bounding box.
+        # This creates a trough shape — concave curve along one axis.
         try:
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
@@ -198,7 +198,10 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             bbox_h = max(ys) - min(ys)
             cx_local = float(np.mean(xs))
             cy_local = float(np.mean(ys))
-            # Cylinder length needs to be longer than the pocket dimension
+            # Cylinder default axis is Z. We need to lay it along X or Y.
+            # +90° around Y: maps Z→X (cylinder lies along X) ✓
+            # -90° around X: maps Z→Y (cylinder lies along Y) ✓
+            # (Using -90° for Y because +90° around X maps Z→-Y in build123d)
             if bbox_w >= bbox_h:
                 # Tool is wider than tall — cylinder runs along X
                 cyl_len = bbox_w + 4
@@ -208,9 +211,12 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
                 # Tool is taller than wide — cylinder runs along Y
                 cyl_len = bbox_h + 4
                 cyl = Cylinder(bottom_radius, cyl_len)
-                cyl = cyl.rotate(axis=Axis.X, angle=90)  # lay along Y
-            # Position so top of cylinder is at Z=0 (carves into pocket from below)
-            cyl = cyl.moved(Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3)))
+                cyl = cyl.rotate(axis=Axis.X, angle=-90)  # lay along Y
+            # Center below floor so the top of the cylinder carves into the pocket.
+            # z_center = -radius + 0.4*radius = -0.6*radius
+            # Top of cylinder at z = -0.6*radius + radius = 0.4*radius above floor
+            z_center = -bottom_radius + bottom_radius * 0.4
+            cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
             pocket = pocket - Part(cyl)
         except Exception:
             pass  # cylindrical bottom can fail on complex shapes — skip
