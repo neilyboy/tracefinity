@@ -375,21 +375,23 @@ def _add_label_tab(
         pocket_depth = wall_thickness
         # Taper inset at bottom = depth * tan(40°)
         taper = pocket_depth * math.tan(math.radians(40))
-        # Outer rectangle (at the face)
+        # Outer rectangle (at the face): width=X, height=Z
         outer_w = tab_w
         outer_h = tab_h
         # Inner rectangle (at the bottom of the pocket, smaller)
         inner_w = max(outer_w - 2 * taper, 4.0)
         inner_h = max(outer_h - 2 * taper, 4.0)
 
-        # Build the tapered pocket using a loft between two rectangles
+        # Build the tapered pocket using a loft between two rectangles.
+        # Sketches must be on Plane.XZ (normal=+Y) since the pocket is on
+        # the front face. The rectangles are width=X, height=Z.
         outer_y = bin_l / 2  # at the outer face
         inner_y = bin_l / 2 - pocket_depth  # at the bottom (inside)
 
-        with BuildPart(Plane.XY) as bp:
-            with BuildSketch(Plane.XY, Location((0, outer_y, tab_z))) as s1:
+        with BuildPart(Plane.XZ) as bp:
+            with BuildSketch(Plane.XZ, Location((0, outer_y, tab_z))) as s1:
                 Rectangle(outer_w, outer_h)
-            with BuildSketch(Plane.XY, Location((0, inner_y, tab_z))) as s2:
+            with BuildSketch(Plane.XZ, Location((0, inner_y, tab_z))) as s2:
                 Rectangle(inner_w, inner_h)
             loft()
         pocket = bp.part
