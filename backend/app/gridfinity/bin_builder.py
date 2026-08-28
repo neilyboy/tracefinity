@@ -375,26 +375,30 @@ def _add_label_tab(
         pocket_depth = wall_thickness
         # Taper inset at bottom = depth * tan(40°)
         taper = pocket_depth * math.tan(math.radians(40))
-        # Outer rectangle (at the face): width=X, height=Z
+        # Outer rectangle (at the face): width=X, height=Y(in sketch)
         outer_w = tab_w
         outer_h = tab_h
         # Inner rectangle (at the bottom of the pocket, smaller)
         inner_w = max(outer_w - 2 * taper, 4.0)
         inner_h = max(outer_h - 2 * taper, 4.0)
 
-        # Build the tapered pocket using a loft between two rectangles.
-        # Sketches must be on Plane.XZ (normal=+Y) since the pocket is on
-        # the front face. The rectangles are width=X, height=Z.
-        outer_y = bin_l / 2  # at the outer face
-        inner_y = bin_l / 2 - pocket_depth  # at the bottom (inside)
-
-        with BuildPart(Plane.XZ) as bp:
-            with BuildSketch(Plane.XZ, Location((0, outer_y, tab_z))) as s1:
+        # Build the tapered pocket as a loft in the XY plane (default),
+        # then rotate it to face the front (+Y direction).
+        # Sketch 1 (big end) at z=0, Sketch 2 (small end) at z=pocket_depth.
+        # After lofting, the frustum extends in +Z.
+        # Rotate +90° around X: maps Z→-Y (inward), Y→Z (up).
+        # Then move so the big end is at the front face (y = bin_l/2).
+        with BuildPart(Plane.XY) as bp:
+            with BuildSketch(Plane.XY, Location((0, 0, 0))) as s1:
                 Rectangle(outer_w, outer_h)
-            with BuildSketch(Plane.XZ, Location((0, inner_y, tab_z))) as s2:
+            with BuildSketch(Plane.XY, Location((0, 0, pocket_depth))) as s2:
                 Rectangle(inner_w, inner_h)
             loft()
         pocket = bp.part
+        # Rotate +90° around X: big end stays at y=0, small end goes to y=-pocket_depth
+        pocket = pocket.rotate(axis=Axis.X, angle=90)
+        # Move so big end (opening) is at the front face, centered at tab_z
+        pocket = pocket.moved(Location((0, bin_l / 2, tab_z)))
 
         try:
             bin_solid = bin_solid - Part(pocket)
@@ -408,12 +412,12 @@ def _add_label_tab(
                     Text(label_text, font_size=font_size, font_path=None, align=Align.CENTER)
                 text_face = text_sketch.sketch
                 text_solid = extrude(text_face, amount=label_depth)
-                # Same rotation as protruding mode
+                # Same rotation as protruding mode: 180° Y then +90° X
                 text_solid = text_solid.rotate(axis=Axis.Y, angle=180)
                 text_solid = text_solid.rotate(axis=Axis.X, angle=90)
-                # Position at the bottom of the pocket, cutting inward
-                text_y = inner_y - label_depth / 2
-                text_solid = text_solid.moved(Location((0, text_y, tab_z)))
+                # Position at the bottom of the pocket (inner_y), cutting inward
+                inner_y = bin_l / 2 - pocket_depth
+                text_solid = text_solid.moved(Location((0, inner_y, tab_z)))
                 bin_solid = bin_solid - Part(text_solid)
             except Exception:
                 pass
