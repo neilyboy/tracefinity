@@ -500,24 +500,28 @@ export default function ToolPropsPanel() {
         <div style={{ fontSize: 10, color: '#52525b', marginTop: 4, lineHeight: 1.4 }}>
           <strong>Flat</strong> — straight walls, flat floor (wrenches, pliers).<br/>
           <strong>Spherical</strong> — bowl-shaped bottom (screwdrivers, anything round).<br/>
-          <strong>Cylindrical</strong> — rounded along the tool's long axis (drill bits, sockets on their side).
+          <strong>Cylindrical</strong> — revolves the tool's half-profile around its length axis, creating a true cylindrical cradle that matches the tool's shape (screwdrivers, drill bits).
         </div>
         {(tool.pocket_shape === 'spherical' || tool.pocket_shape === 'cylindrical') && (
           <div style={{ marginTop: 6 }}>
             <label style={{ fontSize: 11, color: '#a1a1aa', display: 'block', marginBottom: 2 }}>
-              Curve radius (mm): {tool.pocket_bottom_radius_mm ?? 15}
+              {tool.pocket_shape === 'cylindrical'
+                ? `Cutout depth (mm): ${tool.pocket_bottom_radius_mm ?? 8}`
+                : `Curve radius (mm): ${tool.pocket_bottom_radius_mm ?? 8}`}
             </label>
             <input
               type="number"
-              value={tool.pocket_bottom_radius_mm ?? 15}
+              value={tool.pocket_bottom_radius_mm ?? 8}
               step={1}
-              min={3}
+              min={1}
               max={50}
-              onChange={(e) => updateTool(tool.id, { pocket_bottom_radius_mm: parseFloat(e.target.value) || 15 })}
+              onChange={(e) => updateTool(tool.id, { pocket_bottom_radius_mm: parseFloat(e.target.value) || 8 })}
               style={{ width: '100%', padding: '4px 8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 12, boxSizing: 'border-box' }}
             />
             <div style={{ fontSize: 10, color: '#52525b', marginTop: 2 }}>
-              Larger = gentler curve. Default matches pocket depth.
+              {tool.pocket_shape === 'cylindrical'
+                ? 'How deep the cylindrical cutout goes into the bin. Default (8) = half the tool width. Lower = shallower cut (e.g., 3mm for a light scoop).'
+                : 'Larger = gentler curve. Default = 8mm.'}
             </div>
           </div>
         )}

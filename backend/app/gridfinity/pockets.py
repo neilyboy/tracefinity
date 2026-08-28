@@ -39,6 +39,7 @@ from build123d import (
     Sphere,
     extrude,
     fillet,
+    revolve,
 )
 
 from ..schemas import BinParams, FingerHole, ToolOutline
@@ -171,8 +172,8 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     pocket_shape = getattr(outline, 'pocket_shape', 'flat')
     bottom_radius = getattr(outline, 'pocket_bottom_radius_mm', None)
     if bottom_radius is None:
-        # Default to a reasonable curve radius, capped by pocket depth.
-        # 8mm is a good default for screwdrivers and round tools.
+        # Default: 8mm is a good default for screwdrivers and round tools.
+        # For cylindrical, this is the cutout depth (capped to tool half-width).
         bottom_radius = min(pocket_depth, 8.0)
 
     if pocket_shape in ('spherical', 'cylindrical') and bottom_radius > 0:
@@ -184,65 +185,100 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
             cy_local = float(np.mean(ys))
 
             # Compute the tool's principal axis (major = length, minor = width).
-            # This lets us align the cylinder with the actual tool orientation,
-            # not just the bounding box (which is wrong for rotated thin tools).
             centered = pts_array - np.array([cx_local, cy_local])
             cov = np.cov(centered.T)
             eigvals, eigvecs = np.linalg.eigh(cov)
             major_axis = eigvecs[:, np.argmax(eigvals)]
             minor_axis = eigvecs[:, np.argmin(eigvals)]
-            # Project all points onto the major and minor axes
             major_proj = centered @ major_axis
             minor_proj = centered @ minor_axis
             major_len = float(max(major_proj) - min(major_proj))
             minor_len = float(max(minor_proj) - min(minor_proj))
-            # Angle of the major axis from the +X axis (in degrees)
             angle_deg = float(np.degrees(np.arctan2(major_axis[1], major_axis[0])))
+            max_radius = minor_len / 2 if minor_len > 0 else bottom_radius
 
             if pocket_shape == 'spherical':
                 # Sphere centered at the pocket floor (Z=0).
-                # At Z=0, the cross-section is a full circle of radius = sphere_r,
-                # covering the tool footprint. Below Z=0, it curves down into a
-                # hemisphere. We take only the bottom half (Z < 0) via the mask.
                 sphere_r = bottom_radius
                 max_depth = min(sphere_r, pocket_depth * 0.5)
-                z_center = 0  # center at the pocket floor
                 sphere = Sphere(sphere_r)
-                sphere = sphere.moved(Location((cx_local, cy_local, z_center)))
-                # Mask: same footprint as pocket, from Z=-max_depth to Z=0
+                sphere = sphere.moved(Location((cx_local, cy_local, 0)))
                 down_mask = extrude(sketch, amount=max_depth)
                 down_mask = down_mask.moved(Location((0, 0, -max_depth)))
                 curve_list = sphere.intersect(down_mask)
                 if curve_list:
                     pocket = pocket + curve_list[0]
             else:
-                # Cylindrical: half-cylinder cradle along the tool's major axis.
-                # The cylinder is centered at Z=0 (the pocket floor). At Z=0,
-                # the cross-section perpendicular to the major axis is a full
-                # circle of radius cyl_radius, spanning the tool's full width.
-                # Below Z=0, it curves down into a U-shaped trough (hemisphere
-                # of the cylinder). We take only the bottom half via the mask.
-                cyl_radius = min(bottom_radius, minor_len / 2) if minor_len > 0 else bottom_radius
-                if cyl_radius <= 0:
-                    cyl_radius = bottom_radius
-                cyl_len = major_len + 4
-                # Limit depth to avoid cutting through the bin base.
-                # The full half-cylinder reaches down by cyl_radius.
-                max_depth = min(cyl_radius, pocket_depth * 0.5)
-                cyl = Cylinder(cyl_radius, cyl_len)
-                cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
-                cyl = cyl.rotate(axis=Axis.Z, angle=angle_deg)  # align with tool
-                # Center at Z=0 so the cross-section at the floor is the full circle.
-                z_center = 0
-                cyl = cyl.moved(Location((cx_local, cy_local, z_center)))
-                # Mask: same footprint as pocket, from Z=-max_depth to Z=0
+                # Cylindrical: REVOLUTION of the tool's half-profile around
+                # its major (length) axis. This creates a true cylindrical
+                # cutout that follows the tool's actual shape — like a lathe
+                # operation. The half-profile is the upper half of the tool
+                # outline (y >= 0 in the major-axis frame), revolved 360°
+                # around the major axis.
+                #
+                # The revolution axis Z position is customizable:
+                # - Default (pocket_bottom_radius_mm = null): axis at Z=0
+                #   (the pocket floor), cutting exactly half the tool width
+                # - Custom: axis at Z = max_radius - desired_depth, so the
+                #   cutout depth = desired_depth (shallower if axis is above)
+
+                desired_depth = bottom_radius  # reinterpret as cutout depth
+                if desired_depth >= max_radius:
+                    desired_depth = max_radius  # cap at full half-width
+                # Axis Z position: when desired_depth = max_radius, axis at Z=0
+                # When desired_depth < max_radius, axis above Z=0 (shallower cut)
+                z_axis = max_radius - desired_depth
+
+                # --- Extract upper half profile ---
+                # Transform all outline points to the major-axis frame:
+                # x = projection onto major axis, y = projection onto minor axis
+                # The upper half is where y >= 0
+                n_pts = len(major_proj)
+                upper_x = []
+                upper_y = []
+                for i in range(n_pts):
+                    x1, y1 = major_proj[i], minor_proj[i]
+                    x2, y2 = major_proj[(i + 1) % n_pts], minor_proj[(i + 1) % n_pts]
+                    if y1 >= 0:
+                        upper_x.append(float(x1))
+                        upper_y.append(float(y1))
+                    # Insert crossing point where edge crosses y=0
+                    if (y1 > 0 and y2 < 0) or (y1 < 0 and y2 > 0):
+                        t = y1 / (y1 - y2)
+                        cx = x1 + t * (x2 - x1)
+                        upper_x.append(float(cx))
+                        upper_y.append(0.0)
+
+                if len(upper_x) < 3:
+                    raise ValueError("Not enough upper half points for revolution")
+
+                # Build closed profile: upper half + axis line back to start
+                # The profile is in the XY plane (X = position along major axis,
+                # Y = radius from axis). Revolve around X axis -> 3D solid.
+                profile_pts = list(zip(upper_x, upper_y))
+                # Ensure first and last points are on the axis (y=0)
+                if abs(profile_pts[0][1]) > 0.01:
+                    profile_pts.insert(0, (profile_pts[0][0], 0.0))
+                if abs(profile_pts[-1][1]) > 0.01:
+                    profile_pts.append((profile_pts[-1][0], 0.0))
+
+                profile = Polygon(profile_pts)
+                # Revolve 360° around X axis -> solid of revolution
+                revolved = revolve(profile, axis=Axis.X, revolution_arc=360)
+                # Rotate around Z to align X with the tool's major axis
+                revolved = revolved.rotate(axis=Axis.Z, angle=angle_deg)
+                # Translate to centroid + Z axis offset
+                revolved = revolved.moved(Location((cx_local, cy_local, z_axis)))
+
+                # Clip to pocket footprint and limit depth
+                max_depth = min(desired_depth, pocket_depth * 0.5)
                 down_mask = extrude(sketch, amount=max_depth)
                 down_mask = down_mask.moved(Location((0, 0, -max_depth)))
-                curve_list = cyl.intersect(down_mask)
+                curve_list = revolved.intersect(down_mask)
                 if curve_list:
                     pocket = pocket + curve_list[0]
         except Exception:
-            pass  # cylindrical bottom can fail on complex shapes — skip
+            pass  # revolution can fail on complex shapes — skip
 
     # Apply chamfer on the top edge of the pocket (if enabled).
     # The top edges are the edges at the top of the extrusion.
