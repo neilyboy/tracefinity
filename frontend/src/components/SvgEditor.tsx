@@ -245,7 +245,8 @@ export default function SvgEditor() {
     const mm = toMm(e.clientX, e.clientY)
     setDrag({ type: 'fingerHole', toolId, fingerHoleIdx: holeIdx, startMm: mm, startVertices: [], startHole: { ...hole } })
     selectTool(toolId)
-    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    // Don't set pointer capture here; let the SVG-level onPointerMove handle it.
+    // This avoids captured events being routed to the circle instead of the SVG.
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
