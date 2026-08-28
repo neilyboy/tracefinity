@@ -256,6 +256,8 @@ export function createTool(
     margin_mm: null,
     pocket_depth_mm: null,
     smoothing: 0.0,
+    pocket_shape: 'flat',
+    pocket_bottom_radius_mm: null,
   }
 }
 

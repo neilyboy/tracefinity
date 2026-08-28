@@ -50,6 +50,8 @@ export interface ToolOutline {
   rotation_deg: number
   finger_holes: FingerHole[]
   smoothing: number  // 0.0 = sharp polygon, 0.3 = balanced, 1.0 = max curves
+  pocket_shape: 'flat' | 'spherical' | 'cylindrical'
+  pocket_bottom_radius_mm: number | null
 }
 
 export interface BinParams {

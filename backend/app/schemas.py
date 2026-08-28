@@ -40,6 +40,10 @@ class ToolOutline(BaseModel):
     finger_holes: list[FingerHole] = Field(default_factory=list)
     # Path smoothing tension (0.0 = sharp polygon, 0.3 = balanced, 1.0 = max curves)
     smoothing: float = 0.3
+    # Pocket bottom shape: flat, spherical (bowl), cylindrical (rounded along length)
+    pocket_shape: str = "flat"  # "flat", "spherical", "cylindrical"
+    # Radius of the spherical/cylindrical bottom curve (mm). None = use pocket_depth
+    pocket_bottom_radius_mm: float | None = None
 
 
 class TextLabel(BaseModel):

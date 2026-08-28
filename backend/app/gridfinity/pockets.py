@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import numpy as np
 from build123d import (
+    Axis,
     Box,
     Cylinder,
     Location,
@@ -161,6 +162,58 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
 
     # Extrude upward (+Z) from the sketch plane (Z=0) to Z=extrude_depth.
     pocket = extrude(sketch, amount=extrude_depth)
+
+    # --- Apply pocket bottom shape (spherical or cylindrical) ---
+    # This carves a curved bottom into the pocket instead of flat.
+    pocket_shape = getattr(outline, 'pocket_shape', 'flat')
+    bottom_radius = getattr(outline, 'pocket_bottom_radius_mm', None)
+    if bottom_radius is None:
+        bottom_radius = pocket_depth  # default: curve spans full depth
+
+    if pocket_shape == 'spherical' and bottom_radius > 0:
+        # Subtract a sphere from the bottom to create a bowl shape.
+        # The sphere center is below the pocket floor so only the top
+        # hemisphere carves into the pocket.
+        try:
+            # Compute centroid of the polygon for sphere position
+            cx_local = float(np.mean([p[0] for p in pts]))
+            cy_local = float(np.mean([p[1] for p in pts]))
+            sphere = Sphere(bottom_radius)
+            # Center below floor so the top of sphere is at Z=0
+            sphere = sphere.moved(Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3)))
+            pocket = pocket + Part(sphere)  # union first to ensure overlap
+            pocket = pocket - Part(Sphere(bottom_radius).moved(
+                Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3))
+            ))
+        except Exception:
+            pass  # spherical bottom can fail on complex shapes — skip
+
+    elif pocket_shape == 'cylindrical' and bottom_radius > 0:
+        # Subtract a half-cylinder along the longest axis of the tool.
+        # Determine longest axis from bounding box.
+        try:
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            bbox_w = max(xs) - min(xs)
+            bbox_h = max(ys) - min(ys)
+            cx_local = float(np.mean(xs))
+            cy_local = float(np.mean(ys))
+            # Cylinder length needs to be longer than the pocket dimension
+            if bbox_w >= bbox_h:
+                # Tool is wider than tall — cylinder runs along X
+                cyl_len = bbox_w + 4
+                cyl = Cylinder(bottom_radius, cyl_len)
+                cyl = cyl.rotate(axis=Axis.Y, angle=90)  # lay along X
+            else:
+                # Tool is taller than wide — cylinder runs along Y
+                cyl_len = bbox_h + 4
+                cyl = Cylinder(bottom_radius, cyl_len)
+                cyl = cyl.rotate(axis=Axis.X, angle=90)  # lay along Y
+            # Position so top of cylinder is at Z=0 (carves into pocket from below)
+            cyl = cyl.moved(Location((cx_local, cy_local, -bottom_radius + bottom_radius * 0.3)))
+            pocket = pocket - Part(cyl)
+        except Exception:
+            pass  # cylindrical bottom can fail on complex shapes — skip
 
     # Apply chamfer on the top edge of the pocket (if enabled).
     # The top edges are the edges at the top of the extrusion.

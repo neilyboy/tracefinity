@@ -482,6 +482,47 @@ export default function ToolPropsPanel() {
         </div>
       </Field>
 
+      <Field label="Pocket bottom shape">
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => updateTool(tool.id, { pocket_shape: 'flat' })}
+            style={{ ...smallBtn, background: (tool.pocket_shape ?? 'flat') === 'flat' ? '#3b0764' : '#27272a', color: (tool.pocket_shape ?? 'flat') === 'flat' ? '#a78bfa' : '#a1a1aa' }}
+          >Flat</button>
+          <button
+            onClick={() => updateTool(tool.id, { pocket_shape: 'spherical' })}
+            style={{ ...smallBtn, background: tool.pocket_shape === 'spherical' ? '#3b0764' : '#27272a', color: tool.pocket_shape === 'spherical' ? '#a78bfa' : '#a1a1aa' }}
+          >Spherical</button>
+          <button
+            onClick={() => updateTool(tool.id, { pocket_shape: 'cylindrical' })}
+            style={{ ...smallBtn, background: tool.pocket_shape === 'cylindrical' ? '#3b0764' : '#27272a', color: tool.pocket_shape === 'cylindrical' ? '#a78bfa' : '#a1a1aa' }}
+          >Cylindrical</button>
+        </div>
+        <div style={{ fontSize: 10, color: '#52525b', marginTop: 4, lineHeight: 1.4 }}>
+          <strong>Flat</strong> — straight walls, flat floor (wrenches, pliers).<br/>
+          <strong>Spherical</strong> — bowl-shaped bottom (screwdrivers, anything round).<br/>
+          <strong>Cylindrical</strong> — rounded along the tool's long axis (drill bits, sockets on their side).
+        </div>
+        {(tool.pocket_shape === 'spherical' || tool.pocket_shape === 'cylindrical') && (
+          <div style={{ marginTop: 6 }}>
+            <label style={{ fontSize: 11, color: '#a1a1aa', display: 'block', marginBottom: 2 }}>
+              Curve radius (mm): {tool.pocket_bottom_radius_mm ?? 15}
+            </label>
+            <input
+              type="number"
+              value={tool.pocket_bottom_radius_mm ?? 15}
+              step={1}
+              min={3}
+              max={50}
+              onChange={(e) => updateTool(tool.id, { pocket_bottom_radius_mm: parseFloat(e.target.value) || 15 })}
+              style={{ width: '100%', padding: '4px 8px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, color: '#e4e4e7', fontSize: 12, boxSizing: 'border-box' }}
+            />
+            <div style={{ fontSize: 10, color: '#52525b', marginTop: 2 }}>
+              Larger = gentler curve. Default matches pocket depth.
+            </div>
+          </div>
+        )}
+      </Field>
+
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Tool Library
       </div>
