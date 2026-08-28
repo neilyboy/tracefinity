@@ -375,7 +375,9 @@ def _add_label_tab(
             text_face = text_sketch.sketch
             text_solid = extrude(text_face, amount=label_depth)
             # Position text on the front face of the label tab
-            text_solid = text_solid.rotate(axis=Axis.X, angle=90)
+            # Rotate -90° around X so text faces outward (+Y = front of bin)
+            # +90° would face it inward, making it read backwards from outside
+            text_solid = text_solid.rotate(axis=Axis.X, angle=-90)
             text_solid = text_solid.moved(Location((0, bin_l / 2 + tab_t + label_depth / 2, tab_z)))
             bin_solid = bin_solid + Part(text_solid)
         except Exception:
