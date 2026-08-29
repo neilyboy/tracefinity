@@ -573,45 +573,42 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         # No segmentation needed
         return [plate]
 
-    # 8. Cut the plate into segments
+    # 8. Cut the plate into segments with puzzle connectors
     segments = _segment_bounds(grid_w, grid_l, cuts_x, cuts_y)
     segment_parts = []
     for (sx_start, sx_end, sy_start, sy_end) in segments:
-        # Build a bounding box for this segment
         seg_w = (sx_end - sx_start) * C.GRID_UNIT_MM
         seg_l = (sy_end - sy_start) * C.GRID_UNIT_MM
         seg_cx = -plate_w / 2 + (sx_start + sx_end) / 2 * C.GRID_UNIT_MM
         seg_cy = -plate_l / 2 + (sy_start + sy_end) / 2 * C.GRID_UNIT_MM
 
-        seg_box = Box(seg_w + 2, seg_l + 2, total_h + 4)
-        seg_box = seg_box.moved(Location((seg_cx, seg_cy, total_h / 2)))
+        if params.connector_type == "edge_clips":
+            # Build a puzzle-shaped segment boundary for interlocking
+            seg_shape = _build_puzzle_segment(
+                sx_start, sx_end, sy_start, sy_end,
+                grid_w, grid_l, cuts_x, cuts_y, params, total_h,
+            )
+        else:
+            # Simple straight cut
+            seg_shape = Box(seg_w + 2, seg_l + 2, total_h + 4)
+            seg_shape = seg_shape.moved(Location((seg_cx, seg_cy, total_h / 2)))
 
         try:
-            intersect_result = plate.intersect(seg_box)
+            intersect_result = plate.intersect(seg_shape)
             if not intersect_result:
                 continue
-            # intersect returns a ShapeList; take the first solid
             seg_part = intersect_result[0]
         except Exception:
             continue
 
-        # 9. Add edge connectors
-        if params.connector_type == "edge_clips":
-            seg_part = _add_edge_clips(
-                seg_part, sx_start, sx_end, sy_start, sy_end,
-                grid_w, grid_l, cuts_x, cuts_y, params, total_h,
-            )
-        elif params.connector_type == "magnets":
-            # Add magnet holes at seam midpoints
+        # 9. Add seam magnets if requested
+        if params.connector_type == "magnets":
             seg_part = _add_seam_magnets(
                 seg_part, sx_start, sx_end, sy_start, sy_end,
                 grid_w, grid_l, cuts_x, cuts_y, total_h,
             )
 
-        # 10. Re-apply partial cutouts after edge clips, so tabs that fall
-        # within a partial cutout area don't obstruct the recessed region.
-        # (Edge clip tabs are added in step 9 and can fill back in over
-        # partial cutout areas — this removes that material again.)
+        # 10. Re-apply partial cutouts
         for cutout in design.cutouts:
             if getattr(cutout, 'cutout_type', 'through') != 'partial':
                 continue
@@ -627,6 +624,193 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         segment_parts.append(seg_part)
 
     return segment_parts if segment_parts else [plate]
+
+
+# ---------------------------------------------------------------------------
+# Puzzle connectors (jigsaw-style interlocking segment boundaries)
+# ---------------------------------------------------------------------------
+
+# Puzzle tab dimensions
+PUZZLE_TAB_WIDTH = 6.0   # width along the cut line
+PUZZLE_TAB_DEPTH = 1.5   # how far the tab protrudes past the cut line
+PUZZLE_TOLERANCE = 0.2   # clearance between tab and socket
+
+
+def _build_puzzle_segment(
+    seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
+    grid_w: int, grid_l: int,
+    cuts_x: list[int], cuts_y: list[int],
+    params: BaseplateParams,
+    total_h: float,
+) -> Solid:
+    """Build a segment shape with puzzle-style interlocking edges.
+
+    Instead of a simple rectangular box, the segment boundary has small
+    jigsaw-style bumps and notches along the cut-line edges. One side of
+    each cut gets a bump (protrusion), the other gets a matching notch.
+    This interlocks the segments without cutting into the thin socket walls.
+
+    The puzzle tabs are full plate height and positioned at the midpoint
+    of each segment edge along the cut line.
+    """
+    plate_w = grid_w * C.GRID_UNIT_MM
+    plate_l = grid_l * C.GRID_UNIT_MM
+
+    seg_w = (seg_x_end - seg_x_start) * C.GRID_UNIT_MM
+    seg_l = (seg_y_end - seg_y_start) * C.GRID_UNIT_MM
+    seg_x_min = -plate_w / 2 + seg_x_start * C.GRID_UNIT_MM
+    seg_x_max = -plate_w / 2 + seg_x_end * C.GRID_UNIT_MM
+    seg_y_min = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
+    seg_y_max = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
+    seg_cx = (seg_x_min + seg_x_max) / 2
+    seg_cy = (seg_y_min + seg_y_max) / 2
+
+    # Start with a base box slightly larger than the segment (for clean cuts)
+    # then add/subtract puzzle tabs at the cut-line edges
+    margin = 1.0  # 1mm margin for clean intersection
+    shape = Box(seg_w + 2 * margin, seg_l + 2 * margin, total_h + 4)
+    shape = shape.moved(Location((seg_cx, seg_cy, total_h / 2)))
+
+    tab_w = PUZZLE_TAB_WIDTH
+    tab_d = PUZZLE_TAB_DEPTH
+    tol = PUZZLE_TOLERANCE
+
+    # --- Vertical cut lines (X cuts) ---
+    for cx in cuts_x:
+        cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
+        is_left = seg_x_end == cx   # segment is on the left of the cut
+        is_right = seg_x_start == cx  # segment is on the right of the cut
+        if not (is_left or is_right):
+            continue
+
+        # Place 1-3 puzzle tabs along this edge
+        seg_y_center = (seg_y_min + seg_y_max) / 2
+        seg_y_len = seg_y_max - seg_y_min
+        n_tabs = max(1, min(3, int(seg_y_len / (tab_w * 4))))
+        if n_tabs == 1:
+            tab_ys = [seg_y_center]
+        else:
+            spacing = seg_y_len / (n_tabs + 1)
+            tab_ys = [seg_y_min + spacing * (i + 1) for i in range(n_tabs)]
+
+        for ty in tab_ys:
+            if is_left:
+                # Add a puzzle bump protruding in +X (past the cut line)
+                bump = _build_puzzle_bump(tab_w, tab_d, total_h, "+x")
+                bump = bump.moved(Location((cut_x_mm, ty, 0)))
+                try:
+                    shape = shape + bump
+                except Exception:
+                    pass
+            elif is_right:
+                # Cut a puzzle notch going in +X (into the segment from the cut line)
+                notch = _build_puzzle_bump(tab_w + 2 * tol, tab_d + tol, total_h, "+x")
+                notch = notch.moved(Location((cut_x_mm, ty, 0)))
+                try:
+                    shape = shape - notch
+                except Exception:
+                    pass
+
+    # --- Horizontal cut lines (Y cuts) ---
+    for cy_cut in cuts_y:
+        cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
+        is_below = seg_y_end == cy_cut
+        is_above = seg_y_start == cy_cut
+        if not (is_below or is_above):
+            continue
+
+        seg_x_center = (seg_x_min + seg_x_max) / 2
+        seg_x_len = seg_x_max - seg_x_min
+        n_tabs = max(1, min(3, int(seg_x_len / (tab_w * 4))))
+        if n_tabs == 1:
+            tab_xs = [seg_x_center]
+        else:
+            spacing = seg_x_len / (n_tabs + 1)
+            tab_xs = [seg_x_min + spacing * (i + 1) for i in range(n_tabs)]
+
+        for tx in tab_xs:
+            if is_below:
+                # Add a puzzle bump protruding in +Y
+                bump = _build_puzzle_bump(tab_w, tab_d, total_h, "+y")
+                bump = bump.moved(Location((tx, cut_y_mm, 0)))
+                try:
+                    shape = shape + bump
+                except Exception:
+                    pass
+            elif is_above:
+                # Cut a puzzle notch going in +Y
+                notch = _build_puzzle_bump(tab_w + 2 * tol, tab_d + tol, total_h, "+y")
+                notch = notch.moved(Location((tx, cut_y_mm, 0)))
+                try:
+                    shape = shape - notch
+                except Exception:
+                    pass
+
+    return shape
+
+
+def _build_puzzle_bump(width: float, depth: float, height: float, direction: str) -> Solid:
+    """Build a puzzle-style bump (semi-circle on a stem).
+
+    The bump is a small rectangle with a semi-circular tip, like a jigsaw tab.
+    direction: "+x" or "+y" — which way the bump protrudes.
+    """
+    stem_w = width * 0.6  # stem is narrower than the head
+    head_r = width / 2     # radius of the circular head
+
+    if direction == "+x":
+        # Build profile in XY: stem from x=0 to x=depth-head_r, then semicircle to x=depth
+        stem_d = depth - head_r
+        if stem_d < 0.5:
+            stem_d = 0.5
+        pts = []
+        # Rectangle stem
+        pts.append((0, -stem_w / 2))
+        pts.append((0, stem_w / 2))
+        pts.append((stem_d, stem_w / 2))
+        # Semi-circle head (approximate with arc points)
+        import math
+        n_arc = 12
+        for i in range(n_arc + 1):
+            angle = math.pi / 2 + math.pi * i / n_arc  # from +pi/2 to +3pi/2 (going right)
+            # Actually we want the right half of a circle centered at (stem_d, 0)
+            angle = -math.pi / 2 + math.pi * i / n_arc  # from -pi/2 to +pi/2
+            px = stem_d + head_r * math.cos(angle)
+            py = head_r * math.sin(angle)
+            pts.append((px, py))
+        pts.append((stem_d, -stem_w / 2))
+    elif direction == "+y":
+        stem_d = depth - head_r
+        if stem_d < 0.5:
+            stem_d = 0.5
+        import math
+        pts = []
+        pts.append((-stem_w / 2, 0))
+        pts.append((stem_w / 2, 0))
+        pts.append((stem_w / 2, stem_d))
+        n_arc = 12
+        for i in range(n_arc + 1):
+            angle = 0 + math.pi * i / n_arc  # from 0 to pi
+            px = head_r * math.cos(angle)
+            py = stem_d + head_r * math.sin(angle)
+            pts.append((px, py))
+        pts.append((-stem_w / 2, stem_d))
+    else:
+        pts = [(0, 0), (depth, 0), (depth, width), (0, width)]
+
+    try:
+        sketch = Sketch() + Polygon(pts)
+        solid = extrude(sketch, amount=height + 4)
+        # Normalize Z to span Z=-2..height+2
+        bb = solid.bounding_box()
+        solid = solid.moved(Location((0, 0, -2 - bb.min.Z)))
+        return solid
+    except Exception:
+        # Fallback to simple box
+        if direction == "+x":
+            return Box(depth, width, height + 4).moved(Location((depth / 2, 0, height / 2)))
+        else:
+            return Box(width, depth, height + 4).moved(Location((0, depth / 2, height / 2)))
 
 
 def _add_seam_magnets(
