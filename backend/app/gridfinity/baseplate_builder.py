@@ -264,7 +264,7 @@ def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[in
 # ---------------------------------------------------------------------------
 
 # How much wider the dovetail tab is at the tip vs the base (per side)
-DOVETAIL_EXTRA_MM = 2.0
+DOVETAIL_EXTRA_MM = 1.0
 
 
 def _build_dovetail_tab(
@@ -326,46 +326,62 @@ def _build_dovetail_slot(
 
     The slot is slightly larger than the tab by tolerance, and extends
     a bit beyond the segment edge to ensure clean cuts.
+
+    For "+x"/"+y" direction: slot opens at the segment edge and goes inward.
+    For "-x"/"-y" direction: slot opens at the segment edge and goes inward
+    (in the negative axis direction).
     """
     extra = DOVETAIL_EXTRA_MM
-    # The slot needs to be deeper than the tab to ensure full clearance
     slot_depth = depth + tol + 1
-    # The slot base (opening) is wider than the tab base by tol on each side
-    # The slot tip (inside) is wider than the tab tip by tol on each side
     base_w = width + 2 * tol
     tip_w = width + 2 * extra + 2 * tol
 
-    if direction in ("+x", "-x"):
+    if direction == "+x":
+        # Slot opens at X=1 (just outside segment edge at X=0) and goes in -X
         pts = [
-            (-1, -base_w / 2),       # opening bottom (slightly outside segment)
+            (1, -base_w / 2),        # opening bottom (outside segment)
+            (1, base_w / 2),         # opening top
+            (-slot_depth, tip_w / 2),# inside top (deeper into segment, wider)
+            (-slot_depth, -tip_w / 2),# inside bottom
+        ]
+    elif direction == "-x":
+        # Slot opens at X=-1 (outside) and goes in +X
+        pts = [
+            (-1, -base_w / 2),       # opening bottom (outside segment)
             (-1, base_w / 2),        # opening top
             (slot_depth, tip_w / 2), # inside top (deeper, wider)
             (slot_depth, -tip_w / 2),# inside bottom
         ]
-    else:  # "+y" or "-y"
+    elif direction == "+y":
+        # Slot opens at Y=1 (outside) and goes in -Y
+        pts = [
+            (-base_w / 2, 1),        # opening left
+            (base_w / 2, 1),         # opening right
+            (tip_w / 2, -slot_depth),# inside right (deeper, wider)
+            (-tip_w / 2, -slot_depth),# inside left
+        ]
+    else:  # "-y"
+        # Slot opens at Y=-1 (outside) and goes in +Y
         pts = [
             (-base_w / 2, -1),       # opening left
             (base_w / 2, -1),        # opening right
-            (tip_w / 2, slot_depth), # inside right
+            (tip_w / 2, slot_depth), # inside right (deeper, wider)
             (-tip_w / 2, slot_depth),# inside left
         ]
 
     try:
         sketch = Sketch() + Polygon(pts)
         solid = extrude(sketch, amount=height + 2)
-        # Normalize Z: extrude direction depends on winding, so shift to Z=-1..height+1
+        # Normalize Z to span Z=-1..height+1
         bb = solid.bounding_box()
-        if bb.min.Z > -1:
-            solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
-        elif bb.min.Z < -1:
-            solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
+        solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
         return solid
     except Exception:
         # Fallback to simple box
         if direction in ("+x", "-x"):
-            return Box(slot_depth, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+            return Box(slot_depth + 1, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
         else:
-            return Box(tip_w, slot_depth, height + 2).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
+            return Box(tip_w, slot_depth + 1, height + 2).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
 
 
 def _add_edge_clips(
@@ -531,15 +547,15 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
             except Exception:
                 pass
 
-    # 6. Chamfer the bottom edges for easier insertion into drawer
-    # (only if there's a flat bottom — skip for open-bottom baseplates)
+    # 6. Chamfer the top outer edges (socket side) for easier bin insertion
+    # The bottom stays flat for 3D printing (flat side down on build plate)
     if params.base_thickness_mm > 0:
         try:
             bb = plate.bounding_box()
-            bottom_z = bb.min.Z
-            bottom_edges = [e for e in plate.edges() if abs(e.center().Z - bottom_z) < 0.01]
-            if bottom_edges:
-                plate = plate.chamfer(0.4, None, bottom_edges)
+            top_z = bb.max.Z
+            top_edges = [e for e in plate.edges() if abs(e.center().Z - top_z) < 0.01 and e.length > 40]
+            if top_edges:
+                plate = plate.chamfer(0.4, None, top_edges)
         except Exception:
             pass
 

@@ -245,7 +245,7 @@ class BaseplateParams(BaseModel):
     cut_lines_x: list[int] = Field(default_factory=list)
     cut_lines_y: list[int] = Field(default_factory=list)
     # Edge clip parameters (when connector_type = "edge_clips")
-    clip_width_mm: float = 8.0
+    clip_width_mm: float = 6.0
     clip_depth_mm: float = 4.0
     clip_tolerance_mm: float = 0.2
 
