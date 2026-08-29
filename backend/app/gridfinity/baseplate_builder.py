@@ -260,8 +260,113 @@ def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[in
 
 
 # ---------------------------------------------------------------------------
-# Edge clips
+# Edge clips (dovetail locking tabs)
 # ---------------------------------------------------------------------------
+
+# How much wider the dovetail tab is at the tip vs the base (per side)
+DOVETAIL_EXTRA_MM = 2.0
+
+
+def _build_dovetail_tab(
+    depth: float, width: float, height: float,
+    direction: str,  # "+x", "-x", "+y", "-y"
+) -> Solid:
+    """Build a dovetail-shaped tab solid.
+
+    The tab is trapezoidal in plan view: narrower at the base (segment edge)
+    and wider at the tip (protruding end), creating a dovetail lock.
+
+    direction indicates which way the tab protrudes from the segment edge.
+    """
+    extra = DOVETAIL_EXTRA_MM
+    # Build the trapezoid in the XY plane, then extrude in Z
+    # We build it centered at origin with the base at x=0 and tip at x=depth
+    if direction in ("+x", "-x"):
+        # Tab protrudes in X direction, width is in Y
+        base_w = width
+        tip_w = width + 2 * extra
+        pts = [
+            (0, -base_w / 2),    # base bottom
+            (0, base_w / 2),     # base top
+            (depth, tip_w / 2),  # tip top
+            (depth, -tip_w / 2), # tip bottom
+        ]
+    else:  # "+y" or "-y"
+        # Tab protrudes in Y direction, width is in X
+        base_w = width
+        tip_w = width + 2 * extra
+        pts = [
+            (-base_w / 2, 0),    # base left
+            (base_w / 2, 0),     # base right
+            (tip_w / 2, depth),  # tip right
+            (-tip_w / 2, depth), # tip left
+        ]
+
+    try:
+        sketch = Sketch() + Polygon(pts)
+        solid = extrude(sketch, amount=height)
+        # Extrude direction depends on polygon winding — normalize to Z=0..height
+        bb = solid.bounding_box()
+        if bb.min.Z < 0:
+            solid = solid.moved(Location((0, 0, -bb.min.Z)))
+        return solid
+    except Exception:
+        # Fallback to simple box
+        if direction in ("+x", "-x"):
+            return Box(depth, width, height).moved(Location((depth / 2, 0, height / 2)))
+        else:
+            return Box(width, depth, height).moved(Location((0, depth / 2, height / 2)))
+
+
+def _build_dovetail_slot(
+    depth: float, width: float, height: float, tol: float,
+    direction: str,  # "+x", "-x", "+y", "-y"
+) -> Solid:
+    """Build a dovetail-shaped slot cutter (to subtract from the segment).
+
+    The slot is slightly larger than the tab by tolerance, and extends
+    a bit beyond the segment edge to ensure clean cuts.
+    """
+    extra = DOVETAIL_EXTRA_MM
+    # The slot needs to be deeper than the tab to ensure full clearance
+    slot_depth = depth + tol + 1
+    # The slot base (opening) is wider than the tab base by tol on each side
+    # The slot tip (inside) is wider than the tab tip by tol on each side
+    base_w = width + 2 * tol
+    tip_w = width + 2 * extra + 2 * tol
+
+    if direction in ("+x", "-x"):
+        pts = [
+            (-1, -base_w / 2),       # opening bottom (slightly outside segment)
+            (-1, base_w / 2),        # opening top
+            (slot_depth, tip_w / 2), # inside top (deeper, wider)
+            (slot_depth, -tip_w / 2),# inside bottom
+        ]
+    else:  # "+y" or "-y"
+        pts = [
+            (-base_w / 2, -1),       # opening left
+            (base_w / 2, -1),        # opening right
+            (tip_w / 2, slot_depth), # inside right
+            (-tip_w / 2, slot_depth),# inside left
+        ]
+
+    try:
+        sketch = Sketch() + Polygon(pts)
+        solid = extrude(sketch, amount=height + 2)
+        # Normalize Z: extrude direction depends on winding, so shift to Z=-1..height+1
+        bb = solid.bounding_box()
+        if bb.min.Z > -1:
+            solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
+        elif bb.min.Z < -1:
+            solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
+        return solid
+    except Exception:
+        # Fallback to simple box
+        if direction in ("+x", "-x"):
+            return Box(slot_depth, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+        else:
+            return Box(tip_w, slot_depth, height + 2).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
+
 
 def _add_edge_clips(
     segment: Part,
@@ -271,11 +376,14 @@ def _add_edge_clips(
     params: BaseplateParams,
     total_h: float,
 ) -> Part:
-    """Add edge clip tabs/slots to a segment based on its position relative to cut lines.
+    """Add dovetail edge clip tabs/slots to a segment.
 
     For each cut line that borders this segment:
     - If the segment is on the "lower" side (left/below the cut), add TABS (protrusions).
     - If the segment is on the "upper" side (right/above the cut), add SLOTS (cutouts).
+
+    The tabs are dovetail-shaped (wider at the tip) so they lock into the
+    matching slots. Assemble by sliding the tab segment down into the slot segment.
     """
     clip_w = params.clip_width_mm
     clip_d = params.clip_depth_mm
@@ -285,23 +393,19 @@ def _add_edge_clips(
 
     # --- Vertical cut lines (cuts in X, separating left/right segments) ---
     for cx in cuts_x:
-        # Cut position in mm (from plate left edge)
         cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
 
-        # Check if this segment borders the cut on the left or right
-        is_left = seg_x_end == cx  # segment ends at this cut (right edge of segment = cut)
-        is_right = seg_x_start == cx  # segment starts at this cut (left edge of segment = cut)
+        is_left = seg_x_end == cx
+        is_right = seg_x_start == cx
 
         if not (is_left or is_right):
             continue
 
-        # Determine the Y range of this segment
         seg_y_start_mm = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
         seg_y_end_mm = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
         seg_y_center = (seg_y_start_mm + seg_y_end_mm) / 2
         seg_y_len = seg_y_end_mm - seg_y_start_mm
 
-        # Place 1-3 clips along the seam, depending on segment length
         n_clips = max(1, min(3, int(seg_y_len / (clip_w * 4))))
         if n_clips == 1:
             clip_ys = [seg_y_center]
@@ -311,17 +415,17 @@ def _add_edge_clips(
 
         for cy in clip_ys:
             if is_left:
-                # Add a TAB (protrusion) on the right edge
-                tab = Box(clip_d, clip_w, total_h)
-                tab = tab.moved(Location((cut_x_mm + clip_d / 2, cy, total_h / 2)))
+                # Add a dovetail TAB protruding in +X from the right edge
+                tab = _build_dovetail_tab(clip_d, clip_w, total_h, "+x")
+                tab = tab.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment + tab
                 except Exception:
                     pass
             elif is_right:
-                # Cut a SLOT on the left edge
-                slot = Box(clip_d + 2 * clip_tol, clip_w + 2 * clip_tol, total_h + 2)
-                slot = slot.moved(Location((cut_x_mm + (clip_d + 2 * clip_tol) / 2 - clip_tol, cy, total_h / 2)))
+                # Cut a dovetail SLOT going in -X from the left edge
+                slot = _build_dovetail_slot(clip_d, clip_w, total_h, clip_tol, "-x")
+                slot = slot.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment - slot
                 except Exception:
@@ -331,8 +435,8 @@ def _add_edge_clips(
     for cy_cut in cuts_y:
         cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
 
-        is_below = seg_y_end == cy_cut  # segment ends at this cut (top edge = cut)
-        is_above = seg_y_start == cy_cut  # segment starts at this cut (bottom edge = cut)
+        is_below = seg_y_end == cy_cut
+        is_above = seg_y_start == cy_cut
 
         if not (is_below or is_above):
             continue
@@ -351,17 +455,17 @@ def _add_edge_clips(
 
         for cx in clip_xs:
             if is_below:
-                # Add a TAB (protrusion) on the top edge
-                tab = Box(clip_w, clip_d, total_h)
-                tab = tab.moved(Location((cx, cut_y_mm + clip_d / 2, total_h / 2)))
+                # Add a dovetail TAB protruding in +Y from the top edge
+                tab = _build_dovetail_tab(clip_d, clip_w, total_h, "+y")
+                tab = tab.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment + tab
                 except Exception:
                     pass
             elif is_above:
-                # Cut a SLOT on the bottom edge
-                slot = Box(clip_w + 2 * clip_tol, clip_d + 2 * clip_tol, total_h + 2)
-                slot = slot.moved(Location((cx, cut_y_mm + (clip_d + 2 * clip_tol) / 2 - clip_tol, total_h / 2)))
+                # Cut a dovetail SLOT going in -Y from the bottom edge
+                slot = _build_dovetail_slot(clip_d, clip_w, total_h, clip_tol, "-y")
+                slot = slot.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment - slot
                 except Exception:
