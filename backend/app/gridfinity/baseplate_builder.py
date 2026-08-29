@@ -461,6 +461,22 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
                 grid_w, grid_l, cuts_x, cuts_y, total_h,
             )
 
+        # 10. Re-apply partial cutouts after edge clips, so tabs that fall
+        # within a partial cutout area don't obstruct the recessed region.
+        # (Edge clip tabs are added in step 9 and can fill back in over
+        # partial cutout areas — this removes that material again.)
+        for cutout in design.cutouts:
+            if getattr(cutout, 'cutout_type', 'through') != 'partial':
+                continue
+            cutout_solid = _build_cutout_solid(
+                cutout, params.drawer_w_mm, params.drawer_l_mm, plate_w, plate_l, total_h
+            )
+            if cutout_solid is not None:
+                try:
+                    seg_part = seg_part - cutout_solid
+                except Exception:
+                    pass
+
         segment_parts.append(seg_part)
 
     return segment_parts if segment_parts else [plate]
