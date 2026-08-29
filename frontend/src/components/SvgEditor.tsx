@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { clientToSvgMm, snapToGrid, snapFine } from '../editor/vertexDrag'
 import { GRID_UNIT_MM } from '../editor/constants'
@@ -42,6 +42,7 @@ export default function SvgEditor() {
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ startX: number; startY: number; x: number; y: number } | null>(null)
   const marqueeJustFinishedRef = useRef(false)
+  const [nudgeStep, setNudgeStep] = useState(1.0)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -288,7 +289,42 @@ export default function SvgEditor() {
         deleteTool(selectedToolId)
       }
     }
+    // Arrow key nudging for selected tool(s)
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      const ids = selectedToolIds.length > 0 ? selectedToolIds : (selectedToolId ? [selectedToolId] : [])
+      if (ids.length === 0) return
+      e.preventDefault()
+      let dx = 0, dy = 0
+      if (e.key === 'ArrowLeft') dx = -nudgeStep
+      if (e.key === 'ArrowRight') dx = nudgeStep
+      if (e.key === 'ArrowUp') dy = -nudgeStep
+      if (e.key === 'ArrowDown') dy = nudgeStep
+      // Shift = 10x step for fast movement
+      if (e.shiftKey) { dx *= 10; dy *= 10 }
+      moveTools(ids, dx, dy)
+    }
   }
+
+  // Global keydown listener for arrow key nudging (works without focus)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+      const state = useEditor.getState()
+      const ids = state.selectedToolIds.length > 0 ? state.selectedToolIds : (state.selectedToolId ? [state.selectedToolId] : [])
+      if (ids.length === 0) return
+      e.preventDefault()
+      let dx = 0, dy = 0
+      if (e.key === 'ArrowLeft') dx = -nudgeStep
+      if (e.key === 'ArrowRight') dx = nudgeStep
+      if (e.key === 'ArrowUp') dy = -nudgeStep
+      if (e.key === 'ArrowDown') dy = nudgeStep
+      if (e.shiftKey) { dx *= 10; dy *= 10 }
+      state.moveTools(ids, dx, dy)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [nudgeStep])
 
   // Add a new tool with a basic shape
   const [showAddTool, setShowAddTool] = useState(false)
@@ -479,6 +515,20 @@ export default function SvgEditor() {
         >
           🏷 Add Label
         </button>
+        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
+        <span style={{ fontSize: 11, color: '#71717a' }}>Nudge:</span>
+        <select
+          value={nudgeStep}
+          onChange={(e) => setNudgeStep(parseFloat(e.target.value))}
+          style={{ ...toolBtn(false), padding: '3px 6px', cursor: 'pointer' }}
+          title="Arrow key movement step size"
+        >
+          <option value={0.1}>0.1mm</option>
+          <option value={1}>1mm</option>
+          <option value={5}>5mm</option>
+          <option value={10}>10mm</option>
+        </select>
+        <span style={{ fontSize: 10, color: '#52525b' }}>Shift+Arrow = 10×</span>
         <button onClick={() => setZoom((z) => Math.max(0.15, z - 0.2))} style={toolBtn(false)}>−</button>
         <button onClick={() => setZoom(0.5)} style={toolBtn(false)} title="Fit workspace to screen">Fit</button>
         <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Zoom to tray (100%)">Tray</button>
@@ -492,7 +542,9 @@ export default function SvgEditor() {
               ? `${selectedToolIds.length} tools selected · Ctrl+click to add/remove · Drag to move all`
               : symmetryAxis
                 ? `Symmetry ${symmetryAxis.toUpperCase()} ${symmetryMode === 'live' ? '(live mirror)' : '(manual)'} · Drag vertices to edit · Use Copy buttons to mirror halves`
-                : 'Drag vertices to edit · Double-click edge to add vertex · Ctrl+click or drag-box to multi-select'}
+                : selectedToolId
+                  ? 'Drag to move · Arrow keys to nudge · Drag vertices to edit · Double-click edge to add vertex'
+                  : 'Drag vertices to edit · Double-click edge to add vertex · Ctrl+click or drag-box to multi-select'}
         </span>
       </div>
 
@@ -737,6 +789,54 @@ export default function SvgEditor() {
                       </line>
                     )
                   }
+                })()}
+
+                {/* Dimension labels — distance from tool bbox to bin edges (single select only) */}
+                {isSelected && selectedToolIds.length === 1 && (() => {
+                  const xs = tool.outer.map(p => p.x)
+                  const ys = tool.outer.map(p => p.y)
+                  const minX = Math.min(...xs)
+                  const maxX = Math.max(...xs)
+                  const minY = Math.min(...ys)
+                  const maxY = Math.max(...ys)
+                  const midX = (minX + maxX) / 2
+                  const midY = (minY + maxY) / 2
+                  const distLeft = minX
+                  const distRight = binW - maxX
+                  const distTop = minY
+                  const distBottom = binL - maxY
+                  return (
+                    <g style={{ pointerEvents: 'none' }}>
+                      {/* Left distance */}
+                      <line x1={pad} y1={pad + midY} x2={pad + minX} y2={pad + midY}
+                        stroke="#22d3ee" strokeWidth={0.3} strokeDasharray="2,1" opacity={0.7} />
+                      <text x={pad + distLeft / 2} y={pad + midY - 1}
+                        fill="#22d3ee" fontSize={3} textAnchor="middle" opacity={0.8}>
+                        {distLeft.toFixed(1)}
+                      </text>
+                      {/* Right distance */}
+                      <line x1={pad + maxX} y1={pad + midY} x2={pad + binW} y2={pad + midY}
+                        stroke="#22d3ee" strokeWidth={0.3} strokeDasharray="2,1" opacity={0.7} />
+                      <text x={pad + maxX + distRight / 2} y={pad + midY - 1}
+                        fill="#22d3ee" fontSize={3} textAnchor="middle" opacity={0.8}>
+                        {distRight.toFixed(1)}
+                      </text>
+                      {/* Top distance */}
+                      <line x1={pad + midX} y1={pad} x2={pad + midX} y2={pad + minY}
+                        stroke="#22d3ee" strokeWidth={0.3} strokeDasharray="2,1" opacity={0.7} />
+                      <text x={pad + midX} y={pad + distTop / 2}
+                        fill="#22d3ee" fontSize={3} textAnchor="middle" opacity={0.8}>
+                        {distTop.toFixed(1)}
+                      </text>
+                      {/* Bottom distance */}
+                      <line x1={pad + midX} y1={pad + maxY} x2={pad + midX} y2={pad + binL}
+                        stroke="#22d3ee" strokeWidth={0.3} strokeDasharray="2,1" opacity={0.7} />
+                      <text x={pad + midX} y={pad + maxY + distBottom / 2}
+                        fill="#22d3ee" fontSize={3} textAnchor="middle" opacity={0.8}>
+                        {distBottom.toFixed(1)}
+                      </text>
+                    </g>
+                  )
                 })()}
 
                 {/* Finger holes (draggable circles) */}

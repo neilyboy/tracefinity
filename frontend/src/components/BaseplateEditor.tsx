@@ -41,6 +41,7 @@ export default function BaseplateEditor() {
 
   const [zoom, setZoom] = useState(0.4)
   const [showAddShape, setShowAddShape] = useState(false)
+  const [nudgeStep, setNudgeStep] = useState(1.0)
   const suppressClickRef = useRef(false)
 
   const p = design.params
@@ -91,10 +92,28 @@ export default function BaseplateEditor() {
         e.preventDefault()
         deleteCutout(selectedCutoutId)
       }
+      // Arrow key nudging
+      if (selectedCutoutId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault()
+        const cutout = useBaseplate.getState().design.cutouts.find((c) => c.id === selectedCutoutId)
+        if (!cutout) return
+        let dx = 0, dy = 0
+        if (e.key === 'ArrowLeft') dx = -nudgeStep
+        if (e.key === 'ArrowRight') dx = nudgeStep
+        if (e.key === 'ArrowUp') dy = -nudgeStep
+        if (e.key === 'ArrowDown') dy = nudgeStep
+        // Shift = 10x step for fast movement
+        if (e.shiftKey) { dx *= 10; dy *= 10 }
+        updateCutout(selectedCutoutId, {
+          outer: cutout.outer.map((v) => ({ x: v.x + dx, y: v.y + dy })),
+          x: cutout.x + dx,
+          y: cutout.y + dy,
+        })
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [undo, redo, selectedCutoutId, deleteCutout])
+  }, [undo, redo, selectedCutoutId, deleteCutout, nudgeStep, updateCutout])
 
   const handleCutoutPointerDown = (e: React.PointerEvent, cutoutId: string) => {
     e.stopPropagation()
@@ -257,6 +276,21 @@ export default function BaseplateEditor() {
         <button onClick={() => undo()} style={toolBtn}>↶ Undo</button>
         <button onClick={() => redo()} style={toolBtn}>↷ Redo</button>
         <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
+        {/* Nudge step selector */}
+        <span style={{ fontSize: 11, color: '#71717a' }}>Nudge:</span>
+        <select
+          value={nudgeStep}
+          onChange={(e) => setNudgeStep(parseFloat(e.target.value))}
+          style={{ ...toolBtn, padding: '3px 6px', cursor: 'pointer' }}
+          title="Arrow key movement step size"
+        >
+          <option value={0.1}>0.1mm</option>
+          <option value={1}>1mm</option>
+          <option value={5}>5mm</option>
+          <option value={10}>10mm</option>
+        </select>
+        <span style={{ fontSize: 10, color: '#52525b' }}>Shift+Arrow = 10×</span>
+        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
         <button onClick={() => setZoom((z) => Math.max(0.15, z - 0.2))} style={toolBtn}>−</button>
         <button onClick={() => setZoom(0.4)} style={toolBtn} title="Fit">Fit</button>
         <button onClick={() => setZoom((z) => Math.min(8, z + 0.2))} style={toolBtn}>+</button>
@@ -264,7 +298,7 @@ export default function BaseplateEditor() {
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#52525b' }}>
           {selectedCutoutId
-            ? 'Drag cutout to move · Drag vertices to resize'
+            ? 'Drag to move · Arrow keys to nudge · Drag vertices to resize'
             : `Grid: ${gridW}×${gridL} cells = ${plateW.toFixed(0)}×${plateL.toFixed(0)}mm` +
               (segmentInfo && segmentInfo.segment_count > 1 ? ` · ${segmentInfo.segment_count} segments` : '')}
         </span>
