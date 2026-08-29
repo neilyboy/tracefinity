@@ -241,7 +241,7 @@ export const DEFAULT_BASEPLATE_PARAMS: BaseplateParams = {
   connector_type: 'edge_clips',
   cut_lines_x: [],
   cut_lines_y: [],
-  clip_width_mm: 2.0,
+  clip_width_mm: 4.0,
   clip_depth_mm: 4.0,
   clip_tolerance_mm: 0.2,
 }

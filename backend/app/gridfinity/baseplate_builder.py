@@ -264,7 +264,7 @@ def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[in
 # ---------------------------------------------------------------------------
 
 # How much wider the dovetail tab is at the tip vs the base (per side)
-DOVETAIL_EXTRA_MM = 0.5
+DOVETAIL_EXTRA_MM = 1.0
 
 
 def _build_dovetail_tab(
