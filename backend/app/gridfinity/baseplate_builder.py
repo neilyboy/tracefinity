@@ -37,6 +37,14 @@ from . import constants as C
 from ..schemas import BaseplateDesign, BaseplateParams, DrawerCutout
 
 
+# A real gridfinity baseplate always has a flat, solid bottom slab that the
+# socket taper rises from — there is no variant with literally zero floor
+# (that would mean holes straight through). This is the minimum flat base
+# thickness applied even when the user sets "base thickness" to 0 in the UI
+# (which means "no EXTRA base beyond this minimum").
+MIN_FLAT_BASE_MM = 1.0
+
+
 # ---------------------------------------------------------------------------
 # Grid computation
 # ---------------------------------------------------------------------------
@@ -260,245 +268,8 @@ def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[in
 
 
 # ---------------------------------------------------------------------------
-# Edge clips (dovetail locking tabs)
+# (dead code removed — see _build_puzzle_segment / _build_dovetail_tab below)
 # ---------------------------------------------------------------------------
-
-# How much wider the dovetail tab is at the tip vs the base (per side)
-DOVETAIL_EXTRA_MM = 1.0
-
-
-def _build_dovetail_tab(
-    depth: float, width: float, height: float,
-    direction: str,  # "+x", "-x", "+y", "-y"
-    z_offset: float = 0.0,  # bottom Z position of the tab
-) -> Solid:
-    """Build a dovetail-shaped tab solid.
-
-    The tab is trapezoidal in plan view: narrower at the base (segment edge)
-    and wider at the tip (protruding end), creating a dovetail lock.
-
-    direction indicates which way the tab protrudes from the segment edge.
-    z_offset positions the tab at a specific Z height (for socket-only tabs).
-    """
-    extra = DOVETAIL_EXTRA_MM
-    if direction in ("+x", "-x"):
-        base_w = width
-        tip_w = width + 2 * extra
-        pts = [
-            (0, -base_w / 2),
-            (0, base_w / 2),
-            (depth, tip_w / 2),
-            (depth, -tip_w / 2),
-        ]
-    else:  # "+y" or "-y"
-        base_w = width
-        tip_w = width + 2 * extra
-        pts = [
-            (-base_w / 2, 0),
-            (base_w / 2, 0),
-            (tip_w / 2, depth),
-            (-tip_w / 2, depth),
-        ]
-
-    try:
-        sketch = Sketch() + Polygon(pts)
-        solid = extrude(sketch, amount=height)
-        # Normalize to Z=0..height, then apply z_offset
-        bb = solid.bounding_box()
-        solid = solid.moved(Location((0, 0, -bb.min.Z + z_offset)))
-        return solid
-    except Exception:
-        if direction in ("+x", "-x"):
-            return Box(depth, width, height).moved(Location((depth / 2, 0, height / 2 + z_offset)))
-        else:
-            return Box(width, depth, height).moved(Location((0, depth / 2, height / 2 + z_offset)))
-
-
-def _build_dovetail_slot(
-    depth: float, width: float, height: float, tol: float,
-    direction: str,  # "+x", "-x", "+y", "-y"
-    z_offset: float = 0.0,  # bottom Z position of the slot
-) -> Solid:
-    """Build a dovetail-shaped slot cutter (to subtract from the segment).
-
-    The slot is slightly larger than the tab by tolerance, and extends
-    a bit beyond the segment edge to ensure clean cuts.
-
-    For "+x"/"+y" direction: slot opens at the segment edge and goes inward.
-    For "-x"/"-y" direction: slot opens at the segment edge and goes inward
-    (in the negative axis direction).
-    """
-    extra = DOVETAIL_EXTRA_MM
-    # No +1 clearance — the slot must NOT cut deeper than the tab depth + tolerance
-    # or it will break through the thin socket wall and create open gaps.
-    slot_depth = depth + tol
-    base_w = width + 2 * tol
-    tip_w = width + 2 * extra + 2 * tol
-
-    if direction == "+x":
-        # Slot opens at X=1 (just outside segment edge at X=0) and goes in -X
-        pts = [
-            (1, -base_w / 2),        # opening bottom (outside segment)
-            (1, base_w / 2),         # opening top
-            (-slot_depth, tip_w / 2),# inside top (deeper into segment, wider)
-            (-slot_depth, -tip_w / 2),# inside bottom
-        ]
-    elif direction == "-x":
-        # Slot opens at X=-1 (outside) and goes in +X
-        pts = [
-            (-1, -base_w / 2),       # opening bottom (outside segment)
-            (-1, base_w / 2),        # opening top
-            (slot_depth, tip_w / 2), # inside top (deeper, wider)
-            (slot_depth, -tip_w / 2),# inside bottom
-        ]
-    elif direction == "+y":
-        # Slot opens at Y=1 (outside) and goes in -Y
-        pts = [
-            (-base_w / 2, 1),        # opening left
-            (base_w / 2, 1),         # opening right
-            (tip_w / 2, -slot_depth),# inside right (deeper, wider)
-            (-tip_w / 2, -slot_depth),# inside left
-        ]
-    else:  # "-y"
-        # Slot opens at Y=-1 (outside) and goes in +Y
-        pts = [
-            (-base_w / 2, -1),       # opening left
-            (base_w / 2, -1),        # opening right
-            (tip_w / 2, slot_depth), # inside right (deeper, wider)
-            (-tip_w / 2, slot_depth),# inside left
-        ]
-
-    try:
-        sketch = Sketch() + Polygon(pts)
-        solid = extrude(sketch, amount=height + 1)  # +1 for top overshoot only
-        # Normalize Z to span Z=z_offset..z_offset+height+1 (no bottom overshoot
-        # to avoid cutting into the base below the socket section)
-        bb = solid.bounding_box()
-        solid = solid.moved(Location((0, 0, z_offset - bb.min.Z if bb.min.Z < z_offset else 0)))
-        if solid.bounding_box().min.Z > z_offset:
-            solid = solid.moved(Location((0, 0, z_offset - solid.bounding_box().min.Z)))
-        return solid
-    except Exception:
-        # Fallback to simple box
-        if direction in ("+x", "-x"):
-            return Box(slot_depth + 1, tip_w, height + 1).moved(Location((slot_depth / 2 - 0.5, 0, height / 2 + z_offset)))
-        else:
-            return Box(tip_w, slot_depth + 1, height + 1).moved(Location((0, slot_depth / 2 - 0.5, height / 2 + z_offset)))
-
-
-def _add_edge_clips(
-    segment: Part,
-    seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
-    grid_w: int, grid_l: int,
-    cuts_x: list[int], cuts_y: list[int],
-    params: BaseplateParams,
-    total_h: float,
-) -> Part:
-    """Add dovetail edge clip tabs/slots to a segment.
-
-    For each cut line that borders this segment:
-    - If the segment is on the "lower" side (left/below the cut), add TABS (protrusions).
-    - If the segment is on the "upper" side (right/above the cut), add SLOTS (cutouts).
-
-    The tabs are dovetail-shaped (wider at the tip) so they lock into the
-    matching slots. Assemble by sliding the tab segment down into the slot segment.
-    """
-    clip_w = params.clip_width_mm
-    clip_d = params.clip_depth_mm
-    clip_tol = params.clip_tolerance_mm
-    plate_w = grid_w * C.GRID_UNIT_MM
-    plate_l = grid_l * C.GRID_UNIT_MM
-
-    # Tabs/slots are only at the TOP of the socket section where the wall is
-    # thickest (1.75mm at the rim). The socket taper makes the wall thinner
-    # lower down (0.25mm at the bottom), so the tab must NOT extend into the
-    # thin area or it will break through and create open gaps.
-    # Tab height: 1.5mm, positioned at the very top of the socket section.
-    tab_h = 1.5
-    z_off = total_h - tab_h  # top 1.5mm of the plate
-
-    # --- Vertical cut lines (cuts in X, separating left/right segments) ---
-    for cx in cuts_x:
-        cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
-
-        is_left = seg_x_end == cx
-        is_right = seg_x_start == cx
-
-        if not (is_left or is_right):
-            continue
-
-        seg_y_start_mm = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
-        seg_y_end_mm = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
-        seg_y_center = (seg_y_start_mm + seg_y_end_mm) / 2
-        seg_y_len = seg_y_end_mm - seg_y_start_mm
-
-        n_clips = max(1, min(3, int(seg_y_len / (clip_w * 4))))
-        if n_clips == 1:
-            clip_ys = [seg_y_center]
-        else:
-            spacing = seg_y_len / (n_clips + 1)
-            clip_ys = [seg_y_start_mm + spacing * (i + 1) for i in range(n_clips)]
-
-        for cy in clip_ys:
-            if is_left:
-                # Add a dovetail TAB protruding in +X from the right edge (socket section only)
-                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+x", z_off)
-                tab = tab.moved(Location((cut_x_mm, cy, 0)))
-                try:
-                    segment = segment + tab
-                except Exception:
-                    pass
-            elif is_right:
-                # Cut a dovetail SLOT going in -X from the left edge (socket section only)
-                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-x", z_off)
-                slot = slot.moved(Location((cut_x_mm, cy, 0)))
-                try:
-                    segment = segment - slot
-                except Exception:
-                    pass
-
-    # --- Horizontal cut lines (cuts in Y, separating top/bottom segments) ---
-    for cy_cut in cuts_y:
-        cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
-
-        is_below = seg_y_end == cy_cut
-        is_above = seg_y_start == cy_cut
-
-        if not (is_below or is_above):
-            continue
-
-        seg_x_start_mm = -plate_w / 2 + seg_x_start * C.GRID_UNIT_MM
-        seg_x_end_mm = -plate_w / 2 + seg_x_end * C.GRID_UNIT_MM
-        seg_x_center = (seg_x_start_mm + seg_x_end_mm) / 2
-        seg_x_len = seg_x_end_mm - seg_x_start_mm
-
-        n_clips = max(1, min(3, int(seg_x_len / (clip_w * 4))))
-        if n_clips == 1:
-            clip_xs = [seg_x_center]
-        else:
-            spacing = seg_x_len / (n_clips + 1)
-            clip_xs = [seg_x_start_mm + spacing * (i + 1) for i in range(n_clips)]
-
-        for cx in clip_xs:
-            if is_below:
-                # Add a dovetail TAB protruding in +Y from the top edge (socket section only)
-                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+y", z_off)
-                tab = tab.moved(Location((cx, cut_y_mm, 0)))
-                try:
-                    segment = segment + tab
-                except Exception:
-                    pass
-            elif is_above:
-                # Cut a dovetail SLOT going in -Y from the bottom edge (socket section only)
-                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-y", z_off)
-                slot = slot.moved(Location((cx, cut_y_mm, 0)))
-                try:
-                    segment = segment - slot
-                except Exception:
-                    pass
-
-    return segment
-
 
 # ---------------------------------------------------------------------------
 # Main generation
@@ -512,7 +283,19 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
     """
     params = design.params
     grid_w, grid_l, plate_w, plate_l = compute_grid(params)
-    total_h = C.BASEPLATE_SOCKET_DEPTH_MM + params.base_thickness_mm
+
+    # Effective base slab thickness. A real gridfinity baseplate ALWAYS has a
+    # flat, solid bottom that the socket taper rises from — "0" in the UI
+    # means "no extra base beyond the minimum", not "no floor at all".
+    # The minimum is bumped up further if magnets or edge-clip connectors
+    # need room to sit in solid material.
+    base_h = max(params.base_thickness_mm, MIN_FLAT_BASE_MM)
+    if params.magnet_holes:
+        base_h = max(base_h, C.MAGNET_DEPTH_MM + 0.4)
+    if params.connector_type == "edge_clips":
+        base_h = max(base_h, MIN_BASE_THICKNESS_FOR_CLIPS)
+
+    total_h = C.BASEPLATE_SOCKET_DEPTH_MM + base_h
 
     # 1. Build the solid plate
     plate = Box(plate_w, plate_l, total_h)
@@ -541,16 +324,16 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
             except Exception:
                 pass
 
-    # 4. Add magnet holes (only if there's a base — magnets need a floor to sit on)
-    if params.magnet_holes and params.base_thickness_mm > 0:
+    # 4. Add magnet holes (the base slab is always thick enough now — see base_h)
+    if params.magnet_holes:
         for magnet in _build_magnet_holes(grid_w, grid_l, plate_top_z):
             try:
                 plate = plate - magnet
             except Exception:
                 pass
 
-    # 5. Add screw holes (through-holes) — only meaningful with a base
-    if params.screw_holes and params.base_thickness_mm > 0:
+    # 5. Add screw holes (through-holes)
+    if params.screw_holes:
         for screw in _build_screw_holes(grid_w, grid_l, total_h):
             try:
                 plate = plate - screw
@@ -573,33 +356,7 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         # No segmentation needed
         return [plate]
 
-    # 7b. If using edge clips but the base is too thin (or open-bottom), add a
-    # thin solid "connector rail" along each cut line so the dovetail tabs
-    # have solid material to form in. This only fills a narrow strip at the
-    # seams — the rest of the plate keeps its configured base thickness.
-    if params.connector_type == "edge_clips" and params.base_thickness_mm < MIN_BASE_THICKNESS_FOR_CLIPS:
-        rail_h = MIN_BASE_THICKNESS_FOR_CLIPS
-        rail_half_w = params.clip_depth_mm + 2 * params.clip_tolerance_mm + 2.0
-        for cx in cuts_x:
-            cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
-            rail = Box(2 * rail_half_w, plate_l + 2, rail_h)
-            rail = rail.moved(Location((cut_x_mm, 0, rail_h / 2)))
-            try:
-                plate = plate + rail
-            except Exception:
-                pass
-        for cy in cuts_y:
-            cut_y_mm = -plate_l / 2 + cy * C.GRID_UNIT_MM
-            rail = Box(plate_w + 2, 2 * rail_half_w, rail_h)
-            rail = rail.moved(Location((0, cut_y_mm, rail_h / 2)))
-            try:
-                plate = plate + rail
-            except Exception:
-                pass
-        if not isinstance(plate, Part):
-            plate = Part(plate) if hasattr(plate, 'wrapped') else plate
-
-    # 8. Cut the plate into segments with puzzle connectors
+    # 8. Cut the plate into segments with dovetail connectors
     segments = _segment_bounds(grid_w, grid_l, cuts_x, cuts_y)
     segment_parts = []
     for (sx_start, sx_end, sy_start, sy_end) in segments:
@@ -609,10 +366,11 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         seg_cy = -plate_l / 2 + (sy_start + sy_end) / 2 * C.GRID_UNIT_MM
 
         if params.connector_type == "edge_clips":
-            # Build a puzzle-shaped segment boundary for interlocking
+            # Build a dovetail-locking segment boundary, confined to the
+            # solid flat base slab (base_h) so it never touches the taper.
             seg_shape = _build_puzzle_segment(
                 sx_start, sx_end, sy_start, sy_end,
-                grid_w, grid_l, cuts_x, cuts_y, params, total_h,
+                grid_w, grid_l, cuts_x, cuts_y, params, total_h, base_h,
             )
         else:
             # Simple straight cut
@@ -678,13 +436,15 @@ def _build_puzzle_segment(
     cuts_x: list[int], cuts_y: list[int],
     params: BaseplateParams,
     total_h: float,
+    base_h: float,
 ) -> Solid:
     """Build a segment shape with dovetail locking tabs confined to the base slab.
 
     One side of each cut gets a dovetail TAB (wider at the tip), the other
-    side gets a matching dovetail SLOT. Both are limited to the solid base
-    slab height (Z = 0..base_thickness_mm) so they never intersect the
-    tapered socket geometry above.
+    side gets a matching dovetail SLOT. Both are limited to the solid flat
+    base slab height (Z = 0..base_h) so they never intersect the tapered
+    socket geometry above. base_h must match the actual base slab height
+    used when the plate was built (see generate_baseplate).
     """
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
@@ -701,15 +461,6 @@ def _build_puzzle_segment(
     margin = 1.0
     shape = Box(seg_w + 2 * margin, seg_l + 2 * margin, total_h + 4)
     shape = shape.moved(Location((seg_cx, seg_cy, total_h / 2)))
-
-    # Effective base thickness available for tabs — if the design's base is
-    # too thin (or zero, i.e. open-bottom), fall back to the minimum needed
-    # for tabs to be structurally meaningful. This only affects the tab
-    # region near seams; the rest of the plate keeps its configured base
-    # thickness (handled earlier when the plate was built).
-    base_h = max(params.base_thickness_mm, MIN_BASE_THICKNESS_FOR_CLIPS)
-    # Never let the tab occupy more than the socket start, just in case
-    base_h = min(base_h, total_h - 0.5)
 
     tab_w = params.clip_width_mm
     tab_d = params.clip_depth_mm
