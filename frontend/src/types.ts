@@ -244,7 +244,15 @@ export const DEFAULT_BASEPLATE_PARAMS: BaseplateParams = {
   clip_tolerance_mm: 0.2,
 }
 
-export const PRINT_BED_PRESETS: { key: string; label: string; w: number; l: number }[] = [
+export interface PrintBedPreset {
+  key: string
+  label: string
+  w: number
+  l: number
+  custom?: boolean  // true for user-saved presets
+}
+
+export const PRINT_BED_PRESETS: PrintBedPreset[] = [
   { key: 'ender_3', label: 'Ender 3 (220×220)', w: 220, l: 220 },
   { key: 'ender_3_v2', label: 'Ender 3 V2 (235×235)', w: 235, l: 235 },
   { key: 'prusa_mk3', label: 'Prusa MK3 (250×210)', w: 250, l: 210 },
@@ -254,3 +262,40 @@ export const PRINT_BED_PRESETS: { key: string; label: string; w: number; l: numb
   { key: 'creality_cr10', label: 'Creality CR-10 (300×300)', w: 300, l: 300 },
   { key: 'custom', label: 'Custom', w: 220, l: 220 },
 ]
+
+// --- Custom printer preset storage (localStorage) ---
+
+const CUSTOM_PRESETS_KEY = 'tracefinity_custom_print_beds'
+
+export function loadCustomPresets(): PrintBedPreset[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((p: any) => p && p.key && p.label && typeof p.w === 'number' && typeof p.l === 'number')
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomPreset(name: string, w: number, l: number): PrintBedPreset[] {
+  const existing = loadCustomPresets()
+  const preset: PrintBedPreset = {
+    key: `custom_${Date.now()}`,
+    label: `${name} (${w}×${l})`,
+    w,
+    l,
+    custom: true,
+  }
+  const updated = [...existing, preset]
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(updated))
+  return updated
+}
+
+export function deleteCustomPreset(key: string): PrintBedPreset[] {
+  const existing = loadCustomPresets()
+  const updated = existing.filter((p) => p.key !== key)
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(updated))
+  return updated
+}

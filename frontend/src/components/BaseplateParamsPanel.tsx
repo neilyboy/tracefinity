@@ -1,17 +1,34 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useBaseplate } from '../editor/useBaseplateState'
 import { GRID_UNIT_MM } from '../editor/constants'
-import { PRINT_BED_PRESETS } from '../types'
-import type { BaseplateParams } from '../types'
+import { PRINT_BED_PRESETS, loadCustomPresets, saveCustomPreset, deleteCustomPreset } from '../types'
+import type { BaseplateParams, PrintBedPreset } from '../types'
 
 export default function BaseplateParamsPanel() {
   const { design, setParams, segmentInfo } = useBaseplate()
   const p = design.params
   const [showPerSide, setShowPerSide] = useState(false)
+  const [customPresets, setCustomPresets] = useState<PrintBedPreset[]>([])
+  const [showSavePreset, setShowSavePreset] = useState(false)
+  const [presetName, setPresetName] = useState('')
   const [selectedBed, setSelectedBed] = useState(() => {
     const match = PRINT_BED_PRESETS.find(b => b.w === p.print_bed_w_mm && b.l === p.print_bed_l_mm)
     return match?.key || 'custom'
   })
+
+  // Load custom presets from localStorage on mount
+  useEffect(() => {
+    setCustomPresets(loadCustomPresets())
+  }, [])
+
+  // All presets: built-in + custom (excluding the generic "custom" entry if custom presets exist)
+  const allPresets = [...PRINT_BED_PRESETS, ...customPresets]
+
+  // Check if current bed dims match a custom preset
+  useEffect(() => {
+    const match = allPresets.find(b => b.w === p.print_bed_w_mm && b.l === p.print_bed_l_mm)
+    if (match) setSelectedBed(match.key)
+  }, [p.print_bed_w_mm, p.print_bed_l_mm, customPresets.length])
 
   // Compute grid info for display
   const padding = {
@@ -31,10 +48,28 @@ export default function BaseplateParamsPanel() {
 
   const handleBedPreset = (key: string) => {
     setSelectedBed(key)
-    const preset = PRINT_BED_PRESETS.find(b => b.key === key)
+    const preset = allPresets.find(b => b.key === key)
     if (preset && key !== 'custom') {
       update({ print_bed_w_mm: preset.w, print_bed_l_mm: preset.l })
     }
+  }
+
+  const handleSavePreset = () => {
+    const name = presetName.trim()
+    if (!name) return
+    const updated = saveCustomPreset(name, p.print_bed_w_mm, p.print_bed_l_mm)
+    setCustomPresets(updated)
+    // Select the newly saved preset
+    const newPreset = updated[updated.length - 1]
+    setSelectedBed(newPreset.key)
+    setShowSavePreset(false)
+    setPresetName('')
+  }
+
+  const handleDeletePreset = (key: string) => {
+    const updated = deleteCustomPreset(key)
+    setCustomPresets(updated)
+    setSelectedBed('custom')
   }
 
   return (
@@ -107,13 +142,50 @@ export default function BaseplateParamsPanel() {
       <Section title="Print Bed">
         <Field label="Preset">
           <select value={selectedBed} onChange={(e) => handleBedPreset(e.target.value)} style={selectStyle}>
-            {PRINT_BED_PRESETS.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+            <optgroup label="Built-in">
+              {PRINT_BED_PRESETS.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+            </optgroup>
+            {customPresets.length > 0 && (
+              <optgroup label="My Printers">
+                {customPresets.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
+              </optgroup>
+            )}
           </select>
         </Field>
         <Row>
           <Field label="Bed W (mm)"><NumInput value={p.print_bed_w_mm} onChange={(v) => { update({ print_bed_w_mm: v }); setSelectedBed('custom') }} min={50} max={600} /></Field>
           <Field label="Bed L (mm)"><NumInput value={p.print_bed_l_mm} onChange={(v) => { update({ print_bed_l_mm: v }); setSelectedBed('custom') }} min={50} max={600} /></Field>
         </Row>
+        {/* Save current as preset */}
+        {!showSavePreset ? (
+          <button onClick={() => setShowSavePreset(true)} style={smallBtn}>
+            💾 Save current as preset
+          </button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <input
+              type="text" value={presetName} placeholder="Printer name (e.g. My Ender 3)"
+              onChange={(e) => setPresetName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSavePreset(); if (e.key === 'Escape') { setShowSavePreset(false); setPresetName('') } }}
+              autoFocus
+              style={inputStyle}
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={handleSavePreset} disabled={!presetName.trim()} style={{ ...smallBtn, flex: 1, borderColor: '#7c3aed', color: '#a78bfa' }}>
+                Save
+              </button>
+              <button onClick={() => { setShowSavePreset(false); setPresetName('') }} style={smallBtn}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {/* Delete custom preset if one is selected */}
+        {customPresets.some(b => b.key === selectedBed) && !showSavePreset && (
+          <button onClick={() => handleDeletePreset(selectedBed)} style={{ ...smallBtn, color: '#fca5a5', borderColor: '#7f1d1d' }}>
+            🗑 Delete "{customPresets.find(b => b.key === selectedBed)?.label}"
+          </button>
+        )}
       </Section>
 
       {/* Connectors */}
@@ -206,4 +278,9 @@ const selectStyle: React.CSSProperties = {
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer',
   fontSize: 11, padding: 0, textDecoration: 'underline',
+}
+
+const smallBtn: React.CSSProperties = {
+  padding: '5px 10px', borderRadius: 4, border: '1px solid #3f3f46',
+  background: '#27272a', color: '#a1a1aa', cursor: 'pointer', fontSize: 11,
 }
