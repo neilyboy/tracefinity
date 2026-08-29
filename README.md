@@ -2,7 +2,7 @@
 
 <img src="docs/images/logo.svg" alt="Tracefinity" width="400">
 
-**Turn a photo of your tools into custom Gridfinity inserts and foam cutouts.**
+**Turn a photo of your tools into custom Gridfinity inserts, foam cutouts, and baseplates.**
 
 Self-hosted · No cloud · No signup · Docker-ready
 
@@ -16,6 +16,8 @@ Self-hosted · No cloud · No signup · Docker-ready
 
 Tracefinity is a self-hosted web app that takes a photo of your tools laid on a sheet of paper, automatically detects and traces each tool's outline, lets you customize a Gridfinity bin around them, and exports the result as SVG, DXF, STL, 3MF, or STEP files.
 
+It also includes a **Baseplate Designer** for creating custom-shaped Gridfinity baseplates that fit your tool chest drawers — with automatic segmentation for smaller 3D printers.
+
 It's a self-hosted alternative to [tooltrace.ai](https://tooltrace.ai) — no accounts, no cloud, no subscription. Just you, your tools, and your 3D printer.
 
 <div align="center">
@@ -27,7 +29,7 @@ It's a self-hosted alternative to [tooltrace.ai](https://tooltrace.ai) — no ac
 ### 1. Snap a Photo (or Design from Scratch)
 Place your tools on a sheet of **US Letter (8.5×11")** or **A4** paper and take a photo from directly above. The paper provides a known reference for scale calibration.
 
-**Don't have a photo ready?** You can also start with an empty tray and build entirely from your saved tool library.
+**Don't have a photo ready?** You can also start with an empty tray and build entirely from your saved tool library, or jump straight to the Baseplate Designer.
 
 ### 2. Auto-Trace
 OpenCV detects the paper boundary (for scale) and traces each tool's outline. The pipeline uses multiple strategies — bright-region thresholding, Canny edges, adaptive thresholding, Otsu, floodfill, and GrabCut — and picks the best result. Tool outlines are smoothed with Gaussian blur + Chaikin corner-cutting for professional-looking curves.
@@ -44,10 +46,27 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support:
 - **Simplify button** removes clustered vertices (< 1.5mm apart)
 - Clustered vertices shown in **red** with hover tooltips
 - **Mirror X / Mirror Y** for symmetrical tools
+- **Live symmetry mode** — mirror vertex drags in real-time
+- **Symmetrize** — average both sides for perfect symmetry
 - **Scale** tools (50-200%) with slider or quick ±5%/±10% buttons
 - **Rotate** to any angle (including negative), with ±90° and auto-align buttons
 - **Duplicate** tools to place multiple copies
+- **Array tools** — create grids, linear, circular, or hex patterns
 - **Per-tool overrides**: custom margins, pocket depths, labels, visibility
+
+**Arrow Key Nudging:**
+- Select any tool and use **arrow keys** for precise positioning
+- Step size selector: **0.1mm, 1mm, 5mm, 10mm**
+- **Shift+Arrow** = 10× the selected step for fast movement
+- Works with multi-select (all selected tools move together)
+
+**Dimension Labels:**
+- When a tool is selected, **cyan dashed dimension lines** show the distance from the tool's bounding box to each bin edge (left, right, top, bottom)
+- Updates in real-time as you drag or nudge
+
+**Alignment & Distribution:**
+- **Align** multiple selected tools: left, right, center-h, top, bottom, center-v
+- **Distribute** tools evenly along horizontal or vertical axis
 
 **Finger Holes & Scoops:**
 - **Click-to-place** finger holes directly on tools
@@ -55,12 +74,24 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support:
 - Adjustable radius per hole
 - Auto finger scoops cut from the **top surface** downward
 
+**Pocket Shapes:**
+- **Flat** — standard flat-bottom pocket
+- **Spherical** — bowl-shaped pocket bottom for easy tool removal
+- **Cylindrical** — lathe-revolution cutout along the tool's principal axis
+
 **Text Labels:**
 - Place **multiple movable text labels** on the bin surface
 - Per-label: text, font size, rotation, depth
 - **Cutout** (engraved into surface) or **Raised** (embossed above)
 - Labels sit on the top surface, accounting for stacking lip height
+- Multiple bundled fonts (stencil and standard)
 - Perfect for labeling individual tools ("screwdriver", "extension", etc.)
+
+**Label Tabs:**
+- Optional protruding label tab on the bin front
+- Custom label text, font size, and depth
+- **Embossed** (raised) or **Engraved** (cut in) text
+- **Inset tapered pocket** option for support-free printing
 
 **Bin Parameters:**
 - Grid size (shows mm + inches)
@@ -70,10 +101,17 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support:
 - Magnet holes (6×2mm)
 - Screw holes (M3)
 - Scoop (finger cutout on front edge)
+- Finger scoop (cylindrical cutout at tool edge)
 - Stacking lip
 - Print support tabs (split or aligned)
-- Compartments/dividers
+- **Compartments/dividers** with tapered walls, chamfers, and rounded corners
 - Grid snapping for precise placement
+
+**Blank Bin Generator:**
+- Create empty bins without uploading a photo
+- Set grid width, length, and height
+- Add compartments and dividers
+- Full bin parameter customization
 
 ### 4. Export
 Download your design in the format you need:
@@ -88,10 +126,56 @@ Download your design in the format you need:
 | **DXF** | 2D CAD for laser cutters, CNC, AutoCAD |
 | **STL** | 3D mesh for 3D printing (PrusaSlicer, Cura, Bambu Studio) |
 | **Flat STL** | 2mm flat plate with tool cutouts — test-fit tools before committing, or print in a different color for two-tone inserts |
+| **Lid STL** | Bin lid that snaps onto the bin, with Gridfinity base on bottom and optional text label |
 | **3MF** | 3D mesh with metadata (advanced 3D printing) |
 | **STEP** | 3D CAD for Fusion 360, FreeCAD, SolidWorks, Onshape |
 
 ## Features
+
+### Baseplate Designer
+
+A full-featured designer for custom Gridfinity baseplates that fit your tool chest drawers:
+
+**Drawer Input:**
+- Specify drawer dimensions (width × length in mm)
+- Per-side padding between drawer edge and gridfinity grid
+- Drawer clearance/slop for easy insertion
+- Visual SVG editor with grid overlay, ruler markings, and real-time preview
+
+**Cutout Shapes:**
+- Add cutouts for drawer obstructions (hinges, latches, circular holes, etc.)
+- All shape types supported: rectangle, rounded rect, circle, ellipse, hex, triangle, L-shape, T-shape, cross, and more
+- Drag to move, drag vertices to resize
+- **Through cutouts** — cut all the way through the plate
+- **Partial cutouts** — cut from the bottom up by a specified depth (for low obstructions that only stick up a few mm, so trays still sit flat on top)
+- Arrow key nudging with step size selector
+- Dimension labels showing distance to plate edges
+- Right-side properties panel with precise position and size inputs
+
+**Print Bed Segmentation:**
+- Specify your 3D printer bed size
+- Presets for common printers (Ender 3, Prusa MK3, Bambu X1, Voron 2.4, etc.)
+- **Save custom printer presets** for reuse (stored in browser localStorage)
+- Auto-segmentation along grid cell boundaries
+- Visual segment preview with color coding and labels
+- Print bed overlay shown on canvas
+
+**Segment Connectors:**
+- **Edge clips/tabs** — tabs on one segment, matching slots on the adjacent segment
+- **Sockets only** — gridfinity socket pattern provides alignment
+- **Magnet alignment** — magnet holes at seam midpoints
+- **None** — loose pieces held by drawer walls
+
+**Baseplate Features:**
+- Standard Gridfinity socket pattern (38.5mm → 41.5mm chamfered, 4mm depth)
+- Adjustable base thickness (1-10mm, total height = 4mm socket + base)
+- Optional magnet holes in each cell corner
+- Optional screw holes (M3 through-holes)
+- Bottom edge chamfer for easy drawer insertion
+
+**Export:**
+- Multi-segment export as **ZIP file** with one STL per segment + README with assembly instructions
+- Single STL for small baseplates that fit on one print bed
 
 ### Tool Library
 Save individual tool outlines to a persistent library and reuse them across designs:
@@ -102,15 +186,16 @@ Save individual tool outlines to a persistent library and reuse them across desi
 - Tools stored with bounding box dimensions for quick reference
 - Build an entire tray from library tools without uploading a new photo
 
-### Save & Load Trays
-- **Save** your complete tray design (tools, labels, bin params)
-- **Load** saved trays from the upload screen
+### Save & Load Designs
+- **Save** your complete tray designs (tools, labels, bin params)
+- **Save** your baseplate designs (cutouts, params, segmentation)
+- **Load** saved designs from the upload screen
 - Continue editing where you left off
 
 ### Design from Scratch
 Skip the photo upload entirely:
-- Start with an empty tray
-- Add tools from your library
+- Start with an empty tray (blank bin generator)
+- Add tools from your library or the shape dialog
 - Customize bin parameters
 - Export when ready
 
@@ -207,7 +292,7 @@ All data is stored in the mounted volume:
 data/
 ├── images/     # uploaded + rectified images
 ├── exports/    # generated export files
-└── db/         # SQLite database (saved designs + tool library)
+└── db/         # SQLite database (saved designs + tool library + baseplate designs)
 ```
 
 ## Development
@@ -267,8 +352,10 @@ tracefinity/
 │   │   │   ├── paper_detect.py   # Paper detection + rectification
 │   │   │   ├── tool_detect.py    # Tool outline extraction + smoothing
 │   │   │   └── pipeline.py       # Orchestration
-│   │   ├── gridfinity/      # Gridfinity bin generation
+│   │   ├── gridfinity/      # Gridfinity generation
 │   │   │   ├── bin_builder.py    # Parametric bin construction
+│   │   │   ├── baseplate_builder.py  # Custom baseplate generation + segmentation
+│   │   │   ├── lid_builder.py    # Bin lid generation
 │   │   │   ├── pockets.py        # Tool pocket + finger hole generation
 │   │   │   ├── generator.py      # Full model assembly + flat export + labels
 │   │   │   └── constants.py      # Gridfinity spec constants
@@ -280,8 +367,9 @@ tracefinity/
 │   │   ├── routers/         # API endpoints
 │   │   │   ├── trace.py           # Image upload + tool detection
 │   │   │   ├── design.py          # Design CRUD
+│   │   │   ├── baseplate.py       # Baseplate CRUD + export + segment info
 │   │   │   ├── tool_library.py    # Tool library CRUD
-│   │   │   ├── export.py          # Export (SVG/DXF/STL/3MF/STEP/Flat STL)
+│   │   │   ├── export.py          # Export (SVG/DXF/STL/Flat STL/Lid STL/3MF/STEP)
 │   │   │   └── preview.py         # Preview image generation
 │   │   ├── storage/         # SQLite persistence
 │   │   ├── schemas.py       # Pydantic models
@@ -290,8 +378,22 @@ tracefinity/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/      # React components
+│   │   │   ├── SvgEditor.tsx           # Tray SVG editor
+│   │   │   ├── BaseplateEditor.tsx     # Baseplate SVG editor
+│   │   │   ├── BaseplateView.tsx       # Baseplate designer layout
+│   │   │   ├── BaseplateParamsPanel.tsx  # Baseplate parameters
+│   │   │   ├── BaseplateExportBar.tsx  # Baseplate export
+│   │   │   ├── CutoutPropsPanel.tsx    # Cutout properties
+│   │   │   ├── EditorView.tsx          # Tray editor layout
+│   │   │   ├── BinParamsPanel.tsx      # Tray parameters
+│   │   │   ├── ToolPropsPanel.tsx      # Tool properties
+│   │   │   ├── ExportBar.tsx           # Tray export
+│   │   │   ├── AddShapeDialog.tsx      # Shape creation dialog
+│   │   │   └── ...
 │   │   ├── api/             # API client
 │   │   ├── editor/          # Editor state (Zustand)
+│   │   │   ├── useEditorState.ts       # Tray editor state
+│   │   │   └── useBaseplateState.ts    # Baseplate editor state
 │   │   └── types.ts         # TypeScript types
 │   └── package.json
 ├── docs/images/             # README graphics
@@ -311,15 +413,22 @@ tracefinity/
 | `/api/detect-at-point` | POST | Detect tool at a clicked point |
 | `/api/auto-rotate` | POST | Auto-align tool to axes |
 | `/api/preview` | POST | Generate preview image |
-| `/api/export` | POST | Export design (SVG/DXF/STL/Flat STL/3MF/STEP) |
+| `/api/export` | POST | Export design (SVG/DXF/STL/Flat STL/Lid STL/3MF/STEP) |
 | `/api/designs` | GET | List saved designs |
 | `/api/designs` | PUT | Save a design |
 | `/api/designs/{id}` | GET | Load a design |
 | `/api/designs/{id}` | DELETE | Delete a design |
+| `/api/designs/fonts/list` | GET | List available fonts |
 | `/api/tools` | GET | List tool library |
 | `/api/tools` | PUT | Save tool to library |
 | `/api/tools/{id}` | GET | Load tool from library |
 | `/api/tools/{id}` | DELETE | Delete tool from library |
+| `/api/baseplate` | GET | List saved baseplate designs |
+| `/api/baseplate` | PUT | Save a baseplate design |
+| `/api/baseplate/{id}` | GET | Load a baseplate design |
+| `/api/baseplate/{id}` | DELETE | Delete a baseplate design |
+| `/api/baseplate/segment-info` | POST | Get segment info for a baseplate design |
+| `/api/baseplate/export` | POST | Export baseplate as STL or ZIP of STLs |
 
 ## License
 
