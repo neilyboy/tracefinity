@@ -329,7 +329,9 @@ def _build_dovetail_slot(
     (in the negative axis direction).
     """
     extra = DOVETAIL_EXTRA_MM
-    slot_depth = depth + tol + 1
+    # No +1 clearance — the slot must NOT cut deeper than the tab depth + tolerance
+    # or it will break through the thin socket wall and create open gaps.
+    slot_depth = depth + tol
     base_w = width + 2 * tol
     tip_w = width + 2 * extra + 2 * tol
 
@@ -407,11 +409,13 @@ def _add_edge_clips(
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
 
-    # Tabs/slots are only socket-height tall (4mm), positioned at the top of
-    # the plate where the sockets are. The base (bottom) stays solid so the
-    # segment has a continuous flat bottom with no open gaps.
-    socket_h = C.BASEPLATE_SOCKET_DEPTH_MM  # 4mm
-    z_off = total_h - socket_h  # bottom of socket section (= base_thickness)
+    # Tabs/slots are only at the TOP of the socket section where the wall is
+    # thickest (1.75mm at the rim). The socket taper makes the wall thinner
+    # lower down (0.25mm at the bottom), so the tab must NOT extend into the
+    # thin area or it will break through and create open gaps.
+    # Tab height: 1.5mm, positioned at the very top of the socket section.
+    tab_h = 1.5
+    z_off = total_h - tab_h  # top 1.5mm of the plate
 
     # --- Vertical cut lines (cuts in X, separating left/right segments) ---
     for cx in cuts_x:
@@ -438,7 +442,7 @@ def _add_edge_clips(
         for cy in clip_ys:
             if is_left:
                 # Add a dovetail TAB protruding in +X from the right edge (socket section only)
-                tab = _build_dovetail_tab(clip_d, clip_w, socket_h, "+x", z_off)
+                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+x", z_off)
                 tab = tab.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment + tab
@@ -446,7 +450,7 @@ def _add_edge_clips(
                     pass
             elif is_right:
                 # Cut a dovetail SLOT going in -X from the left edge (socket section only)
-                slot = _build_dovetail_slot(clip_d, clip_w, socket_h, clip_tol, "-x", z_off)
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-x", z_off)
                 slot = slot.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment - slot
@@ -478,7 +482,7 @@ def _add_edge_clips(
         for cx in clip_xs:
             if is_below:
                 # Add a dovetail TAB protruding in +Y from the top edge (socket section only)
-                tab = _build_dovetail_tab(clip_d, clip_w, socket_h, "+y", z_off)
+                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+y", z_off)
                 tab = tab.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment + tab
@@ -486,7 +490,7 @@ def _add_edge_clips(
                     pass
             elif is_above:
                 # Cut a dovetail SLOT going in -Y from the bottom edge (socket section only)
-                slot = _build_dovetail_slot(clip_d, clip_w, socket_h, clip_tol, "-y", z_off)
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-y", z_off)
                 slot = slot.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment - slot

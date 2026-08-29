@@ -68,12 +68,30 @@ async def export_baseplate(payload: dict):
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
 
+    from build123d import Location, Axis, Rot
+
     from ..gridfinity.baseplate_builder import generate_baseplate, get_segment_info
     from ..exporters.mesh import export_stl
 
     segments = generate_baseplate(design)
     info = get_segment_info(design)
     name = design.name or "baseplate"
+
+    # Flip each segment 180° around X so the flat base ends up on the build
+    # plate. The internal model has the flat base at Z=0 and sockets at the
+    # top, but the exported STL loads with the tapered side down in slicers.
+    # Rotating 180° around X swaps top and bottom; translating back to Z>=0
+    # keeps the model on the build plate.
+    flipped_segments = []
+    for seg in segments:
+        bb = seg.bounding_box()
+        total_h = bb.max.Z - bb.min.Z
+        flipped = seg.moved(Rot(Axis.X, 180))
+        # After rotation, model is at Z=[-total_h, 0]; translate up by total_h
+        fbb = flipped.bounding_box()
+        flipped = flipped.moved(Location((0, 0, -fbb.min.Z)))
+        flipped_segments.append(flipped)
+    segments = flipped_segments
 
     if len(segments) == 1:
         # Single STL
