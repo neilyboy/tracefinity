@@ -155,45 +155,48 @@ def _build_screw_holes(grid_w: int, grid_l: int, total_h: float) -> list[Solid]:
 # Cutout subtraction
 # ---------------------------------------------------------------------------
 
-def _build_cutout_solid(cutout: DrawerCutout, plate_w: float, plate_l: float, total_h: float) -> Solid | None:
+def _build_cutout_solid(
+    cutout: DrawerCutout,
+    drawer_w: float, drawer_l: float,
+    plate_w: float, plate_l: float,
+    total_h: float,
+) -> Solid | None:
     """Build a solid from a drawer cutout polygon, to subtract from the baseplate.
 
-    Cutout coordinates are in SVG space (Y-down, origin at drawer top-left).
-    We convert to plate-local coords (centered at plate center, Y-up).
+    Cutout coordinates are in SVG space (origin at drawer top-left, Y-down).
+    The plate is centered in the drawer. We convert to plate-local coords
+    (centered at plate center, Y-up, matching build123d).
+
+    For "through" cutouts: extrudes through the full plate height.
+    For "partial" cutouts: extrudes from the BOTTOM up by depth_mm,
+    so the top surface remains flat for trays to sit on.
     """
     if len(cutout.outer) < 3:
         return None
 
-    # Convert SVG coords to plate-local coords.
-    # SVG: origin at drawer top-left, Y down.
-    # Plate: centered at origin, Y up.
-    # The plate is centered in the drawer (with padding), so:
+    # Convert SVG coords (drawer top-left, Y-down) to plate-local (centered, Y-up)
     # plate_local_x = svg_x - drawer_w/2
     # plate_local_y = drawer_l/2 - svg_y
-    # But we don't have drawer_w here directly — the cutout coords are
-    # already in the same frame as the drawer. The plate is centered
-    # in the drawer, so we just shift by drawer center.
-    # Actually, the cutout coords are relative to the drawer top-left.
-    # The plate center is at (drawer_w/2, drawer_l/2) in drawer coords.
-    # So plate_local = svg - (drawer_w/2, drawer_l/2), then flip Y.
-    # But we need drawer dimensions — pass them via the cutout's stored
-    # w/h? No, the cutout outer points are absolute drawer coords.
-    # We'll pass drawer_w and drawer_l as parameters.
-    # Actually, let's just use the plate_w/plate_l and assume the cutout
-    # is already in plate-local coords. The frontend will handle the
-    # coordinate conversion when creating cutouts.
-    # For now, assume cutout.outer points are in plate-local coords
-    # (centered at plate center, Y-up, same as build123d).
-
-    pts = [(float(p.x), float(p.y)) for p in cutout.outer]
+    pts = [(float(p.x) - drawer_w / 2, drawer_l / 2 - float(p.y)) for p in cutout.outer]
     try:
         sketch = Sketch() + Polygon(pts)
     except Exception:
         return None
 
-    # Extrude through the full plate height
-    solid = extrude(sketch, amount=total_h + 4)
-    solid = solid.moved(Location((0, 0, total_h / 2 + 2)))
+    cutout_type = getattr(cutout, 'cutout_type', 'through')
+    depth_mm = getattr(cutout, 'depth_mm', 3.0)
+
+    if cutout_type == "partial":
+        # Partial cutout: extrude from the bottom (Z=0) upward by depth_mm.
+        # The plate sits from Z=0 to Z=total_h. We cut from Z=0 to Z=depth_mm.
+        extrude_height = min(depth_mm, total_h) + 0.1  # slight overshoot
+        solid = extrude(sketch, amount=extrude_height)
+        solid = solid.moved(Location((0, 0, extrude_height / 2)))
+    else:
+        # Through cutout: extrude through the full plate height
+        solid = extrude(sketch, amount=total_h + 4)
+        solid = solid.moved(Location((0, 0, total_h / 2 + 2)))
+
     return solid
 
 
@@ -375,7 +378,9 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
 
     # 3. Cut drawer cutouts (obstructions)
     for cutout in design.cutouts:
-        cutout_solid = _build_cutout_solid(cutout, plate_w, plate_l, total_h)
+        cutout_solid = _build_cutout_solid(
+            cutout, params.drawer_w_mm, params.drawer_l_mm, plate_w, plate_l, total_h
+        )
         if cutout_solid is not None:
             try:
                 plate = plate - cutout_solid

@@ -208,6 +208,11 @@ class DrawerCutout(BaseModel):
     w: float = 10.0  # bounding box width
     h: float = 10.0  # bounding box height
     rotation_deg: float = 0.0
+    # Cutout depth type: "through" = cuts all the way through the plate,
+    # "partial" = cuts from the BOTTOM up by depth_mm (for obstructions
+    # that only stick up a few mm, so trays still sit flat on top)
+    cutout_type: str = "through"  # "through" or "partial"
+    depth_mm: float = 3.0  # depth of partial cutout from the bottom
 
 
 class BaseplateParams(BaseModel):

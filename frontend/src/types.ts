@@ -175,6 +175,8 @@ export interface DrawerCutout {
   w: number  // bounding box width
   h: number  // bounding box height
   rotation_deg: number
+  cutout_type: 'through' | 'partial'  // through-cut or partial-depth from bottom
+  depth_mm: number  // depth of partial cutout from the bottom
 }
 
 export interface BaseplateParams {

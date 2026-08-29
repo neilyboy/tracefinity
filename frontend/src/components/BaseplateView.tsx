@@ -4,11 +4,13 @@ import { useEditor } from '../editor/useEditorState'
 import BaseplateEditor from './BaseplateEditor'
 import BaseplateParamsPanel from './BaseplateParamsPanel'
 import BaseplateExportBar from './BaseplateExportBar'
-import { Home, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import CutoutPropsPanel from './CutoutPropsPanel'
+import { Home, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 
 export default function BaseplateView() {
-  const { reset } = useBaseplate()
+  const { reset, selectedCutoutId } = useBaseplate()
   const [leftOpen, setLeftOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(true)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -28,9 +30,12 @@ export default function BaseplateView() {
         <button onClick={() => setLeftOpen(!leftOpen)} style={iconBtn} title="Toggle parameters panel">
           {leftOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
         </button>
+        <button onClick={() => setRightOpen(!rightOpen)} style={iconBtn} title="Toggle cutout properties panel">
+          {rightOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+        </button>
       </div>
 
-      {/* Main area: left panel | SVG canvas */}
+      {/* Main area: left panel | SVG canvas | right panel */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         {leftOpen && (
           <div style={{
@@ -45,6 +50,16 @@ export default function BaseplateView() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <BaseplateEditor />
         </div>
+
+        {/* Right: Cutout properties (only show if a cutout is selected) */}
+        {rightOpen && selectedCutoutId && (
+          <div style={{
+            width: 220, borderLeft: '1px solid #27272a', background: '#18181b',
+            overflow: 'auto', flexShrink: 0,
+          }}>
+            <CutoutPropsPanel />
+          </div>
+        )}
       </div>
 
       {/* Bottom: Export bar */}

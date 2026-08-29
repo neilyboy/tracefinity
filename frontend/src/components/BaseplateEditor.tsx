@@ -172,6 +172,8 @@ export default function BaseplateEditor() {
       w,
       h,
       rotation_deg: 0,
+      cutout_type: 'through',
+      depth_mm: 3.0,
     }
     addCutout(cutout)
   }
@@ -322,6 +324,16 @@ export default function BaseplateEditor() {
             {design.cutouts.map((cutout) => {
               const isSelected = cutout.id === selectedCutoutId
               const path = cutoutPath(cutout.outer)
+              // Bounding box of cutout in drawer coords
+              const minX = Math.min(...cutout.outer.map(p => p.x))
+              const maxX = Math.max(...cutout.outer.map(p => p.x))
+              const minY = Math.min(...cutout.outer.map(p => p.y))
+              const maxY = Math.max(...cutout.outer.map(p => p.y))
+              // Distances to plate edges (plate is at plateX..plateX+plateW, plateY..plateY+plateL)
+              const distLeft = minX - plateX
+              const distRight = (plateX + plateW) - maxX
+              const distTop = minY - plateY
+              const distBottom = (plateY + plateL) - maxY
               return (
                 <g key={cutout.id}>
                   <path
@@ -332,6 +344,16 @@ export default function BaseplateEditor() {
                     onPointerDown={(e) => handleCutoutPointerDown(e, cutout.id)}
                     style={{ cursor: 'grab' }}
                   />
+                  {/* Cutout type indicator for partial cutouts */}
+                  {cutout.cutout_type === 'partial' && (
+                    <text
+                      x={cutout.x} y={cutout.y}
+                      fill="#f59e0b" fontSize={6} textAnchor="middle" dominantBaseline="middle"
+                      style={{ pointerEvents: 'none', fontWeight: 600 }}
+                    >
+                      {cutout.depth_mm.toFixed(1)}mm
+                    </text>
+                  )}
                   {/* Vertices when selected */}
                   {isSelected && cutout.outer.map((v, i) => (
                     <circle
@@ -341,6 +363,39 @@ export default function BaseplateEditor() {
                       style={{ cursor: 'pointer' }}
                     />
                   ))}
+                  {/* Dimension labels when selected — distances to plate edges */}
+                  {isSelected && (
+                    <g style={{ pointerEvents: 'none' }}>
+                      {/* Left distance */}
+                      <line x1={plateX} y1={minY + (maxY - minY) / 2} x2={minX} y2={minY + (maxY - minY) / 2}
+                        stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
+                      <text x={plateX + distLeft / 2} y={minY + (maxY - minY) / 2 - 1.5}
+                        fill="#22d3ee" fontSize={5} textAnchor="middle">
+                        {distLeft.toFixed(1)}
+                      </text>
+                      {/* Right distance */}
+                      <line x1={maxX} y1={minY + (maxY - minY) / 2} x2={plateX + plateW} y2={minY + (maxY - minY) / 2}
+                        stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
+                      <text x={maxX + distRight / 2} y={minY + (maxY - minY) / 2 - 1.5}
+                        fill="#22d3ee" fontSize={5} textAnchor="middle">
+                        {distRight.toFixed(1)}
+                      </text>
+                      {/* Top distance */}
+                      <line x1={minX + (maxX - minX) / 2} y1={plateY} x2={minX + (maxX - minX) / 2} y2={minY}
+                        stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
+                      <text x={minX + (maxX - minX) / 2} y={plateY + distTop / 2}
+                        fill="#22d3ee" fontSize={5} textAnchor="middle">
+                        {distTop.toFixed(1)}
+                      </text>
+                      {/* Bottom distance */}
+                      <line x1={minX + (maxX - minX) / 2} y1={maxY} x2={minX + (maxX - minX) / 2} y2={plateY + plateL}
+                        stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
+                      <text x={minX + (maxX - minX) / 2} y={maxY + distBottom / 2}
+                        fill="#22d3ee" fontSize={5} textAnchor="middle">
+                        {distBottom.toFixed(1)}
+                      </text>
+                    </g>
+                  )}
                 </g>
               )
             })}
@@ -378,6 +433,8 @@ export default function BaseplateEditor() {
             w: Math.max(...tool.outer.map(p => p.x)) - Math.min(...tool.outer.map(p => p.x)),
             h: Math.max(...tool.outer.map(p => p.y)) - Math.min(...tool.outer.map(p => p.y)),
             rotation_deg: 0,
+            cutout_type: 'through',
+            depth_mm: 3.0,
           }
           addCutout(cutout)
         }}
