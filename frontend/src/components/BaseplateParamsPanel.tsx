@@ -224,6 +224,11 @@ export default function BaseplateParamsPanel() {
               <Field label="Clip depth (mm)"><NumInput value={p.clip_depth_mm} onChange={(v) => update({ clip_depth_mm: v })} min={1} max={10} step={0.5} /></Field>
             </Row>
             <Field label="Tolerance (mm)"><NumInput value={p.clip_tolerance_mm} onChange={(v) => update({ clip_tolerance_mm: v })} min={0} max={1} step={0.05} /></Field>
+            <span style={{ fontSize: 10, color: '#71717a', display: 'block', marginTop: 2 }}>
+              Locking tabs form in the solid base slab (below the socket taper),
+              so a base thickness of at least 1.6mm is used automatically at the
+              seams even if "Base thickness" above is set to 0.
+            </span>
           </>
         )}
       </Section>

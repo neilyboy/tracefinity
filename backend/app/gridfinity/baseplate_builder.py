@@ -573,6 +573,32 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         # No segmentation needed
         return [plate]
 
+    # 7b. If using edge clips but the base is too thin (or open-bottom), add a
+    # thin solid "connector rail" along each cut line so the dovetail tabs
+    # have solid material to form in. This only fills a narrow strip at the
+    # seams — the rest of the plate keeps its configured base thickness.
+    if params.connector_type == "edge_clips" and params.base_thickness_mm < MIN_BASE_THICKNESS_FOR_CLIPS:
+        rail_h = MIN_BASE_THICKNESS_FOR_CLIPS
+        rail_half_w = params.clip_depth_mm + 2 * params.clip_tolerance_mm + 2.0
+        for cx in cuts_x:
+            cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
+            rail = Box(2 * rail_half_w, plate_l + 2, rail_h)
+            rail = rail.moved(Location((cut_x_mm, 0, rail_h / 2)))
+            try:
+                plate = plate + rail
+            except Exception:
+                pass
+        for cy in cuts_y:
+            cut_y_mm = -plate_l / 2 + cy * C.GRID_UNIT_MM
+            rail = Box(plate_w + 2, 2 * rail_half_w, rail_h)
+            rail = rail.moved(Location((0, cut_y_mm, rail_h / 2)))
+            try:
+                plate = plate + rail
+            except Exception:
+                pass
+        if not isinstance(plate, Part):
+            plate = Part(plate) if hasattr(plate, 'wrapped') else plate
+
     # 8. Cut the plate into segments with puzzle connectors
     segments = _segment_bounds(grid_w, grid_l, cuts_x, cuts_y)
     segment_parts = []
@@ -627,13 +653,23 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
 
 
 # ---------------------------------------------------------------------------
-# Puzzle connectors (jigsaw-style interlocking segment boundaries)
+# Dovetail connectors — confined to the solid base slab
 # ---------------------------------------------------------------------------
+#
+# The gridfinity socket section is tapered (38.5mm opening -> 41.5mm at the
+# bottom of the socket), so the wall between adjacent cells is only
+# 0.25-1.75mm thick there. Any tab/slot cut in that region either breaks
+# through the wall (open gaps) or gets clipped by the neighboring cell's
+# socket cavity when the segment is re-intersected with the plate (broken/
+# non-manifold geometry).
+#
+# The fix: dovetail tabs are built ONLY within the solid base slab
+# (Z = 0..base_thickness_mm), which is a plain flat box with no taper and
+# no per-cell cuts. A tab there is guaranteed structurally sound. This means
+# edge clips REQUIRE a minimum base thickness — see MIN_BASE_THICKNESS_FOR_CLIPS.
 
-# Puzzle tab dimensions
-PUZZLE_TAB_WIDTH = 6.0   # width along the cut line
-PUZZLE_TAB_DEPTH = 1.5   # how far the tab protrudes past the cut line
-PUZZLE_TOLERANCE = 0.2   # clearance between tab and socket
+MIN_BASE_THICKNESS_FOR_CLIPS = 1.6  # mm — minimum solid base needed for tabs to work
+DOVETAIL_EXTRA_MM = 1.0  # how much wider the tab tip is than its base, per side
 
 
 def _build_puzzle_segment(
@@ -643,15 +679,12 @@ def _build_puzzle_segment(
     params: BaseplateParams,
     total_h: float,
 ) -> Solid:
-    """Build a segment shape with puzzle-style interlocking edges.
+    """Build a segment shape with dovetail locking tabs confined to the base slab.
 
-    Instead of a simple rectangular box, the segment boundary has small
-    jigsaw-style bumps and notches along the cut-line edges. One side of
-    each cut gets a bump (protrusion), the other gets a matching notch.
-    This interlocks the segments without cutting into the thin socket walls.
-
-    The puzzle tabs are full plate height and positioned at the midpoint
-    of each segment edge along the cut line.
+    One side of each cut gets a dovetail TAB (wider at the tip), the other
+    side gets a matching dovetail SLOT. Both are limited to the solid base
+    slab height (Z = 0..base_thickness_mm) so they never intersect the
+    tapered socket geometry above.
     """
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
@@ -665,28 +698,34 @@ def _build_puzzle_segment(
     seg_cx = (seg_x_min + seg_x_max) / 2
     seg_cy = (seg_y_min + seg_y_max) / 2
 
-    # Start with a base box slightly larger than the segment (for clean cuts)
-    # then add/subtract puzzle tabs at the cut-line edges
-    margin = 1.0  # 1mm margin for clean intersection
+    margin = 1.0
     shape = Box(seg_w + 2 * margin, seg_l + 2 * margin, total_h + 4)
     shape = shape.moved(Location((seg_cx, seg_cy, total_h / 2)))
 
-    tab_w = PUZZLE_TAB_WIDTH
-    tab_d = PUZZLE_TAB_DEPTH
-    tol = PUZZLE_TOLERANCE
+    # Effective base thickness available for tabs — if the design's base is
+    # too thin (or zero, i.e. open-bottom), fall back to the minimum needed
+    # for tabs to be structurally meaningful. This only affects the tab
+    # region near seams; the rest of the plate keeps its configured base
+    # thickness (handled earlier when the plate was built).
+    base_h = max(params.base_thickness_mm, MIN_BASE_THICKNESS_FOR_CLIPS)
+    # Never let the tab occupy more than the socket start, just in case
+    base_h = min(base_h, total_h - 0.5)
+
+    tab_w = params.clip_width_mm
+    tab_d = params.clip_depth_mm
+    tol = params.clip_tolerance_mm
 
     # --- Vertical cut lines (X cuts) ---
     for cx in cuts_x:
         cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
-        is_left = seg_x_end == cx   # segment is on the left of the cut
-        is_right = seg_x_start == cx  # segment is on the right of the cut
+        is_left = seg_x_end == cx
+        is_right = seg_x_start == cx
         if not (is_left or is_right):
             continue
 
-        # Place 1-3 puzzle tabs along this edge
         seg_y_center = (seg_y_min + seg_y_max) / 2
         seg_y_len = seg_y_max - seg_y_min
-        n_tabs = max(1, min(3, int(seg_y_len / (tab_w * 4))))
+        n_tabs = max(1, min(3, int(seg_y_len / (tab_w * 6))))
         if n_tabs == 1:
             tab_ys = [seg_y_center]
         else:
@@ -695,19 +734,17 @@ def _build_puzzle_segment(
 
         for ty in tab_ys:
             if is_left:
-                # Add a puzzle bump protruding in +X (past the cut line)
-                bump = _build_puzzle_bump(tab_w, tab_d, total_h, "+x")
-                bump = bump.moved(Location((cut_x_mm, ty, 0)))
+                tab = _build_dovetail_tab(tab_d, tab_w, base_h, "+x")
+                tab = tab.moved(Location((cut_x_mm, ty, 0)))
                 try:
-                    shape = shape + bump
+                    shape = shape + tab
                 except Exception:
                     pass
             elif is_right:
-                # Cut a puzzle notch going in +X (into the segment from the cut line)
-                notch = _build_puzzle_bump(tab_w + 2 * tol, tab_d + tol, total_h, "+x")
-                notch = notch.moved(Location((cut_x_mm, ty, 0)))
+                slot = _build_dovetail_slot(tab_d, tab_w, base_h, tol, "-x")
+                slot = slot.moved(Location((cut_x_mm, ty, 0)))
                 try:
-                    shape = shape - notch
+                    shape = shape - slot
                 except Exception:
                     pass
 
@@ -721,7 +758,7 @@ def _build_puzzle_segment(
 
         seg_x_center = (seg_x_min + seg_x_max) / 2
         seg_x_len = seg_x_max - seg_x_min
-        n_tabs = max(1, min(3, int(seg_x_len / (tab_w * 4))))
+        n_tabs = max(1, min(3, int(seg_x_len / (tab_w * 6))))
         if n_tabs == 1:
             tab_xs = [seg_x_center]
         else:
@@ -730,87 +767,93 @@ def _build_puzzle_segment(
 
         for tx in tab_xs:
             if is_below:
-                # Add a puzzle bump protruding in +Y
-                bump = _build_puzzle_bump(tab_w, tab_d, total_h, "+y")
-                bump = bump.moved(Location((tx, cut_y_mm, 0)))
+                tab = _build_dovetail_tab(tab_d, tab_w, base_h, "+y")
+                tab = tab.moved(Location((tx, cut_y_mm, 0)))
                 try:
-                    shape = shape + bump
+                    shape = shape + tab
                 except Exception:
                     pass
             elif is_above:
-                # Cut a puzzle notch going in +Y
-                notch = _build_puzzle_bump(tab_w + 2 * tol, tab_d + tol, total_h, "+y")
-                notch = notch.moved(Location((tx, cut_y_mm, 0)))
+                slot = _build_dovetail_slot(tab_d, tab_w, base_h, tol, "-y")
+                slot = slot.moved(Location((tx, cut_y_mm, 0)))
                 try:
-                    shape = shape - notch
+                    shape = shape - slot
                 except Exception:
                     pass
 
     return shape
 
 
-def _build_puzzle_bump(width: float, depth: float, height: float, direction: str) -> Solid:
-    """Build a puzzle-style bump (semi-circle on a stem).
+def _build_dovetail_tab(depth: float, width: float, height: float, direction: str) -> Solid:
+    """Build a dovetail-shaped tab (trapezoidal, wider at the tip).
 
-    The bump is a small rectangle with a semi-circular tip, like a jigsaw tab.
-    direction: "+x" or "+y" — which way the bump protrudes.
+    Confined to Z = 0..height (the solid base slab, no taper). direction is
+    "+x" or "+y" — which way the tab protrudes from the segment edge.
     """
-    stem_w = width * 0.6  # stem is narrower than the head
-    head_r = width / 2     # radius of the circular head
-
+    extra = DOVETAIL_EXTRA_MM
     if direction == "+x":
-        # Build profile in XY: stem from x=0 to x=depth-head_r, then semicircle to x=depth
-        stem_d = depth - head_r
-        if stem_d < 0.5:
-            stem_d = 0.5
-        pts = []
-        # Rectangle stem
-        pts.append((0, -stem_w / 2))
-        pts.append((0, stem_w / 2))
-        pts.append((stem_d, stem_w / 2))
-        # Semi-circle head (approximate with arc points)
-        import math
-        n_arc = 12
-        for i in range(n_arc + 1):
-            angle = math.pi / 2 + math.pi * i / n_arc  # from +pi/2 to +3pi/2 (going right)
-            # Actually we want the right half of a circle centered at (stem_d, 0)
-            angle = -math.pi / 2 + math.pi * i / n_arc  # from -pi/2 to +pi/2
-            px = stem_d + head_r * math.cos(angle)
-            py = head_r * math.sin(angle)
-            pts.append((px, py))
-        pts.append((stem_d, -stem_w / 2))
-    elif direction == "+y":
-        stem_d = depth - head_r
-        if stem_d < 0.5:
-            stem_d = 0.5
-        import math
-        pts = []
-        pts.append((-stem_w / 2, 0))
-        pts.append((stem_w / 2, 0))
-        pts.append((stem_w / 2, stem_d))
-        n_arc = 12
-        for i in range(n_arc + 1):
-            angle = 0 + math.pi * i / n_arc  # from 0 to pi
-            px = head_r * math.cos(angle)
-            py = stem_d + head_r * math.sin(angle)
-            pts.append((px, py))
-        pts.append((-stem_w / 2, stem_d))
-    else:
-        pts = [(0, 0), (depth, 0), (depth, width), (0, width)]
-
+        pts = [
+            (0, -width / 2),
+            (0, width / 2),
+            (depth, width / 2 + extra),
+            (depth, -width / 2 - extra),
+        ]
+    else:  # "+y"
+        pts = [
+            (-width / 2, 0),
+            (width / 2, 0),
+            (width / 2 + extra, depth),
+            (-width / 2 - extra, depth),
+        ]
     try:
         sketch = Sketch() + Polygon(pts)
-        solid = extrude(sketch, amount=height + 4)
-        # Normalize Z to span Z=-2..height+2
+        solid = extrude(sketch, amount=height)
         bb = solid.bounding_box()
-        solid = solid.moved(Location((0, 0, -2 - bb.min.Z)))
+        solid = solid.moved(Location((0, 0, -bb.min.Z)))
         return solid
     except Exception:
-        # Fallback to simple box
         if direction == "+x":
-            return Box(depth, width, height + 4).moved(Location((depth / 2, 0, height / 2)))
+            return Box(depth, width + 2 * extra, height).moved(Location((depth / 2, 0, height / 2)))
         else:
-            return Box(width, depth, height + 4).moved(Location((0, depth / 2, height / 2)))
+            return Box(width + 2 * extra, depth, height).moved(Location((0, depth / 2, height / 2)))
+
+
+def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, direction: str) -> Solid:
+    """Build a dovetail-shaped slot cutter matching _build_dovetail_tab, with tolerance.
+
+    Confined to Z = 0..height. direction is "-x" or "-y" — the slot opens at
+    the segment edge (slightly outside, for a clean cut) and goes inward.
+    """
+    extra = DOVETAIL_EXTRA_MM
+    slot_depth = depth + tol
+    base_w = width + 2 * tol
+    tip_w = width + 2 * extra + 2 * tol
+
+    if direction == "-x":
+        pts = [
+            (-1, -base_w / 2),
+            (-1, base_w / 2),
+            (slot_depth, tip_w / 2),
+            (slot_depth, -tip_w / 2),
+        ]
+    else:  # "-y"
+        pts = [
+            (-base_w / 2, -1),
+            (base_w / 2, -1),
+            (tip_w / 2, slot_depth),
+            (-tip_w / 2, slot_depth),
+        ]
+    try:
+        sketch = Sketch() + Polygon(pts)
+        solid = extrude(sketch, amount=height)
+        bb = solid.bounding_box()
+        solid = solid.moved(Location((0, 0, -bb.min.Z)))
+        return solid
+    except Exception:
+        if direction == "-x":
+            return Box(slot_depth + 1, tip_w, height).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+        else:
+            return Box(tip_w, slot_depth + 1, height).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
 
 
 def _add_seam_magnets(
