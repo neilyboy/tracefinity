@@ -4,7 +4,7 @@ import { traceImage, listDesigns, loadDesign, listToolLibrary } from '../api/cli
 import type { PaperSize, DesignSummary } from '../types'
 import type { ToolLibrarySummary } from '../api/client'
 
-export default function UploadPanel() {
+export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBaseplate?: () => void }) {
   const { setLoading, setError, setDesign, setView, setPaperSize, reset } = useEditor()
   const [paperSize, setPaper] = useState<PaperSize>('letter')
   const [dragOver, setDragOver] = useState(false)
@@ -163,6 +163,25 @@ export default function UploadPanel() {
             {libraryCount > 0
               ? `Build from your library (${libraryCount} tools)`
               : 'Start with an empty tray'}
+          </div>
+        </div>
+
+        {/* Baseplate Designer */}
+        <div
+          onClick={() => onSwitchToBaseplate?.()}
+          style={{
+            width: 320, height: 220, border: '2px solid #3f3f46',
+            borderRadius: 12, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            background: '#18181b', transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.background = '#1e1b2e' }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3f3f46'; e.currentTarget.style.background = '#18181b' }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 8 }}>🔳</div>
+          <div style={{ fontSize: 15, color: '#a1a1aa' }}>Baseplate Designer</div>
+          <div style={{ fontSize: 12, color: '#52525b', marginTop: 4 }}>
+            Custom gridfinity baseplates for your drawers
           </div>
         </div>
 

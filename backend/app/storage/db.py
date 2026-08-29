@@ -193,3 +193,82 @@ def delete_tool_from_library(tool_id: str) -> bool:
         session.delete(record)
         session.commit()
         return True
+
+
+# --- Baseplate Design CRUD ---
+
+class BaseplateDesignRecord(SQLModel, table=True):
+    __tablename__ = "baseplate_designs"
+
+    id: str = Field(primary_key=True)
+    name: str = "Untitled Baseplate"
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    design_json: str = ""
+
+
+def save_baseplate_design(design) -> str:
+    """Save or update a baseplate design. Returns the design id."""
+    engine = get_engine()
+    design_id = design.id or str(uuid.uuid4())
+    design.id = design_id
+    now = datetime.now(timezone.utc).isoformat()
+
+    with Session(engine) as session:
+        existing = session.get(BaseplateDesignRecord, design_id)
+        if existing:
+            existing.name = design.name
+            existing.design_json = design.model_dump_json()
+            existing.updated_at = now
+            session.add(existing)
+        else:
+            record = BaseplateDesignRecord(
+                id=design_id,
+                name=design.name,
+                design_json=design.model_dump_json(),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+        session.commit()
+    return design_id
+
+
+def load_baseplate_design(design_id: str):
+    """Load a baseplate design by id. Returns a BaseplateDesign or None."""
+    from ..schemas import BaseplateDesign
+    engine = get_engine()
+    with Session(engine) as session:
+        record = session.get(BaseplateDesignRecord, design_id)
+        if record is None:
+            return None
+        return BaseplateDesign.model_validate_json(record.design_json)
+
+
+def list_baseplate_designs() -> list[dict]:
+    """Return summary list of all baseplate designs, newest first."""
+    engine = get_engine()
+    with Session(engine) as session:
+        records = session.exec(
+            select(BaseplateDesignRecord).order_by(BaseplateDesignRecord.updated_at.desc())
+        ).all()
+        return [
+            {
+                "id": r.id,
+                "name": r.name,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at,
+            }
+            for r in records
+        ]
+
+
+def delete_baseplate_design(design_id: str) -> bool:
+    engine = get_engine()
+    with Session(engine) as session:
+        record = session.get(BaseplateDesignRecord, design_id)
+        if record is None:
+            return False
+        session.delete(record)
+        session.commit()
+        return True

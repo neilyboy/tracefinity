@@ -1,5 +1,5 @@
 // API client for the Tracefinity backend.
-import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat } from '../types'
+import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat, BaseplateDesign, BaseplateDesignSummary, SegmentInfo } from '../types'
 
 const API = '/api'
 
@@ -197,4 +197,71 @@ export async function listFonts(): Promise<FontInfo[]> {
     throw new Error(err.detail || 'List fonts failed')
   }
   return res.json()
+}
+
+// --- Baseplate Designer ---
+
+export async function saveBaseplateDesign(design: BaseplateDesign): Promise<BaseplateDesign> {
+  const res = await fetch(`${API}/baseplate`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(design),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Save baseplate failed')
+  }
+  return res.json()
+}
+
+export async function loadBaseplateDesign(id: string): Promise<BaseplateDesign> {
+  const res = await fetch(`${API}/baseplate/${id}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Load baseplate failed')
+  }
+  return res.json()
+}
+
+export async function listBaseplateDesigns(): Promise<BaseplateDesignSummary[]> {
+  const res = await fetch(`${API}/baseplate`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'List baseplates failed')
+  }
+  return res.json()
+}
+
+export async function deleteBaseplateDesign(id: string): Promise<void> {
+  const res = await fetch(`${API}/baseplate/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Delete baseplate failed')
+  }
+}
+
+export async function getSegmentInfo(design: BaseplateDesign): Promise<SegmentInfo> {
+  const res = await fetch(`${API}/baseplate/segment-info`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(design),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Segment info failed')
+  }
+  return res.json()
+}
+
+export async function exportBaseplate(design: BaseplateDesign): Promise<Blob> {
+  const res = await fetch(`${API}/baseplate/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ design, fmt: 'stl' }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Export baseplate failed')
+  }
+  return res.blob()
 }

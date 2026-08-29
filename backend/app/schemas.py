@@ -191,6 +191,74 @@ class DesignSummary(BaseModel):
     thumbnail_url: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# Baseplate Designer schemas
+# ---------------------------------------------------------------------------
+
+class DrawerCutout(BaseModel):
+    """A cutout/obstruction in the drawer floor that the baseplate must work around.
+
+    Coordinates are in mm relative to the drawer top-left corner (SVG Y-down).
+    """
+    id: str
+    shape: str = "rect"  # shape type from AddShapeDialog
+    outer: list[Point] = Field(default_factory=list, description="Polygon points in mm")
+    x: float = 0.0  # center X
+    y: float = 0.0  # center Y
+    w: float = 10.0  # bounding box width
+    h: float = 10.0  # bounding box height
+    rotation_deg: float = 0.0
+
+
+class BaseplateParams(BaseModel):
+    """Configuration for a custom Gridfinity baseplate."""
+
+    # Drawer dimensions (mm) — the inside dimensions of the drawer
+    drawer_w_mm: float = Field(400, gt=0)
+    drawer_l_mm: float = Field(300, gt=0)
+    # Padding between drawer edge and gridfinity grid (mm)
+    padding_top_mm: float = 2.0
+    padding_bottom_mm: float = 2.0
+    padding_left_mm: float = 2.0
+    padding_right_mm: float = 2.0
+    # Slop/clearance so baseplate slides into drawer easily (mm, applied to each side)
+    drawer_clearance_mm: float = 0.5
+    # Baseplate base thickness (non-socket part). Total height = 4 + base_thickness.
+    base_thickness_mm: float = Field(2.4, ge=1.0, le=10.0)
+    # Gridfinity features
+    magnet_holes: bool = True
+    screw_holes: bool = False
+    # Print bed size (mm)
+    print_bed_w_mm: float = Field(220, gt=0)
+    print_bed_l_mm: float = Field(220, gt=0)
+    # Segmentation connectors
+    connector_type: Literal["edge_clips", "sockets_only", "magnets", "none"] = "edge_clips"
+    # Segment cut lines (grid column/row indices to cut AFTER).
+    # Empty = auto-segment based on print bed size.
+    cut_lines_x: list[int] = Field(default_factory=list)
+    cut_lines_y: list[int] = Field(default_factory=list)
+    # Edge clip parameters (when connector_type = "edge_clips")
+    clip_width_mm: float = 8.0
+    clip_depth_mm: float = 4.0
+    clip_tolerance_mm: float = 0.2
+
+
+class BaseplateDesign(BaseModel):
+    """A complete baseplate design: drawer shape + cutouts + params."""
+
+    id: str | None = None
+    name: str = "Untitled Baseplate"
+    params: BaseplateParams = Field(default_factory=BaseplateParams)
+    cutouts: list[DrawerCutout] = Field(default_factory=list)
+
+
+class BaseplateDesignSummary(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "0.1.0"

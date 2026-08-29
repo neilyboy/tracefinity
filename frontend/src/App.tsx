@@ -1,13 +1,16 @@
+import { useState } from 'react'
 import { useEditor } from './editor/useEditorState'
 import UploadPanel from './components/UploadPanel'
 import CalibrateView from './components/CalibrateView'
 import TraceView from './components/TraceView'
 import EditorView from './components/EditorView'
+import BaseplateView from './components/BaseplateView'
 
 export default function App() {
   const view = useEditor((s) => s.view)
   const error = useEditor((s) => s.error)
   const setError = useEditor((s) => s.setError)
+  const [appMode, setAppMode] = useState<'tray' | 'baseplate'>('tray')
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -17,6 +20,22 @@ export default function App() {
       }}>
         <span style={{ fontSize: 20, fontWeight: 700, color: '#a78bfa' }}>Tracefinity</span>
         <span style={{ fontSize: 12, color: '#71717a' }}>photo → gridfinity</span>
+        <span style={{ flex: 1 }} />
+        {/* Top-level mode tabs */}
+        <div style={{ display: 'flex', gap: 2, background: '#27272a', borderRadius: 6, padding: 2 }}>
+          <button
+            onClick={() => setAppMode('tray')}
+            style={tabBtn(appMode === 'tray')}
+          >
+            📐 Tray Designer
+          </button>
+          <button
+            onClick={() => setAppMode('baseplate')}
+            style={tabBtn(appMode === 'baseplate')}
+          >
+            🔳 Baseplate Designer
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -30,11 +49,26 @@ export default function App() {
       )}
 
       <main style={{ flex: 1, overflow: 'hidden' }}>
-        {view === 'upload' && <UploadPanel />}
-        {view === 'calibrate' && <CalibrateView />}
-        {view === 'trace' && <TraceView />}
-        {view === 'editor' && <EditorView />}
+        {appMode === 'baseplate' ? (
+          <BaseplateView />
+        ) : (
+          <>
+            {view === 'upload' && <UploadPanel onSwitchToBaseplate={() => setAppMode('baseplate')} />}
+            {view === 'calibrate' && <CalibrateView />}
+            {view === 'trace' && <TraceView />}
+            {view === 'editor' && <EditorView />}
+          </>
+        )}
       </main>
     </div>
   )
+}
+
+function tabBtn(active: boolean): React.CSSProperties {
+  return {
+    padding: '5px 14px', borderRadius: 4, border: 'none', fontSize: 13, cursor: 'pointer',
+    background: active ? '#7c3aed' : 'transparent',
+    color: active ? 'white' : '#a1a1aa', fontWeight: active ? 600 : 400,
+    transition: 'all 0.15s',
+  }
 }

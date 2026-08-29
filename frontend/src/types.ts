@@ -161,3 +161,96 @@ export const DEFAULT_PARAMS: BinParams = {
   flat_thickness_mm: 2.0,
   use_flat_insert: false,
 }
+
+// ---------------------------------------------------------------------------
+// Baseplate Designer types
+// ---------------------------------------------------------------------------
+
+export interface DrawerCutout {
+  id: string
+  shape: string  // shape type from AddShapeDialog
+  outer: Point[]  // polygon points in mm, relative to drawer top-left (SVG Y-down)
+  x: number  // center X
+  y: number  // center Y
+  w: number  // bounding box width
+  h: number  // bounding box height
+  rotation_deg: number
+}
+
+export interface BaseplateParams {
+  drawer_w_mm: number
+  drawer_l_mm: number
+  padding_top_mm: number
+  padding_bottom_mm: number
+  padding_left_mm: number
+  padding_right_mm: number
+  drawer_clearance_mm: number
+  base_thickness_mm: number
+  magnet_holes: boolean
+  screw_holes: boolean
+  print_bed_w_mm: number
+  print_bed_l_mm: number
+  connector_type: 'edge_clips' | 'sockets_only' | 'magnets' | 'none'
+  cut_lines_x: number[]
+  cut_lines_y: number[]
+  clip_width_mm: number
+  clip_depth_mm: number
+  clip_tolerance_mm: number
+}
+
+export interface BaseplateDesign {
+  id: string | null
+  name: string
+  params: BaseplateParams
+  cutouts: DrawerCutout[]
+}
+
+export interface SegmentInfo {
+  grid_w: number
+  grid_l: number
+  plate_w: number
+  plate_l: number
+  segment_count: number
+  segments: { index: number; x: number; y: number; w: number; h: number; cells_w: number; cells_h: number }[]
+  cuts_x: number[]
+  cuts_y: number[]
+}
+
+export interface BaseplateDesignSummary {
+  id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
+
+export const DEFAULT_BASEPLATE_PARAMS: BaseplateParams = {
+  drawer_w_mm: 400,
+  drawer_l_mm: 300,
+  padding_top_mm: 2.0,
+  padding_bottom_mm: 2.0,
+  padding_left_mm: 2.0,
+  padding_right_mm: 2.0,
+  drawer_clearance_mm: 0.5,
+  base_thickness_mm: 2.4,
+  magnet_holes: true,
+  screw_holes: false,
+  print_bed_w_mm: 220,
+  print_bed_l_mm: 220,
+  connector_type: 'edge_clips',
+  cut_lines_x: [],
+  cut_lines_y: [],
+  clip_width_mm: 8.0,
+  clip_depth_mm: 4.0,
+  clip_tolerance_mm: 0.2,
+}
+
+export const PRINT_BED_PRESETS: { key: string; label: string; w: number; l: number }[] = [
+  { key: 'ender_3', label: 'Ender 3 (220×220)', w: 220, l: 220 },
+  { key: 'ender_3_v2', label: 'Ender 3 V2 (235×235)', w: 235, l: 235 },
+  { key: 'prusa_mk3', label: 'Prusa MK3 (250×210)', w: 250, l: 210 },
+  { key: 'bambu_x1', label: 'Bambu X1/P1S (256×256)', w: 256, l: 256 },
+  { key: 'voron_2_4', label: 'Voron 2.4 (350×350)', w: 350, l: 350 },
+  { key: 'elegoo_neptune_3', label: 'Elegoo Neptune 3 (225×225)', w: 225, l: 225 },
+  { key: 'creality_cr10', label: 'Creality CR-10 (300×300)', w: 300, l: 300 },
+  { key: 'custom', label: 'Custom', w: 220, l: 220 },
+]

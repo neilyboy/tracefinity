@@ -75,3 +75,28 @@ DEFAULT_WALL_THICKNESS_MM = 1.2
 
 # --- Scoop (finger cutout) ---
 DEFAULT_SCOOP_DEPTH_MM = 8.0
+
+# --- Baseplate ---
+# The socket pattern is cut INTO the top of the baseplate (same 4mm profile as bin bases).
+BASEPLATE_SOCKET_DEPTH_MM = 4.0  # depth of the gridfinity socket cut into the plate
+BASEPLATE_DEFAULT_THICKNESS_MM = 2.4  # base thickness below the socket
+BASEPLATE_MIN_THICKNESS_MM = 1.0
+BASEPLATE_MAX_THICKNESS_MM = 10.0
+# Default edge clip dimensions for segmented baseplates
+BASEPLATE_CLIP_WIDTH_MM = 8.0
+BASEPLATE_CLIP_DEPTH_MM = 4.0
+BASEPLATE_CLIP_TOLERANCE_MM = 0.2
+# Print bed presets (mm) — common consumer printers
+PRINT_BED_PRESETS = {
+    "ender_3": (220, 220),
+    "ender_3_v2":  (235, 235),
+    "prusa_mk3": (250, 210),
+    "prusa_mk4": (250, 210),
+    "bambu_x1": (256, 256),
+    "bambu_p1s": (256, 256),
+    "voron_2_4": (350, 350),
+    "elegoo_neptune_3": (225, 225),
+    "elegoo_neptune_4": (225, 225),
+    "creality_cr10": (300, 300),
+    "custom": (220, 220),
+}
