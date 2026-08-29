@@ -411,16 +411,16 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
             except Exception:
                 pass
 
-    # 4. Add magnet holes
-    if params.magnet_holes:
+    # 4. Add magnet holes (only if there's a base — magnets need a floor to sit on)
+    if params.magnet_holes and params.base_thickness_mm > 0:
         for magnet in _build_magnet_holes(grid_w, grid_l, plate_top_z):
             try:
                 plate = plate - magnet
             except Exception:
                 pass
 
-    # 5. Add screw holes (through-holes)
-    if params.screw_holes:
+    # 5. Add screw holes (through-holes) — only meaningful with a base
+    if params.screw_holes and params.base_thickness_mm > 0:
         for screw in _build_screw_holes(grid_w, grid_l, total_h):
             try:
                 plate = plate - screw
@@ -428,14 +428,16 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
                 pass
 
     # 6. Chamfer the bottom edges for easier insertion into drawer
-    try:
-        bb = plate.bounding_box()
-        bottom_z = bb.min.Z
-        bottom_edges = [e for e in plate.edges() if abs(e.center().Z - bottom_z) < 0.01]
-        if bottom_edges:
-            plate = plate.chamfer(0.4, None, bottom_edges)
-    except Exception:
-        pass
+    # (only if there's a flat bottom — skip for open-bottom baseplates)
+    if params.base_thickness_mm > 0:
+        try:
+            bb = plate.bounding_box()
+            bottom_z = bb.min.Z
+            bottom_edges = [e for e in plate.edges() if abs(e.center().Z - bottom_z) < 0.01]
+            if bottom_edges:
+                plate = plate.chamfer(0.4, None, bottom_edges)
+        except Exception:
+            pass
 
     # 7. Segment the plate
     cuts_x = params.cut_lines_x if params.cut_lines_x else []

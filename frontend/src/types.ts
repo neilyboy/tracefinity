@@ -233,7 +233,7 @@ export const DEFAULT_BASEPLATE_PARAMS: BaseplateParams = {
   padding_left_mm: 2.0,
   padding_right_mm: 2.0,
   drawer_clearance_mm: 0.5,
-  base_thickness_mm: 2.4,
+  base_thickness_mm: 0.0,
   magnet_holes: true,
   screw_holes: false,
   print_bed_w_mm: 220,

@@ -129,13 +129,32 @@ export default function BaseplateParamsPanel() {
       {/* Baseplate Thickness */}
       <Section title="Baseplate">
         <Field label={`Base thickness: ${p.base_thickness_mm.toFixed(1)}mm`}>
-          <input type="range" min={1} max={10} step={0.2} value={p.base_thickness_mm}
+          <input type="range" min={0} max={10} step={0.2} value={p.base_thickness_mm}
             onChange={(e) => update({ base_thickness_mm: parseFloat(e.target.value) })}
             style={{ width: '100%' }} />
-          <span style={{ fontSize: 11, color: '#52525b' }}>Total height: {(4 + p.base_thickness_mm).toFixed(1)}mm</span>
+          <span style={{ fontSize: 11, color: p.base_thickness_mm === 0 ? '#f59e0b' : '#52525b' }}>
+            {p.base_thickness_mm === 0
+              ? 'Open bottom (socket grid only, no flat floor)'
+              : `Total height: ${(4 + p.base_thickness_mm).toFixed(1)}mm`}
+          </span>
         </Field>
-        <Toggle label="Magnet holes" checked={p.magnet_holes} onChange={(v) => update({ magnet_holes: v })} />
-        <Toggle label="Screw holes" checked={p.screw_holes} onChange={(v) => update({ screw_holes: v })} />
+        <Toggle
+          label="Magnet holes"
+          checked={p.magnet_holes}
+          onChange={(v) => update({ magnet_holes: v })}
+          disabled={p.base_thickness_mm === 0}
+        />
+        {p.base_thickness_mm === 0 && p.magnet_holes && (
+          <span style={{ fontSize: 10, color: '#f59e0b' }}>
+            Magnets need a base floor — increase base thickness to enable
+          </span>
+        )}
+        <Toggle
+          label="Screw holes"
+          checked={p.screw_holes}
+          onChange={(v) => update({ screw_holes: v })}
+          disabled={p.base_thickness_mm === 0}
+        />
       </Section>
 
       {/* Print Bed */}
@@ -257,10 +276,10 @@ function NumInput({ value, onChange, min, max, step = 1 }: { value: number; onCh
   )
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: '#a1a1aa' }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12, color: disabled ? '#52525b' : '#a1a1aa' }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} />
       {label}
     </label>
   )

@@ -229,7 +229,9 @@ class BaseplateParams(BaseModel):
     # Slop/clearance so baseplate slides into drawer easily (mm, applied to each side)
     drawer_clearance_mm: float = 0.5
     # Baseplate base thickness (non-socket part). Total height = 4 + base_thickness.
-    base_thickness_mm: float = Field(2.4, ge=1.0, le=10.0)
+    # Set to 0 for an open-bottom baseplate (just the socket grid, no flat floor —
+    # for drawers with a flat floor where you don't need the base lifted up).
+    base_thickness_mm: float = Field(0.0, ge=0.0, le=10.0)
     # Gridfinity features
     magnet_holes: bool = True
     screw_holes: bool = False
