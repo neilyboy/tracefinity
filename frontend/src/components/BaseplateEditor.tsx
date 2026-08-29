@@ -326,8 +326,8 @@ export default function BaseplateEditor() {
             x={pad} y={pad} width={drawerW} height={drawerL}
             fill="#18181b" stroke="#52525b" strokeWidth={1} rx={2}
           />
-          {/* Drawer label */}
-          <text x={pad + drawerW / 2} y={pad - 8} fill="#71717a" fontSize={10} textAnchor="middle">
+          {/* Drawer label (above the ruler markings) */}
+          <text x={pad + drawerW / 2} y={pad - 18} fill="#71717a" fontSize={10} textAnchor="middle">
             Drawer: {drawerW}×{drawerL}mm
           </text>
 
