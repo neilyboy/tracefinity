@@ -270,6 +270,7 @@ DOVETAIL_EXTRA_MM = 1.0
 def _build_dovetail_tab(
     depth: float, width: float, height: float,
     direction: str,  # "+x", "-x", "+y", "-y"
+    z_offset: float = 0.0,  # bottom Z position of the tab
 ) -> Solid:
     """Build a dovetail-shaped tab solid.
 
@@ -277,50 +278,46 @@ def _build_dovetail_tab(
     and wider at the tip (protruding end), creating a dovetail lock.
 
     direction indicates which way the tab protrudes from the segment edge.
+    z_offset positions the tab at a specific Z height (for socket-only tabs).
     """
     extra = DOVETAIL_EXTRA_MM
-    # Build the trapezoid in the XY plane, then extrude in Z
-    # We build it centered at origin with the base at x=0 and tip at x=depth
     if direction in ("+x", "-x"):
-        # Tab protrudes in X direction, width is in Y
         base_w = width
         tip_w = width + 2 * extra
         pts = [
-            (0, -base_w / 2),    # base bottom
-            (0, base_w / 2),     # base top
-            (depth, tip_w / 2),  # tip top
-            (depth, -tip_w / 2), # tip bottom
+            (0, -base_w / 2),
+            (0, base_w / 2),
+            (depth, tip_w / 2),
+            (depth, -tip_w / 2),
         ]
     else:  # "+y" or "-y"
-        # Tab protrudes in Y direction, width is in X
         base_w = width
         tip_w = width + 2 * extra
         pts = [
-            (-base_w / 2, 0),    # base left
-            (base_w / 2, 0),     # base right
-            (tip_w / 2, depth),  # tip right
-            (-tip_w / 2, depth), # tip left
+            (-base_w / 2, 0),
+            (base_w / 2, 0),
+            (tip_w / 2, depth),
+            (-tip_w / 2, depth),
         ]
 
     try:
         sketch = Sketch() + Polygon(pts)
         solid = extrude(sketch, amount=height)
-        # Extrude direction depends on polygon winding — normalize to Z=0..height
+        # Normalize to Z=0..height, then apply z_offset
         bb = solid.bounding_box()
-        if bb.min.Z < 0:
-            solid = solid.moved(Location((0, 0, -bb.min.Z)))
+        solid = solid.moved(Location((0, 0, -bb.min.Z + z_offset)))
         return solid
     except Exception:
-        # Fallback to simple box
         if direction in ("+x", "-x"):
-            return Box(depth, width, height).moved(Location((depth / 2, 0, height / 2)))
+            return Box(depth, width, height).moved(Location((depth / 2, 0, height / 2 + z_offset)))
         else:
-            return Box(width, depth, height).moved(Location((0, depth / 2, height / 2)))
+            return Box(width, depth, height).moved(Location((0, depth / 2, height / 2 + z_offset)))
 
 
 def _build_dovetail_slot(
     depth: float, width: float, height: float, tol: float,
     direction: str,  # "+x", "-x", "+y", "-y"
+    z_offset: float = 0.0,  # bottom Z position of the slot
 ) -> Solid:
     """Build a dovetail-shaped slot cutter (to subtract from the segment).
 
@@ -371,17 +368,20 @@ def _build_dovetail_slot(
 
     try:
         sketch = Sketch() + Polygon(pts)
-        solid = extrude(sketch, amount=height + 2)
-        # Normalize Z to span Z=-1..height+1
+        solid = extrude(sketch, amount=height + 1)  # +1 for top overshoot only
+        # Normalize Z to span Z=z_offset..z_offset+height+1 (no bottom overshoot
+        # to avoid cutting into the base below the socket section)
         bb = solid.bounding_box()
-        solid = solid.moved(Location((0, 0, -1 - bb.min.Z)))
+        solid = solid.moved(Location((0, 0, z_offset - bb.min.Z if bb.min.Z < z_offset else 0)))
+        if solid.bounding_box().min.Z > z_offset:
+            solid = solid.moved(Location((0, 0, z_offset - solid.bounding_box().min.Z)))
         return solid
     except Exception:
         # Fallback to simple box
         if direction in ("+x", "-x"):
-            return Box(slot_depth + 1, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+            return Box(slot_depth + 1, tip_w, height + 1).moved(Location((slot_depth / 2 - 0.5, 0, height / 2 + z_offset)))
         else:
-            return Box(tip_w, slot_depth + 1, height + 2).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
+            return Box(tip_w, slot_depth + 1, height + 1).moved(Location((0, slot_depth / 2 - 0.5, height / 2 + z_offset)))
 
 
 def _add_edge_clips(
@@ -407,6 +407,12 @@ def _add_edge_clips(
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
 
+    # Tabs/slots are only socket-height tall (4mm), positioned at the top of
+    # the plate where the sockets are. The base (bottom) stays solid so the
+    # segment has a continuous flat bottom with no open gaps.
+    socket_h = C.BASEPLATE_SOCKET_DEPTH_MM  # 4mm
+    z_off = total_h - socket_h  # bottom of socket section (= base_thickness)
+
     # --- Vertical cut lines (cuts in X, separating left/right segments) ---
     for cx in cuts_x:
         cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
@@ -431,16 +437,16 @@ def _add_edge_clips(
 
         for cy in clip_ys:
             if is_left:
-                # Add a dovetail TAB protruding in +X from the right edge
-                tab = _build_dovetail_tab(clip_d, clip_w, total_h, "+x")
+                # Add a dovetail TAB protruding in +X from the right edge (socket section only)
+                tab = _build_dovetail_tab(clip_d, clip_w, socket_h, "+x", z_off)
                 tab = tab.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment + tab
                 except Exception:
                     pass
             elif is_right:
-                # Cut a dovetail SLOT going in -X from the left edge
-                slot = _build_dovetail_slot(clip_d, clip_w, total_h, clip_tol, "-x")
+                # Cut a dovetail SLOT going in -X from the left edge (socket section only)
+                slot = _build_dovetail_slot(clip_d, clip_w, socket_h, clip_tol, "-x", z_off)
                 slot = slot.moved(Location((cut_x_mm, cy, 0)))
                 try:
                     segment = segment - slot
@@ -471,16 +477,16 @@ def _add_edge_clips(
 
         for cx in clip_xs:
             if is_below:
-                # Add a dovetail TAB protruding in +Y from the top edge
-                tab = _build_dovetail_tab(clip_d, clip_w, total_h, "+y")
+                # Add a dovetail TAB protruding in +Y from the top edge (socket section only)
+                tab = _build_dovetail_tab(clip_d, clip_w, socket_h, "+y", z_off)
                 tab = tab.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment + tab
                 except Exception:
                     pass
             elif is_above:
-                # Cut a dovetail SLOT going in -Y from the bottom edge
-                slot = _build_dovetail_slot(clip_d, clip_w, total_h, clip_tol, "-y")
+                # Cut a dovetail SLOT going in -Y from the bottom edge (socket section only)
+                slot = _build_dovetail_slot(clip_d, clip_w, socket_h, clip_tol, "-y", z_off)
                 slot = slot.moved(Location((cx, cut_y_mm, 0)))
                 try:
                     segment = segment - slot
@@ -547,17 +553,8 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
             except Exception:
                 pass
 
-    # 6. Chamfer the top outer edges (socket side) for easier bin insertion
-    # The bottom stays flat for 3D printing (flat side down on build plate)
-    if params.base_thickness_mm > 0:
-        try:
-            bb = plate.bounding_box()
-            top_z = bb.max.Z
-            top_edges = [e for e in plate.edges() if abs(e.center().Z - top_z) < 0.01 and e.length > 40]
-            if top_edges:
-                plate = plate.chamfer(0.4, None, top_edges)
-        except Exception:
-            pass
+    # 6. No chamfer — the gridfinity socket loft creates the proper taper.
+    # The bottom is flat at Z=0 for 3D printing (flat side down on build plate).
 
     # 7. Segment the plate
     cuts_x = params.cut_lines_x if params.cut_lines_x else []
