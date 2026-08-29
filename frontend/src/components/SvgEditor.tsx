@@ -289,20 +289,8 @@ export default function SvgEditor() {
         deleteTool(selectedToolId)
       }
     }
-    // Arrow key nudging for selected tool(s)
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-      const ids = selectedToolIds.length > 0 ? selectedToolIds : (selectedToolId ? [selectedToolId] : [])
-      if (ids.length === 0) return
-      e.preventDefault()
-      let dx = 0, dy = 0
-      if (e.key === 'ArrowLeft') dx = -nudgeStep
-      if (e.key === 'ArrowRight') dx = nudgeStep
-      if (e.key === 'ArrowUp') dy = -nudgeStep
-      if (e.key === 'ArrowDown') dy = nudgeStep
-      // Shift = 10x step for fast movement
-      if (e.shiftKey) { dx *= 10; dy *= 10 }
-      moveTools(ids, dx, dy)
-    }
+    // Note: arrow key nudging is handled by the global keydown listener below
+    // to avoid double-firing (React onKeyDown + window listener both fire).
   }
 
   // Global keydown listener for arrow key nudging (works without focus)

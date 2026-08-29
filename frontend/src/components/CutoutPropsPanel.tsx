@@ -1,9 +1,29 @@
+import { useState, useEffect } from 'react'
 import { useBaseplate } from '../editor/useBaseplateState'
 import type { DrawerCutout } from '../types'
 
 export default function CutoutPropsPanel() {
   const { design, selectedCutoutId, updateCutout, deleteCutout } = useBaseplate()
   const cutout = design.cutouts.find((c) => c.id === selectedCutoutId)
+
+  // Local string state for inputs — allows free typing without controlled-value reset
+  const [leftStr, setLeftStr] = useState('')
+  const [topStr, setTopStr] = useState('')
+  const [wStr, setWStr] = useState('')
+  const [hStr, setHStr] = useState('')
+  const [depthStr, setDepthStr] = useState('')
+
+  // Sync local strings when cutout changes (selection change, external move, etc.)
+  useEffect(() => {
+    if (!cutout) return
+    const minX = Math.min(...cutout.outer.map(p => p.x))
+    const minY = Math.min(...cutout.outer.map(p => p.y))
+    setLeftStr(minX.toFixed(1))
+    setTopStr(minY.toFixed(1))
+    setWStr(cutout.w.toFixed(1))
+    setHStr(cutout.h.toFixed(1))
+    setDepthStr(String(cutout.depth_mm))
+  }, [cutout?.id, cutout?.x, cutout?.y, cutout?.w, cutout?.h, cutout?.depth_mm, cutout?.outer])
 
   if (!cutout) {
     return (
@@ -17,9 +37,61 @@ export default function CutoutPropsPanel() {
 
   // Bounding box for display
   const minX = Math.min(...cutout.outer.map(p => p.x))
-  const maxX = Math.max(...cutout.outer.map(p => p.x))
   const minY = Math.min(...cutout.outer.map(p => p.y))
-  const maxY = Math.max(...cutout.outer.map(p => p.y))
+
+  // Apply position change from Left field
+  const applyLeft = (raw: string) => {
+    setLeftStr(raw)
+    const val = parseFloat(raw)
+    if (isNaN(val)) return
+    const dx = val - minX
+    if (dx === 0) return
+    updateCutout(cutout.id, {
+      outer: cutout.outer.map(p => ({ x: p.x + dx, y: p.y })),
+      x: cutout.x + dx,
+    })
+  }
+
+  const applyTop = (raw: string) => {
+    setTopStr(raw)
+    const val = parseFloat(raw)
+    if (isNaN(val)) return
+    const dy = val - minY
+    if (dy === 0) return
+    updateCutout(cutout.id, {
+      outer: cutout.outer.map(p => ({ x: p.x, y: p.y + dy })),
+      y: cutout.y + dy,
+    })
+  }
+
+  const applyWidth = (raw: string) => {
+    setWStr(raw)
+    const newW = parseFloat(raw)
+    if (isNaN(newW) || newW < 0.5 || cutout.w === 0) return
+    const scale = newW / cutout.w
+    updateCutout(cutout.id, {
+      outer: cutout.outer.map(p => ({ x: cutout.x + (p.x - cutout.x) * scale, y: p.y })),
+      w: newW,
+    })
+  }
+
+  const applyHeight = (raw: string) => {
+    setHStr(raw)
+    const newH = parseFloat(raw)
+    if (isNaN(newH) || newH < 0.5 || cutout.h === 0) return
+    const scale = newH / cutout.h
+    updateCutout(cutout.id, {
+      outer: cutout.outer.map(p => ({ x: p.x, y: cutout.y + (p.y - cutout.y) * scale })),
+      h: newH,
+    })
+  }
+
+  const applyDepth = (raw: string) => {
+    setDepthStr(raw)
+    const val = parseFloat(raw)
+    if (isNaN(val)) return
+    update({ depth_mm: val })
+  }
 
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
@@ -33,25 +105,11 @@ export default function CutoutPropsPanel() {
         <div style={{ display: 'flex', gap: 6 }}>
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Left (mm)</span>
-            <input type="number" value={minX.toFixed(1)} step={0.5} onChange={(e) => {
-              const newMinX = parseFloat(e.target.value) || 0
-              const dx = newMinX - minX
-              updateCutout(cutout.id, {
-                outer: cutout.outer.map(p => ({ x: p.x + dx, y: p.y })),
-                x: cutout.x + dx,
-              })
-            }} style={inputStyle} />
+            <input type="text" value={leftStr} onChange={(e) => applyLeft(e.target.value)} style={inputStyle} />
           </label>
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Top (mm)</span>
-            <input type="number" value={minY.toFixed(1)} step={0.5} onChange={(e) => {
-              const newMinY = parseFloat(e.target.value) || 0
-              const dy = newMinY - minY
-              updateCutout(cutout.id, {
-                outer: cutout.outer.map(p => ({ x: p.x, y: p.y + dy })),
-                y: cutout.y + dy,
-              })
-            }} style={inputStyle} />
+            <input type="text" value={topStr} onChange={(e) => applyTop(e.target.value)} style={inputStyle} />
           </label>
         </div>
       </div>
@@ -62,25 +120,11 @@ export default function CutoutPropsPanel() {
         <div style={{ display: 'flex', gap: 6 }}>
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Width (mm)</span>
-            <input type="number" value={cutout.w.toFixed(1)} step={0.5} onChange={(e) => {
-              const newW = parseFloat(e.target.value) || 1
-              const scale = newW / cutout.w
-              updateCutout(cutout.id, {
-                outer: cutout.outer.map(p => ({ x: cutout.x + (p.x - cutout.x) * scale, y: p.y })),
-                w: newW,
-              })
-            }} style={inputStyle} />
+            <input type="text" value={wStr} onChange={(e) => applyWidth(e.target.value)} style={inputStyle} />
           </label>
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Height (mm)</span>
-            <input type="number" value={cutout.h.toFixed(1)} step={0.5} onChange={(e) => {
-              const newH = parseFloat(e.target.value) || 1
-              const scale = newH / cutout.h
-              updateCutout(cutout.id, {
-                outer: cutout.outer.map(p => ({ x: p.x, y: cutout.y + (p.y - cutout.y) * scale })),
-                h: newH,
-              })
-            }} style={inputStyle} />
+            <input type="text" value={hStr} onChange={(e) => applyHeight(e.target.value)} style={inputStyle} />
           </label>
         </div>
       </div>
@@ -99,9 +143,7 @@ export default function CutoutPropsPanel() {
         {cutout.cutout_type === 'partial' && (
           <label style={{ display: 'block', marginTop: 6 }}>
             <span style={labelStyle}>Depth from bottom (mm)</span>
-            <input type="number" value={cutout.depth_mm} step={0.5} min={0.5} max={20}
-              onChange={(e) => update({ depth_mm: parseFloat(e.target.value) || 1 })}
-              style={inputStyle} />
+            <input type="text" value={depthStr} onChange={(e) => applyDepth(e.target.value)} style={inputStyle} />
             <span style={{ fontSize: 10, color: '#52525b', display: 'block', marginTop: 2 }}>
               Top surface stays flat so trays sit on top. Only the bottom is recessed.
             </span>

@@ -397,36 +397,67 @@ export default function BaseplateEditor() {
                       style={{ cursor: 'pointer' }}
                     />
                   ))}
-                  {/* Dimension labels when selected — distances to plate edges */}
+                  {/* Dimension labels when selected */}
                   {isSelected && (
                     <g style={{ pointerEvents: 'none' }}>
-                      {/* Left distance */}
+                      {/* === Plate edge distances (cyan) === */}
+                      {/* Left distance to plate edge */}
                       <line x1={plateX} y1={minY + (maxY - minY) / 2} x2={minX} y2={minY + (maxY - minY) / 2}
                         stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
                       <text x={plateX + distLeft / 2} y={minY + (maxY - minY) / 2 - 1.5}
                         fill="#22d3ee" fontSize={5} textAnchor="middle">
                         {distLeft.toFixed(1)}
                       </text>
-                      {/* Right distance */}
+                      {/* Right distance to plate edge */}
                       <line x1={maxX} y1={minY + (maxY - minY) / 2} x2={plateX + plateW} y2={minY + (maxY - minY) / 2}
                         stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
                       <text x={maxX + distRight / 2} y={minY + (maxY - minY) / 2 - 1.5}
                         fill="#22d3ee" fontSize={5} textAnchor="middle">
                         {distRight.toFixed(1)}
                       </text>
-                      {/* Top distance */}
+                      {/* Top distance to plate edge */}
                       <line x1={minX + (maxX - minX) / 2} y1={plateY} x2={minX + (maxX - minX) / 2} y2={minY}
                         stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
                       <text x={minX + (maxX - minX) / 2} y={plateY + distTop / 2}
                         fill="#22d3ee" fontSize={5} textAnchor="middle">
                         {distTop.toFixed(1)}
                       </text>
-                      {/* Bottom distance */}
+                      {/* Bottom distance to plate edge */}
                       <line x1={minX + (maxX - minX) / 2} y1={maxY} x2={minX + (maxX - minX) / 2} y2={plateY + plateL}
                         stroke="#22d3ee" strokeWidth={0.4} strokeDasharray="2 1" />
                       <text x={minX + (maxX - minX) / 2} y={maxY + distBottom / 2}
                         fill="#22d3ee" fontSize={5} textAnchor="middle">
                         {distBottom.toFixed(1)}
+                      </text>
+
+                      {/* === Drawer edge distances (orange) === */}
+                      {/* Left distance to drawer edge (0,0 = drawer top-left) */}
+                      <line x1={0} y1={minY + (maxY - minY) / 2 + 4} x2={minX} y2={minY + (maxY - minY) / 2 + 4}
+                        stroke="#f59e0b" strokeWidth={0.3} strokeDasharray="1.5 1" opacity={0.7} />
+                      <text x={minX / 2} y={minY + (maxY - minY) / 2 + 2.5}
+                        fill="#f59e0b" fontSize={4.5} textAnchor="middle" opacity={0.8}>
+                        {minX.toFixed(1)}
+                      </text>
+                      {/* Right distance to drawer edge */}
+                      <line x1={maxX} y1={minY + (maxY - minY) / 2 + 4} x2={drawerW} y2={minY + (maxY - minY) / 2 + 4}
+                        stroke="#f59e0b" strokeWidth={0.3} strokeDasharray="1.5 1" opacity={0.7} />
+                      <text x={maxX + (drawerW - maxX) / 2} y={minY + (maxY - minY) / 2 + 2.5}
+                        fill="#f59e0b" fontSize={4.5} textAnchor="middle" opacity={0.8}>
+                        {(drawerW - maxX).toFixed(1)}
+                      </text>
+                      {/* Top distance to drawer edge */}
+                      <line x1={minX + (maxX - minX) / 2 + 4} y1={0} x2={minX + (maxX - minX) / 2 + 4} y2={minY}
+                        stroke="#f59e0b" strokeWidth={0.3} strokeDasharray="1.5 1" opacity={0.7} />
+                      <text x={minX + (maxX - minX) / 2 + 4} y={minY / 2}
+                        fill="#f59e0b" fontSize={4.5} textAnchor="middle" opacity={0.8}>
+                        {minY.toFixed(1)}
+                      </text>
+                      {/* Bottom distance to drawer edge */}
+                      <line x1={minX + (maxX - minX) / 2 + 4} y1={maxY} x2={minX + (maxX - minX) / 2 + 4} y2={drawerL}
+                        stroke="#f59e0b" strokeWidth={0.3} strokeDasharray="1.5 1" opacity={0.7} />
+                      <text x={minX + (maxX - minX) / 2 + 4} y={maxY + (drawerL - maxY) / 2}
+                        fill="#f59e0b" fontSize={4.5} textAnchor="middle" opacity={0.8}>
+                        {(drawerL - maxY).toFixed(1)}
                       </text>
                     </g>
                   )}
