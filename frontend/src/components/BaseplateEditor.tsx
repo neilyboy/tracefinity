@@ -401,8 +401,8 @@ export default function BaseplateEditor() {
                   {isSelected && (() => {
                     const midY = minY + (maxY - minY) / 2
                     const midX = minX + (maxX - minX) / 2
-                    const offH = 8  // horizontal line vertical offset between cyan and orange
-                    const offV = 8  // vertical line horizontal offset between cyan and orange
+                    const offH = 12  // horizontal line vertical offset between cyan and orange
+                    const offV = 14  // vertical line horizontal offset between cyan and orange
                     return (
                     <g style={{ pointerEvents: 'none' }}>
                       {/* === Plate edge distances (cyan) === */}
