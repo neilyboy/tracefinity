@@ -12,6 +12,7 @@ export default function CutoutPropsPanel() {
   const [wStr, setWStr] = useState('')
   const [hStr, setHStr] = useState('')
   const [depthStr, setDepthStr] = useState('')
+  const [rotStr, setRotStr] = useState('')
 
   // Sync local strings when cutout changes (selection change, external move, etc.)
   useEffect(() => {
@@ -19,11 +20,12 @@ export default function CutoutPropsPanel() {
     const minX = Math.min(...cutout.outer.map(p => p.x))
     const minY = Math.min(...cutout.outer.map(p => p.y))
     setLeftStr(minX.toFixed(1))
+    setRotStr(String(cutout.rotation_deg ?? 0))
     setTopStr(minY.toFixed(1))
     setWStr(cutout.w.toFixed(1))
     setHStr(cutout.h.toFixed(1))
     setDepthStr(String(cutout.depth_mm))
-  }, [cutout?.id, cutout?.x, cutout?.y, cutout?.w, cutout?.h, cutout?.depth_mm, cutout?.outer])
+  }, [cutout?.id, cutout?.x, cutout?.y, cutout?.w, cutout?.h, cutout?.depth_mm, cutout?.rotation_deg, cutout?.outer])
 
   if (!cutout) {
     return (
@@ -129,6 +131,24 @@ export default function CutoutPropsPanel() {
         </div>
       </div>
 
+      {/* Rotation */}
+      <div>
+        <div style={{ fontSize: 10, color: '#52525b', marginBottom: 4 }}>Rotation</div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <label style={{ flex: 1 }}>
+            <span style={labelStyle}>Angle (deg)</span>
+            <input type="text" value={rotStr} onChange={(e) => {
+              setRotStr(e.target.value)
+              const val = parseFloat(e.target.value)
+              if (!isNaN(val)) update({ rotation_deg: val })
+            }} style={inputStyle} />
+          </label>
+          <button onClick={() => update({ rotation_deg: (cutout.rotation_deg ?? 0) - 90 })} style={smallBtn} title="Rotate -90°">↺</button>
+          <button onClick={() => update({ rotation_deg: 0 })} style={smallBtn} title="Reset to 0°">↑</button>
+          <button onClick={() => update({ rotation_deg: (cutout.rotation_deg ?? 0) + 90 })} style={smallBtn} title="Rotate +90°">↻</button>
+        </div>
+      </div>
+
       {/* Cutout type */}
       <div>
         <div style={{ fontSize: 10, color: '#52525b', marginBottom: 4 }}>Cutout Type</div>
@@ -172,4 +192,10 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '5px 8px', background: '#27272a', border: '1px solid #3f3f46',
   borderRadius: 4, color: '#e4e4e7', fontSize: 13, boxSizing: 'border-box',
+}
+
+const smallBtn: React.CSSProperties = {
+  padding: '5px 8px', borderRadius: 4, border: '1px solid #3f3f46',
+  background: '#27272a', color: '#a1a1aa', cursor: 'pointer', fontSize: 13,
+  minWidth: 32,
 }

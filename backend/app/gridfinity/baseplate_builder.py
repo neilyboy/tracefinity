@@ -167,6 +167,9 @@ def _build_cutout_solid(
     The plate is centered in the drawer. We convert to plate-local coords
     (centered at plate center, Y-up, matching build123d).
 
+    If rotation_deg is non-zero, the polygon points are rotated around the
+    cutout center (x, y) before conversion.
+
     For "through" cutouts: extrudes through the full plate height.
     For "partial" cutouts: extrudes from the BOTTOM up by depth_mm,
     so the top surface remains flat for trays to sit on.
@@ -174,10 +177,31 @@ def _build_cutout_solid(
     if len(cutout.outer) < 3:
         return None
 
+    # Apply rotation around the cutout center if needed
+    rotation_deg = getattr(cutout, 'rotation_deg', 0.0) or 0.0
+    cx = float(cutout.x)
+    cy = float(cutout.y)
+    if abs(rotation_deg) > 0.01:
+        import math
+        angle = -rotation_deg * math.pi / 180  # negative = SVG Y-down rotation
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        rotated_pts = []
+        for p in cutout.outer:
+            # Translate to origin, rotate, translate back
+            dx = float(p.x) - cx
+            dy = float(p.y) - cy
+            rx = cx + dx * cos_a - dy * sin_a
+            ry = cy + dx * sin_a + dy * cos_a
+            rotated_pts.append((rx, ry))
+        raw_pts = rotated_pts
+    else:
+        raw_pts = [(float(p.x), float(p.y)) for p in cutout.outer]
+
     # Convert SVG coords (drawer top-left, Y-down) to plate-local (centered, Y-up)
     # plate_local_x = svg_x - drawer_w/2
     # plate_local_y = drawer_l/2 - svg_y
-    pts = [(float(p.x) - drawer_w / 2, drawer_l / 2 - float(p.y)) for p in cutout.outer]
+    pts = [(x - drawer_w / 2, drawer_l / 2 - y) for x, y in raw_pts]
     try:
         sketch = Sketch() + Polygon(pts)
     except Exception:

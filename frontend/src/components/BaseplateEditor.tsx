@@ -268,9 +268,29 @@ export default function BaseplateEditor() {
           ＋ Add Cutout
         </button>
         {selectedCutoutId && (
-          <button onClick={() => deleteCutout(selectedCutoutId)} style={{ ...toolBtn, color: '#fca5a5' }}>
-            🗑 Delete
-          </button>
+          <>
+            <button onClick={() => {
+              const c = design.cutouts.find((c) => c.id === selectedCutoutId)
+              if (c) updateCutout(c.id, { rotation_deg: (c.rotation_deg ?? 0) - 90 })
+            }} style={toolBtn} title="Rotate -90°">
+              ↺ -90°
+            </button>
+            <button onClick={() => {
+              const c = design.cutouts.find((c) => c.id === selectedCutoutId)
+              if (c) updateCutout(c.id, { rotation_deg: (c.rotation_deg ?? 0) + 90 })
+            }} style={toolBtn} title="Rotate +90°">
+              ↻ +90°
+            </button>
+            <button onClick={() => {
+              const c = design.cutouts.find((c) => c.id === selectedCutoutId)
+              if (c) updateCutout(c.id, { rotation_deg: 0 })
+            }} style={toolBtn} title="Reset rotation to 0°">
+              ↑ 0°
+            </button>
+            <button onClick={() => deleteCutout(selectedCutoutId)} style={{ ...toolBtn, color: '#fca5a5' }}>
+              🗑 Delete
+            </button>
+          </>
         )}
         <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
         <button onClick={() => undo()} style={toolBtn}>↶ Undo</button>
@@ -358,18 +378,33 @@ export default function BaseplateEditor() {
             {design.cutouts.map((cutout) => {
               const isSelected = cutout.id === selectedCutoutId
               const path = cutoutPath(cutout.outer)
-              // Bounding box of cutout in drawer coords
-              const minX = Math.min(...cutout.outer.map(p => p.x))
-              const maxX = Math.max(...cutout.outer.map(p => p.x))
-              const minY = Math.min(...cutout.outer.map(p => p.y))
-              const maxY = Math.max(...cutout.outer.map(p => p.y))
+              const rot = cutout.rotation_deg ?? 0
+              // Compute rotated bounding box for dimension labels
+              const cx = cutout.x
+              const cy = cutout.y
+              let rotatedOuter = cutout.outer
+              if (Math.abs(rot) > 0.01) {
+                const angle = -rot * Math.PI / 180  // SVG Y-down
+                const cosA = Math.cos(angle), sinA = Math.sin(angle)
+                rotatedOuter = cutout.outer.map(p => ({
+                  x: cx + (p.x - cx) * cosA - (p.y - cy) * sinA,
+                  y: cy + (p.x - cx) * sinA + (p.y - cy) * cosA,
+                }))
+              }
+              const minX = Math.min(...rotatedOuter.map(p => p.x))
+              const maxX = Math.max(...rotatedOuter.map(p => p.x))
+              const minY = Math.min(...rotatedOuter.map(p => p.y))
+              const maxY = Math.max(...rotatedOuter.map(p => p.y))
               // Distances to plate edges (plate is at plateX..plateX+plateW, plateY..plateY+plateL)
               const distLeft = minX - plateX
               const distRight = (plateX + plateW) - maxX
               const distTop = minY - plateY
               const distBottom = (plateY + plateL) - maxY
+              // SVG transform for rotation around cutout center
+              const cutoutTransform = rot !== 0 ? `rotate(${rot} ${cx} ${cy})` : undefined
               return (
                 <g key={cutout.id}>
+                  <g transform={cutoutTransform}>
                   <path
                     d={path}
                     fill={isSelected ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.15)'}
@@ -397,7 +432,8 @@ export default function BaseplateEditor() {
                       style={{ cursor: 'pointer' }}
                     />
                   ))}
-                  {/* Dimension labels when selected */}
+                  </g>
+                  {/* Dimension labels when selected (not rotated — uses rotated bbox) */}
                   {isSelected && (() => {
                     const midY = minY + (maxY - minY) / 2
                     const midX = minX + (maxX - minX) / 2
