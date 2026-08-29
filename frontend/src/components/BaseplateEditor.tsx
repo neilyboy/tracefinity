@@ -138,7 +138,10 @@ export default function BaseplateEditor() {
     const dy = mm.y - drag.startMm.y
 
     if (drag.type === 'cutout') {
-      moveCutout(drag.cutoutId, dx, dy)
+      // Use absolute positioning from drag start snapshot to avoid compounding
+      const newOuter = drag.startOuter.map((v) => ({ x: v.x + dx, y: v.y + dy }))
+      const newCenter = { x: drag.startCenter.x + dx, y: drag.startCenter.y + dy }
+      updateCutout(drag.cutoutId, { outer: newOuter, x: newCenter.x, y: newCenter.y })
     } else if (drag.type === 'vertex' && drag.vertexIdx !== undefined) {
       const newOuter = drag.startOuter.map((v, i) =>
         i === drag.vertexIdx ? { x: v.x + dx, y: v.y + dy } : v
