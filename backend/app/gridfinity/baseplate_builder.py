@@ -330,79 +330,36 @@ def _build_cutout_solid(
 # ---------------------------------------------------------------------------
 
 def _build_dovetail_tab(depth: float, width: float, height: float, direction: str) -> Solid:
-    """Build a support-free locking tab with 45° chamfers.
+    """Build a dovetail locking tab — simple straight extrusion.
 
-    The tab is a dovetail (wider at tip) with:
-    - 45° top chamfer: the tab narrows going up, so no horizontal ceiling
-    - 45° lead-in at the tip bottom: easy slot insertion
+    The tab is a trapezoid (dovetail shape: wider at the protruding tip)
+    extruded straight up. The flat top is fine for printing the tab itself.
 
-    This makes the tab AND its matching slot fully printable without
-    supports on FDM printers (all overhangs ≤ 45°).
+    For support-free printing of the matching SLOT, the slot is made as
+    a through-hole (open at top) — see _build_dovetail_slot.
 
     Confined to Z = 0..height. direction is "+x" or "+y".
     """
     extra = DOVETAIL_EXTRA_MM
-    # 45° chamfer sizes (horizontal shrink = vertical height → exactly 45°)
-    top_chamfer = min(height * 0.35, 1.5)  # top narrows at 45°
-    lead_in = min(height * 0.25, 1.0)      # bottom lead-in at 45°
-    mid_h = height - top_chamfer - lead_in
 
     if direction == "+x":
-        # Full profile (mid section)
-        pts_mid = [
+        pts = [
             (0, -width / 2),
             (0, width / 2),
             (depth, width / 2 + extra),
             (depth, -width / 2 - extra),
         ]
-        # Bottom lead-in: shrink the tip side only (easier insertion)
-        pts_bot = [
-            (0, -width / 2),
-            (0, width / 2),
-            (depth - lead_in, width / 2 + extra - lead_in),
-            (depth - lead_in, -width / 2 - extra + lead_in),
-        ]
-        # Top chamfer: shrink all exposed sides by top_chamfer
-        pts_top = [
-            (0, -width / 2 + top_chamfer),
-            (0, width / 2 - top_chamfer),
-            (depth - top_chamfer, width / 2 + extra - top_chamfer),
-            (depth - top_chamfer, -width / 2 - extra + top_chamfer),
-        ]
     else:  # "+y"
-        pts_mid = [
+        pts = [
             (-width / 2, 0),
             (width / 2, 0),
             (width / 2 + extra, depth),
             (-width / 2 - extra, depth),
         ]
-        pts_bot = [
-            (-width / 2, 0),
-            (width / 2, 0),
-            (width / 2 + extra - lead_in, depth - lead_in),
-            (-width / 2 - extra + lead_in, depth - lead_in),
-        ]
-        pts_top = [
-            (-width / 2 + top_chamfer, 0),
-            (width / 2 - top_chamfer, 0),
-            (width / 2 + extra - top_chamfer, depth - top_chamfer),
-            (-width / 2 - extra + top_chamfer, depth - top_chamfer),
-        ]
 
     try:
-        # Build three stacked sections
-        sk_bot = Sketch() + Polygon(pts_bot)
-        bottom = extrude(sk_bot, amount=lead_in)
-
-        sk_mid = Sketch() + Polygon(pts_mid)
-        mid = extrude(sk_mid, amount=max(mid_h, 0.01))
-        mid = mid.moved(Location((0, 0, lead_in)))
-
-        sk_top = Sketch() + Polygon(pts_top)
-        top = extrude(sk_top, amount=top_chamfer)
-        top = top.moved(Location((0, 0, lead_in + max(mid_h, 0.01))))
-
-        tab = Part(bottom) + Part(mid) + Part(top)
+        sk = Sketch() + Polygon(pts)
+        tab = extrude(sk, amount=height)
         bb = tab.bounding_box()
         tab = tab.moved(Location((0, 0, -bb.min.Z)))
         return tab
@@ -415,86 +372,50 @@ def _build_dovetail_tab(depth: float, width: float, height: float, direction: st
 
 
 def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, direction: str) -> Solid:
-    """Build a support-free slot cutter matching _build_dovetail_tab.
+    """Build a through-hole dovetail slot cutter — fully support-free.
 
-    The slot has matching 45° chamfers:
-    - 45° top chamfer: ceiling narrows going up (no flat ceiling = no supports)
-    - 45° lead-in at the opening: easy tab insertion
+    The slot is a through-hole: it extends above and below the base slab,
+    so there is NO ceiling at all. This means no horizontal overhangs
+    and no supports needed when printing.
 
-    Confined to Z = 0..height. direction is "-x" or "-y".
+    The tab slides in from the side and locks horizontally via the
+    dovetail shape. Vertical locking is provided by gravity (the tray
+    sits on a baseplate) or by the adjacent segment's weight.
+
+    direction is "-x" or "-y" — the slot opens at the segment edge.
     """
     extra = DOVETAIL_EXTRA_MM
-    top_chamfer = min(height * 0.35, 1.5)
-    lead_in = min(height * 0.25, 1.0)
-    mid_h = height - top_chamfer - lead_in
-
     slot_depth = depth + tol
     base_w = width + 2 * tol
     tip_w = width + 2 * extra + 2 * tol
 
     if direction == "-x":
-        # Full profile (mid section)
-        pts_mid = [
+        pts = [
             (-1, -base_w / 2),
             (-1, base_w / 2),
             (slot_depth, tip_w / 2),
             (slot_depth, -tip_w / 2),
         ]
-        # Bottom lead-in: shrink the inner end (easier tab entry)
-        pts_bot = [
-            (-1, -base_w / 2),
-            (-1, base_w / 2),
-            (slot_depth - lead_in, tip_w / 2 - lead_in),
-            (slot_depth - lead_in, -tip_w / 2 + lead_in),
-        ]
-        # Top chamfer: shrink all sides
-        pts_top = [
-            (-1, -base_w / 2 + top_chamfer),
-            (-1, base_w / 2 - top_chamfer),
-            (slot_depth - top_chamfer, tip_w / 2 - top_chamfer),
-            (slot_depth - top_chamfer, -tip_w / 2 + top_chamfer),
-        ]
     else:  # "-y"
-        pts_mid = [
+        pts = [
             (-base_w / 2, -1),
             (base_w / 2, -1),
             (tip_w / 2, slot_depth),
             (-tip_w / 2, slot_depth),
         ]
-        pts_bot = [
-            (-base_w / 2, -1),
-            (base_w / 2, -1),
-            (tip_w / 2 - lead_in, slot_depth - lead_in),
-            (-tip_w / 2 + lead_in, slot_depth - lead_in),
-        ]
-        pts_top = [
-            (-base_w / 2 + top_chamfer, -1),
-            (base_w / 2 - top_chamfer, -1),
-            (tip_w / 2 - top_chamfer, slot_depth - top_chamfer),
-            (-tip_w / 2 + top_chamfer, slot_depth - top_chamfer),
-        ]
 
     try:
-        sk_bot = Sketch() + Polygon(pts_bot)
-        bottom = extrude(sk_bot, amount=lead_in)
-
-        sk_mid = Sketch() + Polygon(pts_mid)
-        mid = extrude(sk_mid, amount=max(mid_h, 0.01))
-        mid = mid.moved(Location((0, 0, lead_in)))
-
-        sk_top = Sketch() + Polygon(pts_top)
-        top = extrude(sk_top, amount=top_chamfer)
-        top = top.moved(Location((0, 0, lead_in + max(mid_h, 0.01))))
-
-        slot = Part(bottom) + Part(mid) + Part(top)
-        bb = slot.bounding_box()
-        slot = slot.moved(Location((0, 0, -bb.min.Z)))
+        sk = Sketch() + Polygon(pts)
+        # Extrude well beyond the base height to create a through-hole.
+        # extrude goes in -Z, so result is Z=[-h*3, 0]. Move up to center on Z=0.
+        slot = extrude(sk, amount=height * 3)
+        slot = slot.moved(Location((0, 0, height * 1.5)))  # center on Z=0
         return slot
     except Exception:
         if direction == "-x":
-            return Box(slot_depth + 1, tip_w, height).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+            return Box(slot_depth + 1, tip_w, height * 3).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
         else:
-            return Box(tip_w, slot_depth + 1, height).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
+            return Box(tip_w, slot_depth + 1, height * 3).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
 
 
 # ---------------------------------------------------------------------------
