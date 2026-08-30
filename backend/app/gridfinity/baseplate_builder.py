@@ -596,18 +596,22 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
     params = design.params
     grid_w, grid_l, plate_w, plate_l = compute_grid(params)
 
-    # Determine if this is filament-saving mode (through holes, no base)
-    filament_saving = params.base_thickness_mm <= 0
+    # Effective base slab thickness.
+    # Start with the user's requested base thickness, then auto-raise it
+    # if magnets or edge clips need more room. This means that even with
+    # base_thickness=0, selecting magnets or edge clips will force a base
+    # slab (overriding filament-saving mode).
+    base_h = max(0.0, params.base_thickness_mm)
+    if params.magnet_holes:
+        base_h = max(base_h, C.MAGNET_DEPTH_MM + 0.4)  # 2.4mm
+    if params.screw_holes:
+        base_h = max(base_h, C.SCREW_DEPTH_MM * 0.5)   # need room for screw
+    if params.connector_type == "edge_clips":
+        base_h = max(base_h, MIN_BASE_FOR_CLIPS)       # 1.6mm
 
-    # Effective base slab thickness
-    if filament_saving:
-        base_h = 0.0  # no base — sockets go all the way through
-    else:
-        base_h = params.base_thickness_mm
-        if params.magnet_holes:
-            base_h = max(base_h, C.MAGNET_DEPTH_MM + 0.4)
-        if params.connector_type == "edge_clips":
-            base_h = max(base_h, MIN_BASE_FOR_CLIPS)
+    # Filament-saving mode (through holes) only applies when there are no
+    # magnets, screws, or edge clips that require a base slab.
+    filament_saving = (base_h <= 0)
 
     total_h = C.BASEPLATE_HEIGHT_MM + base_h  # 5mm socket + base slab
 

@@ -132,22 +132,33 @@ export default function BaseplateParamsPanel() {
           <input type="range" min={0} max={10} step={0.2} value={p.base_thickness_mm}
             onChange={(e) => update({ base_thickness_mm: parseFloat(e.target.value) })}
             style={{ width: '100%' }} />
-          <span style={{ fontSize: 11, color: '#52525b' }}>
-            {p.base_thickness_mm <= 0
-              ? 'Filament-saving mode: socket cavities go all the way through (no flat floor). Lightest and thinnest. Segments get simple flat edges (no clips).'
-              : 'Flat base slab below the socket profile. Set to 0 for filament-saving through-holes. Total height ≈ 5mm + base.'}
-          </span>
+          {(() => {
+            // Compute the effective base thickness (mirrors backend logic)
+            let eff = Math.max(0, p.base_thickness_mm)
+            const notes: string[] = []
+            if (p.magnet_holes) { eff = Math.max(eff, 2.4); notes.push('magnets need 2.4mm') }
+            if (p.screw_holes) { eff = Math.max(eff, 3.0); notes.push('screws need 3.0mm') }
+            if (p.connector_type === 'edge_clips') { eff = Math.max(eff, 1.6); notes.push('clips need 1.6mm') }
+            if (p.base_thickness_mm <= 0 && eff > 0) {
+              return <span style={{ fontSize: 11, color: '#f59e0b' }}>
+                Filament-saving overridden: {notes.join(', ')} — effective base = {eff.toFixed(1)}mm.
+              </span>
+            }
+            if (p.base_thickness_mm <= 0 && eff <= 0) {
+              return <span style={{ fontSize: 11, color: '#22c55e' }}>
+                Filament-saving mode: through-holes, no flat floor. Lightest and thinnest.
+              </span>
+            }
+            return <span style={{ fontSize: 11, color: '#52525b' }}>
+              Flat base slab below the 5mm socket profile. Total height ≈ {(5 + eff).toFixed(1)}mm.
+            </span>
+          })()}
         </Field>
         <Toggle
           label="Magnet holes"
           checked={p.magnet_holes}
           onChange={(v) => update({ magnet_holes: v })}
         />
-        {p.magnet_holes && p.base_thickness_mm <= 0 && (
-          <span style={{ fontSize: 10, color: '#f59e0b', display: 'block', marginTop: 2 }}>
-            Magnets need a base slab — thickness will be auto-raised to 2.4mm.
-          </span>
-        )}
         <Toggle
           label="Screw holes"
           checked={p.screw_holes}
