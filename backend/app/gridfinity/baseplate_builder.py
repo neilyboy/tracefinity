@@ -445,8 +445,13 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
         top = top.moved(Location((0, 0, straight_h)))
         slot = Part(bottom) + Part(top)
         bb = slot.bounding_box()
-        # Position so the top sits exactly at Z=height (never above it)
-        slot = slot.moved(Location((0, 0, height - bb.max.Z)))
+        # Position so the top sits at Z=height minus a small epsilon.
+        # Landing exactly ON height would make the ridge apex coincident
+        # with the tray floor's bottom face (which also starts at
+        # Z=height), and OCCT's boolean subtraction produces sliver
+        # artifacts at that kind of exact tangency. A tiny gap avoids it.
+        top_margin = 0.1
+        slot = slot.moved(Location((0, 0, height - top_margin - bb.max.Z)))
         return slot
     except Exception:
         if direction == "-x":

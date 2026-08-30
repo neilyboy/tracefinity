@@ -547,12 +547,14 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
             intersect_result = full_tray.intersect(cut_box)
             if not intersect_result:
                 continue
-            # intersect returns ShapeList of Solids (including tiny slivers).
-            # Fuse ALL solids via Compound to get the real segment.
+            # intersect returns ShapeList of Solids (including tiny/degenerate
+            # slivers from boundary tangency). Drop near-zero-volume ones
+            # before fusing so they don't end up as orphan shells in the STL.
             if hasattr(intersect_result, '__iter__') and not isinstance(intersect_result, (Part, Solid)):
                 solids = list(intersect_result)
             else:
                 solids = [intersect_result]
+            solids = [s for s in solids if getattr(s, "volume", 0) > 0.5]
             if not solids:
                 continue
             # Use Compound.fuse() to merge all solids at once
