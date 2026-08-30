@@ -185,6 +185,9 @@ def _build_per_cell_socket_base(grid_w: int, grid_l: int) -> Solid:
     - The gaps between sockets form the grid pattern
 
     Magnet holes go in the corners of each cell.
+
+    Optimization: builds one cell, creates translated copies, and fuses
+    them all at once via Compound.fuse() (1 boolean op instead of N-1).
     """
     bin_w = grid_w * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
     bin_l = grid_l * C.GRID_UNIT_MM - C.BIN_CLEARANCE_MM
@@ -194,29 +197,28 @@ def _build_per_cell_socket_base(grid_w: int, grid_l: int) -> Solid:
     socket_top = C.SOCKET_TOP_SIZE_MM  # 41.5mm
     base_h = C.BASE_HEIGHT_MM  # 4mm
 
-    base = None
+    # Build one cell at origin
+    with BuildPart() as bp:
+        with BuildSketch(Plane.XY) as s1:
+            Rectangle(socket_bottom, socket_bottom)
+        with BuildSketch(Plane.XY.moved(Location((0, 0, base_h)))) as s2:
+            Rectangle(socket_top, socket_top)
+        loft()
+    base_cell = bp.part
+
+    # Create all translated copies
+    cells = []
     for gx in range(grid_w):
         for gy in range(grid_l):
-            # Cell center in bin-local coords (centered at origin)
             cx = -bin_w / 2 + (gx + 0.5) * C.GRID_UNIT_MM
             cy = -bin_l / 2 + (gy + 0.5) * C.GRID_UNIT_MM
+            cells.append(base_cell.moved(Location((cx, cy, 0))))
 
-            # Build one chamfered cell socket using loft
-            with BuildPart() as bp:
-                with BuildSketch(Plane.XY) as s1:
-                    Rectangle(socket_bottom, socket_bottom)
-                with BuildSketch(Plane.XY.moved(Location((0, 0, base_h)))) as s2:
-                    Rectangle(socket_top, socket_top)
-                loft()
-            cell = bp.part
-            cell = cell.moved(Location((cx, cy, 0)))
-
-            if base is None:
-                base = cell
-            else:
-                base = base + cell
-
-    return base
+    # Fuse all at once via Compound
+    from build123d import Compound
+    compound = Compound(children=cells)
+    base = compound.fuse()
+    return base if isinstance(base, Part) else Part(base)
 
 
 def _cell_corner_positions(grid_w: int, grid_l: int) -> list[tuple[float, float]]:
@@ -253,21 +255,43 @@ def _cell_corner_positions(grid_w: int, grid_l: int) -> list[tuple[float, float]
 
 
 def _add_magnet_holes(bin_solid, grid_w, grid_l) -> Part:
-    """Subtract 6.5x2mm magnet holes from the base cell corners."""
-    for cx, cy in _cell_corner_positions(grid_w, grid_l):
-        hole = Cylinder(C.MAGNET_DIAMETER_MM / 2, C.MAGNET_DEPTH_MM)
-        hole = hole.moved(Location((cx, cy, C.MAGNET_DEPTH_MM / 2)))
-        bin_solid = bin_solid - hole
-    return bin_solid
+    """Subtract 6.5x2mm magnet holes from the base cell corners.
+
+    Optimization: builds all cylinders, fuses into one compound, then
+    subtracts once (1 boolean op instead of ~100).
+    """
+    from build123d import Compound
+    base_hole = Cylinder(C.MAGNET_DIAMETER_MM / 2, C.MAGNET_DEPTH_MM)
+    base_hole = base_hole.moved(Location((0, 0, C.MAGNET_DEPTH_MM / 2)))
+
+    holes = [base_hole.moved(Location((cx, cy, 0))) for cx, cy in _cell_corner_positions(grid_w, grid_l)]
+    if not holes:
+        return bin_solid
+
+    compound = Compound(children=holes)
+    fused = compound.fuse()
+    fused = fused if isinstance(fused, Part) else Part(fused)
+    return bin_solid - fused
 
 
 def _add_screw_holes(bin_solid, grid_w, grid_l) -> Part:
-    """Subtract M3 screw through-holes from base cell corners."""
-    for cx, cy in _cell_corner_positions(grid_w, grid_l):
-        hole = Cylinder(C.SCREW_DIAMETER_MM / 2, C.SCREW_DEPTH_MM)
-        hole = hole.moved(Location((cx, cy, C.SCREW_DEPTH_MM / 2)))
-        bin_solid = bin_solid - hole
-    return bin_solid
+    """Subtract M3 screw through-holes from base cell corners.
+
+    Optimization: builds all cylinders, fuses into one compound, then
+    subtracts once (1 boolean op instead of ~100).
+    """
+    from build123d import Compound
+    base_hole = Cylinder(C.SCREW_DIAMETER_MM / 2, C.SCREW_DEPTH_MM)
+    base_hole = base_hole.moved(Location((0, 0, C.SCREW_DEPTH_MM / 2)))
+
+    holes = [base_hole.moved(Location((cx, cy, 0))) for cx, cy in _cell_corner_positions(grid_w, grid_l)]
+    if not holes:
+        return bin_solid
+
+    compound = Compound(children=holes)
+    fused = compound.fuse()
+    fused = fused if isinstance(fused, Part) else Part(fused)
+    return bin_solid - fused
 
 
 def _add_dividers(
