@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from build123d import Axis, Box, BuildSketch, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, Align, extrude
+from build123d import Axis, Box, BuildSketch, Location, Part, Plane, Polygon, Sketch, Solid, Text, Mode, Align, extrude, Compound
 
 from ..fonts import get_font_path
 from ..schemas import Design
@@ -10,6 +10,7 @@ from ..utils.geometry import catmull_rom_smooth, offset_polygon, to_np
 from .bin_builder import build_bin
 from .pockets import subtract_pockets, _rotate_points, _simplify_polygon
 from . import constants as C
+from .baseplate_builder import _build_dovetail_tab, _build_dovetail_slot, DOVETAIL_EXTRA_MM
 
 
 def generate_gridfinity(design: Design) -> Solid:
@@ -308,3 +309,290 @@ def _apply_flat_labels(plate, labels, params, plate_thickness) -> Part:
             continue
 
     return plate
+
+
+# ---------------------------------------------------------------------------
+# Tray segmentation for large prints
+# ---------------------------------------------------------------------------
+
+def _auto_segment_tray(grid_w: int, grid_l: int, bed_w: float, bed_l: float) -> tuple[list[int], list[int]]:
+    """Auto-compute cut lines so each segment fits on the print bed."""
+    margin = 15  # mm safety margin (trays need more than baseplates due to walls)
+    max_cells_x = max(1, int((bed_w - margin) // C.GRID_UNIT_MM))
+    max_cells_y = max(1, int((bed_l - margin) // C.GRID_UNIT_MM))
+    cuts_x = list(range(max_cells_x, grid_w, max_cells_x))
+    cuts_y = list(range(max_cells_y, grid_l, max_cells_y))
+    return cuts_x, cuts_y
+
+
+def _tray_needs_segmentation(design: Design) -> bool:
+    """Check if the tray needs to be segmented based on print bed size."""
+    p = design.params
+    tray_w = p.grid_w * C.GRID_UNIT_MM
+    tray_l = p.grid_l * C.GRID_UNIT_MM
+    if p.force_segment:
+        return True
+    return tray_w > p.print_bed_w_mm or tray_l > p.print_bed_l_mm
+
+
+def _build_tray_segment_shape(
+    seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
+    grid_w: int, grid_l: int,
+    cuts_x: list[int], cuts_y: list[int],
+    total_h: float,
+    use_clips: bool,
+    clip_w: float = 8.0,
+    clip_d: float = 4.0,
+    clip_tol: float = 0.2,
+) -> Solid:
+    """Build the intersection shape for one tray segment.
+
+    The shape covers the full height of the tray. At cut lines, the shape
+    uses exact bounds (no margin) to avoid double walls. At outer edges,
+    a margin ensures clean intersection. Dovetail tabs/slots are added
+    at the base of the tray (bottom 4mm) for locking.
+    """
+    plate_w = grid_w * C.GRID_UNIT_MM
+    plate_l = grid_l * C.GRID_UNIT_MM
+
+    seg_w = (seg_x_end - seg_x_start) * C.GRID_UNIT_MM
+    seg_l = (seg_y_end - seg_y_start) * C.GRID_UNIT_MM
+    seg_x_min = -plate_w / 2 + seg_x_start * C.GRID_UNIT_MM
+    seg_x_max = -plate_w / 2 + seg_x_end * C.GRID_UNIT_MM
+    seg_y_min = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
+    seg_y_max = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
+    seg_cx = (seg_x_min + seg_x_max) / 2
+    seg_cy = (seg_y_min + seg_y_max) / 2
+
+    # Determine which edges are cut lines
+    x_cuts_set = set(cuts_x)
+    y_cuts_set = set(cuts_y)
+    left_is_cut = seg_x_start in x_cuts_set
+    right_is_cut = seg_x_end in x_cuts_set
+    below_is_cut = seg_y_start in y_cuts_set
+    above_is_cut = seg_y_end in y_cuts_set
+
+    # Margins: 0.01mm at cut lines (clean cut), 2mm at outer edges
+    margin_left = 0.01 if left_is_cut else 2.0
+    margin_right = 0.01 if right_is_cut else 2.0
+    margin_below = 0.01 if below_is_cut else 2.0
+    margin_above = 0.01 if above_is_cut else 2.0
+
+    shape = Box(
+        seg_w + margin_left + margin_right,
+        seg_l + margin_below + margin_above,
+        total_h + 4,
+    )
+    shape = shape.moved(Location((
+        seg_cx + (margin_right - margin_left) / 2,
+        seg_cy + (margin_above - margin_below) / 2,
+        total_h / 2,
+    )))
+
+    if not use_clips:
+        return shape
+
+    # Add dovetail tabs/slots at the base (bottom 4mm of the tray)
+    tab_h = min(4.0, total_h * 0.3)  # tabs in the bottom portion
+
+    # --- Vertical cut lines (X cuts) ---
+    for cx in cuts_x:
+        cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
+        is_left = seg_x_end == cx
+        is_right = seg_x_start == cx
+        if not (is_left or is_right):
+            continue
+
+        seg_y_center = (seg_y_min + seg_y_max) / 2
+        seg_y_len = seg_y_max - seg_y_min
+        n_tabs = max(1, min(3, int(seg_y_len / (clip_w * 6))))
+        if n_tabs == 1:
+            tab_ys = [seg_y_center]
+        else:
+            spacing = seg_y_len / (n_tabs + 1)
+            tab_ys = [seg_y_min + spacing * (i + 1) for i in range(n_tabs)]
+
+        for ty in tab_ys:
+            if is_left:
+                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+x")
+                tab = tab.moved(Location((cut_x_mm, ty, 0)))
+                try:
+                    shape = shape + tab
+                except Exception:
+                    pass
+            elif is_right:
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-x")
+                slot = slot.moved(Location((cut_x_mm, ty, 0)))
+                try:
+                    shape = shape - slot
+                except Exception:
+                    pass
+
+    # --- Horizontal cut lines (Y cuts) ---
+    for cy_cut in cuts_y:
+        cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
+        is_below = seg_y_end == cy_cut
+        is_above = seg_y_start == cy_cut
+        if not (is_below or is_above):
+            continue
+
+        seg_x_center = (seg_x_min + seg_x_max) / 2
+        seg_x_len = seg_x_max - seg_x_min
+        n_tabs = max(1, min(3, int(seg_x_len / (clip_w * 6))))
+        if n_tabs == 1:
+            tab_xs = [seg_x_center]
+        else:
+            spacing = seg_x_len / (n_tabs + 1)
+            tab_xs = [seg_x_min + spacing * (i + 1) for i in range(n_tabs)]
+
+        for tx in tab_xs:
+            if is_below:
+                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+y")
+                tab = tab.moved(Location((tx, cut_y_mm, 0)))
+                try:
+                    shape = shape + tab
+                except Exception:
+                    pass
+            elif is_above:
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-y")
+                slot = slot.moved(Location((tx, cut_y_mm, 0)))
+                try:
+                    shape = shape - slot
+                except Exception:
+                    pass
+
+    return shape
+
+
+def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[int]) -> list[tuple[int, int, int, int]]:
+    """Compute (col_start, col_end, row_start, row_end) for each segment."""
+    x_boundaries = [0] + sorted(cuts_x) + [grid_w]
+    y_boundaries = [0] + sorted(cuts_y) + [grid_l]
+    segments = []
+    for i in range(len(x_boundaries) - 1):
+        for j in range(len(y_boundaries) - 1):
+            segments.append((x_boundaries[i], x_boundaries[i + 1], y_boundaries[j], y_boundaries[j + 1]))
+    return segments
+
+
+def generate_gridfinity_segmented(design: Design) -> list[Part]:
+    """Generate the full tray, then split it into printable segments.
+
+    Returns a list of Part objects (one per segment). If no segmentation
+    is needed, returns a single-element list with the full tray.
+    """
+    p = design.params
+
+    # Check if segmentation is needed
+    if not _tray_needs_segmentation(design):
+        return [generate_gridfinity(design)]
+
+    # Generate the full tray first
+    full_tray = generate_gridfinity(design)
+
+    # Compute cut lines
+    cuts_x = p.cut_lines_x if p.cut_lines_x else []
+    cuts_y = p.cut_lines_y if p.cut_lines_y else []
+    if not cuts_x and not cuts_y:
+        cuts_x, cuts_y = _auto_segment_tray(p.grid_w, p.grid_l, p.print_bed_w_mm, p.print_bed_l_mm)
+
+    if not cuts_x and not cuts_y:
+        return [full_tray]
+
+    # Total height of the tray (for segment shape)
+    total_h = p.height_units * C.HEIGHT_UNIT_MM
+    if p.lip:
+        total_h += C.LIP_HEIGHT_MM
+
+    use_clips = p.tray_connector_type == "edge_clips"
+
+    # Split the tray into segments
+    segments = _segment_bounds(p.grid_w, p.grid_l, cuts_x, cuts_y)
+    segment_parts = []
+    for (sx_start, sx_end, sy_start, sy_end) in segments:
+        seg_shape = _build_tray_segment_shape(
+            sx_start, sx_end, sy_start, sy_end,
+            p.grid_w, p.grid_l, cuts_x, cuts_y,
+            total_h, use_clips,
+        )
+
+        try:
+            intersect_result = full_tray.intersect(seg_shape)
+            if not intersect_result:
+                continue
+            # intersect may return multiple disconnected solids — fuse them all
+            if hasattr(intersect_result, '__iter__') and not isinstance(intersect_result, (Part, Solid)):
+                solids = list(intersect_result)
+            else:
+                solids = [intersect_result]
+            if not solids:
+                continue
+            # Fuse all pieces into one
+            seg_part = solids[0]
+            for s in solids[1:]:
+                try:
+                    seg_part = seg_part + s
+                except Exception:
+                    pass
+        except Exception:
+            continue
+
+        # Ensure it's a Part
+        if not isinstance(seg_part, Part):
+            try:
+                seg_part = Part(seg_part)
+            except Exception:
+                pass
+
+        segment_parts.append(seg_part)
+
+    return segment_parts if segment_parts else [full_tray]
+
+
+def get_tray_segment_info(design: Design) -> dict:
+    """Get info about tray segments for the frontend.
+
+    Returns a dict with grid dimensions, segment count, and per-segment info.
+    """
+    p = design.params
+    tray_w = p.grid_w * C.GRID_UNIT_MM
+    tray_l = p.grid_l * C.GRID_UNIT_MM
+
+    cuts_x = p.cut_lines_x if p.cut_lines_x else []
+    cuts_y = p.cut_lines_y if p.cut_lines_y else []
+    if not cuts_x and not cuts_y and _tray_needs_segmentation(design):
+        cuts_x, cuts_y = _auto_segment_tray(p.grid_w, p.grid_l, p.print_bed_w_mm, p.print_bed_l_mm)
+
+    needs_segment = bool(cuts_x or cuts_y)
+
+    segments_list = []
+    if not needs_segment:
+        segments_list.append({
+            "index": 1, "cells_w": p.grid_w, "cells_h": p.grid_l,
+            "w": tray_w, "h": tray_l, "x": 0, "y": 0,
+        })
+    else:
+        seg_bounds = _segment_bounds(p.grid_w, p.grid_l, cuts_x, cuts_y)
+        for i, (sx_start, sx_end, sy_start, sy_end) in enumerate(seg_bounds):
+            w = (sx_end - sx_start) * C.GRID_UNIT_MM
+            h = (sy_end - sy_start) * C.GRID_UNIT_MM
+            x = -tray_w / 2 + sx_start * C.GRID_UNIT_MM + w / 2
+            y = -tray_l / 2 + sy_start * C.GRID_UNIT_MM + h / 2
+            segments_list.append({
+                "index": i + 1,
+                "cells_w": sx_end - sx_start,
+                "cells_h": sy_end - sy_start,
+                "w": w, "h": h, "x": x, "y": y,
+            })
+
+    return {
+        "grid_w": p.grid_w,
+        "grid_l": p.grid_l,
+        "tray_w": tray_w,
+        "tray_l": tray_l,
+        "segment_count": len(segments_list),
+        "segments": segments_list,
+        "cuts_x": cuts_x,
+        "cuts_y": cuts_y,
+        "needs_segment": needs_segment,
+    }

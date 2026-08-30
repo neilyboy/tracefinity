@@ -127,6 +127,18 @@ class BinParams(BaseModel):
     # - Flat STL is sized to fit inside the lip walls
     # - Finger scoops are cut through the flat STL
     use_flat_insert: bool = False
+    # --- Segmentation (for large trays that exceed print bed) ---
+    # Print bed dimensions in mm. When the tray footprint exceeds these,
+    # it is automatically split into printable segments with connectors.
+    print_bed_w_mm: float = Field(220.0, gt=0)
+    print_bed_l_mm: float = Field(220.0, gt=0)
+    # Manual cut lines in grid units (auto-computed if empty)
+    cut_lines_x: list[int] = Field(default_factory=list)
+    cut_lines_y: list[int] = Field(default_factory=list)
+    # Connector type for segmented trays
+    tray_connector_type: Literal["edge_clips", "none"] = "edge_clips"
+    # Enable segmentation even if the tray fits on the print bed
+    force_segment: bool = False
 
 
 class Design(BaseModel):

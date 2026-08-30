@@ -179,6 +179,41 @@ export default function BinParamsPanel() {
           </>
         )}
       </Section>
+
+      <Section title="Segmentation (Large Trays)" defaultOpen={false}>
+        {(() => {
+          const trayW = p.grid_w * 42
+          const trayL = p.grid_l * 42
+          const tooBig = trayW > p.print_bed_w_mm || trayL > p.print_bed_l_mm
+          return (
+            <>
+              <div style={hintStyle}>
+                Tray footprint: <strong style={{ color: tooBig ? '#f59e0b' : '#22c55e' }}>{trayW}×{trayL}mm</strong>
+                {' '}vs print bed: <strong>{p.print_bed_w_mm}×{p.print_bed_l_mm}mm</strong>
+                {tooBig && <span style={{ color: '#f59e0b' }}> — too large, will be split into segments</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <NumInput label="Bed W (mm)" value={p.print_bed_w_mm} step={5} min={100} max={500} onChange={(v) => setParams({ print_bed_w_mm: v })} />
+                <NumInput label="Bed L (mm)" value={p.print_bed_l_mm} step={5} min={100} max={500} onChange={(v) => setParams({ print_bed_l_mm: v })} />
+              </div>
+              <Toggle label="Force segmentation" checked={p.force_segment} onChange={(v) => setParams({ force_segment: v })} />
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: '#a1a1aa', marginBottom: 2 }}>Connector type</div>
+                <select value={p.tray_connector_type} onChange={(e) => setParams({ tray_connector_type: e.target.value as any })}
+                  style={{ width: '100%', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 4, padding: '4px 8px', color: '#e4e4e7', fontSize: 12 }}>
+                  <option value="edge_clips">Edge clips (dovetail tabs)</option>
+                  <option value="none">None (flat edges)</option>
+                </select>
+              </div>
+              {tooBig && (
+                <div style={hintStyle}>
+                  Export as STL to get a ZIP with all segments. Each segment fits on your print bed and clips together with dovetail tabs at the base.
+                </div>
+              )}
+            </>
+          )
+        })()}
+      </Section>
     </div>
   )
 }

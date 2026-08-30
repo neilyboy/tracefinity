@@ -89,6 +89,13 @@ export interface BinParams {
   pocket_bottom_radius_mm: number
   flat_thickness_mm: number
   use_flat_insert: boolean
+  // Segmentation
+  print_bed_w_mm: number
+  print_bed_l_mm: number
+  cut_lines_x: number[]
+  cut_lines_y: number[]
+  tray_connector_type: 'edge_clips' | 'none'
+  force_segment: boolean
 }
 
 export interface Design {
@@ -160,6 +167,12 @@ export const DEFAULT_PARAMS: BinParams = {
   pocket_bottom_radius_mm: 0.0,
   flat_thickness_mm: 2.0,
   use_flat_insert: false,
+  print_bed_w_mm: 220,
+  print_bed_l_mm: 220,
+  cut_lines_x: [],
+  cut_lines_y: [],
+  tray_connector_type: 'edge_clips',
+  force_segment: false,
 }
 
 // ---------------------------------------------------------------------------
