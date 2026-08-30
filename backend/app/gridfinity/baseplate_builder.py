@@ -72,33 +72,41 @@ def compute_grid(params: BaseplateParams) -> tuple[int, int, float, float]:
 def _build_socket_cutter(grid_w: int, grid_l: int, plate_top_z: float) -> Part:
     """Build the gridfinity socket pattern as a cutter (to subtract from the plate top).
 
-    Each cell gets a chamfered socket:
-    - Opening (at plate top surface): 38.5x38.5mm
-    - Bottom (deepest, going down): 41.5x41.5mm
-    - Depth: 4mm with chamfered transition
+    Each cell gets a chamfered socket with a three-stage profile matching the
+    gridfinity spec:
+
+    1. Top chamfer (0.8mm): from 42mm (full grid size at the plate surface)
+       tapering down to 38.5mm. This is the entry chamfer that guides bins in.
+    2. Socket taper (3.2mm): from 38.5mm (the narrow "neck" that holds the bin)
+       widening to 41.5mm at the bottom. This accommodates the bin's base.
+
+    Total socket depth: 4mm (0.8mm chamfer + 3.2mm main taper).
 
     The socket is cut INTO the plate from the top surface (Z = plate_top_z)
     downward by socket_depth.
     """
-    socket_opening = C.SOCKET_BOTTOM_SIZE_MM  # 38.5mm at the opening (top of plate)
-    socket_bottom = C.SOCKET_TOP_SIZE_MM  # 41.5mm at the bottom of the socket (deepest)
-    socket_depth = C.BASEPLATE_SOCKET_DEPTH_MM  # 4mm
+    grid_size = C.GRID_UNIT_MM  # 42mm — full grid cell size at the surface
+    socket_neck = C.SOCKET_BOTTOM_SIZE_MM  # 38.5mm — narrow opening below the chamfer
+    socket_bottom = C.SOCKET_TOP_SIZE_MM  # 41.5mm — widest at the bottom
+    socket_depth = C.BASEPLATE_SOCKET_DEPTH_MM  # 4mm total
+    top_chamfer_h = 0.8  # height of the entry chamfer at the top
 
     cutter = None
     for gx in range(grid_w):
         for gy in range(grid_l):
-            # Cell center in plate-local coords (centered at origin)
             cx = -grid_w * C.GRID_UNIT_MM / 2 + (gx + 0.5) * C.GRID_UNIT_MM
             cy = -grid_l * C.GRID_UNIT_MM / 2 + (gy + 0.5) * C.GRID_UNIT_MM
 
-            # Build one chamfered socket cell using loft.
-            # Sketch at Z=plate_top_z (opening at plate surface): smaller (38.5mm)
-            # Sketch at Z=plate_top_z - socket_depth (bottom, deeper): larger (41.5mm)
-            # The loft creates a frustum that widens going down, matching the bin base profile.
+            # Three-profile loft creates the chamfered entry + main taper:
+            #   Z = plate_top_z:             42mm  (grid surface, chamfer start)
+            #   Z = plate_top_z - 0.8:       38.5mm (after chamfer, narrow neck)
+            #   Z = plate_top_z - 4.0:       41.5mm (bottom, widest)
             with BuildPart() as bp:
-                with BuildSketch(Plane.XY.moved(Location((0, 0, plate_top_z))) ) as s1:
-                    Rectangle(socket_opening, socket_opening)
-                with BuildSketch(Plane.XY.moved(Location((0, 0, plate_top_z - socket_depth)))) as s2:
+                with BuildSketch(Plane.XY.moved(Location((0, 0, plate_top_z)))) as s1:
+                    Rectangle(grid_size, grid_size)
+                with BuildSketch(Plane.XY.moved(Location((0, 0, plate_top_z - top_chamfer_h)))) as s2:
+                    Rectangle(socket_neck, socket_neck)
+                with BuildSketch(Plane.XY.moved(Location((0, 0, plate_top_z - socket_depth)))) as s3:
                     Rectangle(socket_bottom, socket_bottom)
                 loft()
             cell = bp.part
