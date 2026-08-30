@@ -335,22 +335,17 @@ def _tray_needs_segmentation(design: Design) -> bool:
     return tray_w > p.print_bed_w_mm or tray_l > p.print_bed_l_mm
 
 
-def _build_tray_segment_shape(
+def _build_tray_cut_box(
     seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
     grid_w: int, grid_l: int,
     cuts_x: list[int], cuts_y: list[int],
     total_h: float,
-    use_clips: bool,
-    clip_w: float = 8.0,
-    clip_d: float = 4.0,
-    clip_tol: float = 0.2,
 ) -> Solid:
-    """Build the intersection shape for one tray segment.
+    """Build a simple box for intersecting one segment from the tray.
 
-    The shape covers the full height of the tray. At cut lines, the shape
-    uses exact bounds (no margin) to avoid double walls. At outer edges,
-    a margin ensures clean intersection. Dovetail tabs/slots are added
-    at the base of the tray (bottom 4mm) for locking.
+    At cut lines: 0.01mm overlap (clean cut, no double walls).
+    At outer edges: 2mm margin (clean intersection).
+    NO tabs or slots — those are added after intersection.
     """
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
@@ -364,19 +359,12 @@ def _build_tray_segment_shape(
     seg_cx = (seg_x_min + seg_x_max) / 2
     seg_cy = (seg_y_min + seg_y_max) / 2
 
-    # Determine which edges are cut lines
     x_cuts_set = set(cuts_x)
     y_cuts_set = set(cuts_y)
-    left_is_cut = seg_x_start in x_cuts_set
-    right_is_cut = seg_x_end in x_cuts_set
-    below_is_cut = seg_y_start in y_cuts_set
-    above_is_cut = seg_y_end in y_cuts_set
-
-    # Margins: 0.01mm at cut lines (clean cut), 2mm at outer edges
-    margin_left = 0.01 if left_is_cut else 2.0
-    margin_right = 0.01 if right_is_cut else 2.0
-    margin_below = 0.01 if below_is_cut else 2.0
-    margin_above = 0.01 if above_is_cut else 2.0
+    margin_left = 0.01 if seg_x_start in x_cuts_set else 2.0
+    margin_right = 0.01 if seg_x_end in x_cuts_set else 2.0
+    margin_below = 0.01 if seg_y_start in y_cuts_set else 2.0
+    margin_above = 0.01 if seg_y_end in y_cuts_set else 2.0
 
     shape = Box(
         seg_w + margin_left + margin_right,
@@ -388,80 +376,112 @@ def _build_tray_segment_shape(
         seg_cy + (margin_above - margin_below) / 2,
         total_h / 2,
     )))
+    return shape
 
-    if not use_clips:
-        return shape
 
-    # Add dovetail tabs/slots at the base (bottom 4mm of the tray)
-    tab_h = min(4.0, total_h * 0.3)  # tabs in the bottom portion
+def _add_tray_connectors(
+    seg_part: Part,
+    seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
+    grid_w: int, grid_l: int,
+    cuts_x: list[int], cuts_y: list[int],
+    clip_w: float = 8.0,
+    clip_d: float = 4.0,
+    clip_tol: float = 0.2,
+) -> Part:
+    """Add dovetail tabs and subtract slots from a tray segment.
+
+    This is called AFTER the segment has been cut from the full tray.
+    Tabs are added as new solid material (protruding from the cut edge).
+    Slots are cut into the segment at the matching cut edge.
+
+    The tab/slot height is confined to the base of the tray (Z=0..4mm)
+    so it attaches to the solid base material, not the hollow walls.
+
+    IMPORTANT: Tabs start INSIDE the segment (overlapping with solid base
+    material) to ensure they're connected. The gridfinity base has ~3.5mm
+    gaps between cell sockets, so we need at least 4mm of overlap.
+    """
+    plate_w = grid_w * C.GRID_UNIT_MM
+    plate_l = grid_l * C.GRID_UNIT_MM
+
+    seg_x_min = -plate_w / 2 + seg_x_start * C.GRID_UNIT_MM
+    seg_x_max = -plate_w / 2 + seg_x_end * C.GRID_UNIT_MM
+    seg_y_min = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
+    seg_y_max = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
+
+    tab_h = 4.0  # confined to the base slab
+    # How far the tab extends into the segment to overlap with solid base.
+    # Gridfinity base has ~3.5mm gaps between cell sockets, so we need
+    # enough overlap to reach solid material on both sides of the gap.
+    tab_overlap = 5.0  # mm of tab that sits inside the segment
 
     # --- Vertical cut lines (X cuts) ---
     for cx in cuts_x:
         cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
-        is_left = seg_x_end == cx
-        is_right = seg_x_start == cx
+        is_left = seg_x_end == cx   # this segment is on the left → tab protrudes +x
+        is_right = seg_x_start == cx  # this segment is on the right → slot cut -x
         if not (is_left or is_right):
             continue
 
-        seg_y_center = (seg_y_min + seg_y_max) / 2
         seg_y_len = seg_y_max - seg_y_min
         n_tabs = max(1, min(3, int(seg_y_len / (clip_w * 6))))
         if n_tabs == 1:
-            tab_ys = [seg_y_center]
+            tab_ys = [(seg_y_min + seg_y_max) / 2]
         else:
             spacing = seg_y_len / (n_tabs + 1)
             tab_ys = [seg_y_min + spacing * (i + 1) for i in range(n_tabs)]
 
         for ty in tab_ys:
             if is_left:
-                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+x")
-                tab = tab.moved(Location((cut_x_mm, ty, 0)))
+                # Tab starts INSIDE the segment (at cut_x - overlap) and protrudes +x
+                tab = _build_dovetail_tab(clip_d + tab_overlap, clip_w, tab_h, "+x")
+                tab = tab.moved(Location((cut_x_mm - tab_overlap, ty, 0)))
                 try:
-                    shape = shape + tab
+                    seg_part = seg_part + tab
                 except Exception:
                     pass
             elif is_right:
-                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-x")
-                slot = slot.moved(Location((cut_x_mm, ty, 0)))
+                # Slot starts INSIDE the segment and opens toward -x
+                slot = _build_dovetail_slot(clip_d + tab_overlap, clip_w, tab_h, clip_tol, "-x")
+                slot = slot.moved(Location((cut_x_mm + tab_overlap, ty, 0)))
                 try:
-                    shape = shape - slot
+                    seg_part = seg_part - slot
                 except Exception:
                     pass
 
     # --- Horizontal cut lines (Y cuts) ---
     for cy_cut in cuts_y:
         cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
-        is_below = seg_y_end == cy_cut
-        is_above = seg_y_start == cy_cut
+        is_below = seg_y_end == cy_cut    # this segment is below → tab protrudes +y
+        is_above = seg_y_start == cy_cut  # this segment is above → slot cut -y
         if not (is_below or is_above):
             continue
 
-        seg_x_center = (seg_x_min + seg_x_max) / 2
         seg_x_len = seg_x_max - seg_x_min
         n_tabs = max(1, min(3, int(seg_x_len / (clip_w * 6))))
         if n_tabs == 1:
-            tab_xs = [seg_x_center]
+            tab_xs = [(seg_x_min + seg_x_max) / 2]
         else:
             spacing = seg_x_len / (n_tabs + 1)
             tab_xs = [seg_x_min + spacing * (i + 1) for i in range(n_tabs)]
 
         for tx in tab_xs:
             if is_below:
-                tab = _build_dovetail_tab(clip_d, clip_w, tab_h, "+y")
-                tab = tab.moved(Location((tx, cut_y_mm, 0)))
+                tab = _build_dovetail_tab(clip_d + tab_overlap, clip_w, tab_h, "+y")
+                tab = tab.moved(Location((tx, cut_y_mm - tab_overlap, 0)))
                 try:
-                    shape = shape + tab
+                    seg_part = seg_part + tab
                 except Exception:
                     pass
             elif is_above:
-                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-y")
-                slot = slot.moved(Location((tx, cut_y_mm, 0)))
+                slot = _build_dovetail_slot(clip_d + tab_overlap, clip_w, tab_h, clip_tol, "-y")
+                slot = slot.moved(Location((tx, cut_y_mm + tab_overlap, 0)))
                 try:
-                    shape = shape - slot
+                    seg_part = seg_part - slot
                 except Exception:
                     pass
 
-    return shape
+    return seg_part
 
 
 def _segment_bounds(grid_w: int, grid_l: int, cuts_x: list[int], cuts_y: list[int]) -> list[tuple[int, int, int, int]]:
@@ -480,6 +500,12 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
 
     Returns a list of Part objects (one per segment). If no segmentation
     is needed, returns a single-element list with the full tray.
+
+    Approach:
+    1. Generate the full tray (with all features: pockets, magnets, etc.)
+    2. Cut into segments by intersecting with simple boxes (NO tabs)
+    3. AFTER cutting, add dovetail tabs and cut slots on each segment
+       (tabs are added as new solid material, not cut from the tray)
     """
     p = design.params
 
@@ -499,25 +525,24 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
     if not cuts_x and not cuts_y:
         return [full_tray]
 
-    # Total height of the tray (for segment shape)
+    # Total height of the tray
     total_h = p.height_units * C.HEIGHT_UNIT_MM
     if p.lip:
         total_h += C.LIP_HEIGHT_MM
 
     use_clips = p.tray_connector_type == "edge_clips"
 
-    # Split the tray into segments
+    # Step 1: Cut the tray into segments with simple boxes (no tabs)
     segments = _segment_bounds(p.grid_w, p.grid_l, cuts_x, cuts_y)
     segment_parts = []
     for (sx_start, sx_end, sy_start, sy_end) in segments:
-        seg_shape = _build_tray_segment_shape(
+        cut_box = _build_tray_cut_box(
             sx_start, sx_end, sy_start, sy_end,
-            p.grid_w, p.grid_l, cuts_x, cuts_y,
-            total_h, use_clips,
+            p.grid_w, p.grid_l, cuts_x, cuts_y, total_h,
         )
 
         try:
-            intersect_result = full_tray.intersect(seg_shape)
+            intersect_result = full_tray.intersect(cut_box)
             if not intersect_result:
                 continue
             # intersect may return multiple disconnected solids — fuse them all
@@ -527,7 +552,6 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
                 solids = [intersect_result]
             if not solids:
                 continue
-            # Fuse all pieces into one
             seg_part = solids[0]
             for s in solids[1:]:
                 try:
@@ -537,12 +561,22 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
         except Exception:
             continue
 
-        # Ensure it's a Part
         if not isinstance(seg_part, Part):
             try:
-                seg_part = Part(seg_part)
+                # Solid → Part conversion: wrap the solid's underlying shape
+                if hasattr(seg_part, 'wrapped'):
+                    seg_part = Part(seg_part.wrapped)
+                else:
+                    seg_part = Part(seg_part)
             except Exception:
-                pass
+                continue
+
+        # Step 2: Add tabs and cut slots AFTER intersection
+        if use_clips:
+            seg_part = _add_tray_connectors(
+                seg_part, sx_start, sx_end, sy_start, sy_end,
+                p.grid_w, p.grid_l, cuts_x, cuts_y,
+            )
 
         segment_parts.append(seg_part)
 
