@@ -329,17 +329,23 @@ def _build_cutout_solid(
 # Dovetail connectors (for base-slab mode only)
 # ---------------------------------------------------------------------------
 
+def _dovetail_chamfer_size(height: float) -> float:
+    """Shared chamfer size so tab and slot tops match exactly."""
+    return min(height * 0.35, 1.2)
+
+
 def _build_dovetail_tab(depth: float, width: float, height: float, direction: str) -> Solid:
-    """Build a dovetail locking tab with 45° chamfered top.
+    """Build a dovetail locking tab with a 45° chamfered top.
 
     The tab is a trapezoid (dovetail: wider at the protruding tip) with:
     - Straight walls for most of the height
-    - 45° chamfer on all top edges (support-free when printed)
+    - 45° chamfer on all top edges (support-free when printed — the top
+      narrows to a ridge instead of a flat horizontal ceiling)
 
-    Confined to Z = 0..height. direction is "+x" or "+y".
+    Strictly confined to Z = 0..height. direction is "+x" or "+y".
     """
     extra = DOVETAIL_EXTRA_MM
-    chamfer_size = min(height * 0.35, 1.2)  # 45° chamfer on top edges
+    chamfer_size = _dovetail_chamfer_size(height)
 
     if direction == "+x":
         pts = [
@@ -357,15 +363,15 @@ def _build_dovetail_tab(depth: float, width: float, height: float, direction: st
         ]
 
     try:
-        from build123d import BuildPart, BuildSketch, Plane, chamfer as bp_chamfer
         with BuildPart() as bp:
             with BuildSketch(Plane.XY):
                 Polygon(pts)
             extrude(amount=height)
-            # Chamfer top edges (at Z = height)
-            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - height) < 0.01]
-            if top_edges:
-                bp_chamfer(top_edges, length=chamfer_size)
+            bb = bp.part.bounding_box()
+            top_z = bb.max.Z
+            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - top_z) < 0.01]
+            if top_edges and chamfer_size > 0:
+                chamfer(top_edges, length=chamfer_size)
 
         tab = bp.part
         bb = tab.bounding_box()
@@ -381,48 +387,67 @@ def _build_dovetail_tab(depth: float, width: float, height: float, direction: st
 
 
 def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, direction: str) -> Solid:
-    """Build a through-hole dovetail slot — fully support-free.
+    """Build a dovetail slot cutter matching _build_dovetail_tab.
 
-    The slot is a through-hole through the BASE ONLY (Z = -1 to height+1).
-    It does NOT extend above the base into the tray's floor/walls area.
+    Strictly confined to Z = -0.5..height (never above height, so it can
+    never poke into the tray's floor/wall material sitting above the base).
+    The top is chamfered to match the tab's 45° top, so the cutout's
+    "ceiling" also narrows to a ridge instead of a flat horizontal ceiling
+    — fully support-free.
 
-    No ceiling = no horizontal overhangs = no supports needed.
-    The tab slides in from the side and locks horizontally via dovetail.
+    A small lead-in below Z=0 (down to -0.5) guarantees a clean boolean
+    cut at the base's bottom face.
 
     direction is "-x" or "-y" — the slot opens at the segment edge.
     """
     extra = DOVETAIL_EXTRA_MM
+    chamfer_size = _dovetail_chamfer_size(height) + tol
+    lead_in = 0.5  # extends slightly below Z=0 for a clean boolean cut
+
     slot_depth = depth + tol
     base_w = width + 2 * tol
     tip_w = width + 2 * extra + 2 * tol
 
     if direction == "-x":
         pts = [
-            (-1, -base_w / 2),
-            (-1, base_w / 2),
+            (-lead_in, -base_w / 2),
+            (-lead_in, base_w / 2),
             (slot_depth, tip_w / 2),
             (slot_depth, -tip_w / 2),
         ]
     else:  # "-y"
         pts = [
-            (-base_w / 2, -1),
-            (base_w / 2, -1),
+            (-base_w / 2, -lead_in),
+            (base_w / 2, -lead_in),
             (tip_w / 2, slot_depth),
             (-tip_w / 2, slot_depth),
         ]
 
     try:
-        sk = Sketch() + Polygon(pts)
-        # Through-hole through the base only: Z = -1 to height+1
-        # extrude goes in -Z (result is Z=[-(h+2), 0]), then move up by h+1
-        slot = extrude(sk, amount=height + 2)
-        slot = slot.moved(Location((0, 0, height + 1)))  # Z = [-1, height+1]
+        with BuildPart() as bp:
+            with BuildSketch(Plane.XY):
+                Polygon(pts)
+            extrude(amount=height + lead_in)
+            bb = bp.part.bounding_box()
+            top_z = bb.max.Z
+            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - top_z) < 0.01]
+            if top_edges and chamfer_size > 0:
+                chamfer(top_edges, length=chamfer_size)
+
+        slot = bp.part
+        bb = slot.bounding_box()
+        # Position so the top sits exactly at Z=height (never above it)
+        slot = slot.moved(Location((0, 0, height - bb.max.Z)))
         return slot
     except Exception:
         if direction == "-x":
-            return Box(slot_depth + 1, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, 0)))
+            return Box(slot_depth + lead_in, tip_w, height + lead_in).moved(
+                Location((slot_depth / 2 - lead_in / 2, 0, height / 2))
+            )
         else:
-            return Box(tip_w, slot_depth + 1, height + 2).moved(Location((0, slot_depth / 2 - 0.5, 0)))
+            return Box(tip_w, slot_depth + lead_in, height + lead_in).moved(
+                Location((0, slot_depth / 2 - lead_in / 2, height / 2))
+            )
 
 
 # ---------------------------------------------------------------------------
