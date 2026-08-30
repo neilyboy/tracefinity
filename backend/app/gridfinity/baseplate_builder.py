@@ -329,30 +329,33 @@ def _build_cutout_solid(
 # Dovetail connectors (for base-slab mode only)
 # ---------------------------------------------------------------------------
 
-def _dovetail_chamfer_size(height: float) -> float:
-    """Shared chamfer size so tab and slot tops match exactly."""
-    return min(height * 0.35, 1.2)
-
-
 def _build_dovetail_tab(depth: float, width: float, height: float, direction: str) -> Solid:
-    """Build a dovetail locking tab with a 45° chamfered top.
+    """Build a dovetail locking tab with a fully tapered (ridged) top.
 
     The tab is a trapezoid (dovetail: wider at the protruding tip) with:
-    - Straight walls for most of the height
-    - 45° chamfer on all top edges (support-free when printed — the top
-      narrows to a ridge instead of a flat horizontal ceiling)
+    - Straight walls for the lower portion
+    - A 45° tapered cap on top that closes to a thin ridge line (near-zero
+      flat area) rather than a flat horizontal plateau — fully
+      support-free when printed.
+
+    Implementation: build123d's taper-extrude naturally stops once the
+    cross-section collapses to a degenerate line (its narrowest
+    dimension — here the "depth" direction — fully closes at 45°). We
+    extrude generously and read back the actual achieved height, then
+    stack a straight section below it so the total equals `height`.
 
     Strictly confined to Z = 0..height. direction is "+x" or "+y".
+    Polygon points must be wound counter-clockwise for build123d's
+    taper extrude to work.
     """
     extra = DOVETAIL_EXTRA_MM
-    chamfer_size = _dovetail_chamfer_size(height)
 
     if direction == "+x":
         pts = [
             (0, -width / 2),
-            (0, width / 2),
-            (depth, width / 2 + extra),
             (depth, -width / 2 - extra),
+            (depth, width / 2 + extra),
+            (0, width / 2),
         ]
     else:  # "+y"
         pts = [
@@ -363,22 +366,26 @@ def _build_dovetail_tab(depth: float, width: float, height: float, direction: st
         ]
 
     try:
-        with BuildPart() as bp:
-            with BuildSketch(Plane.XY):
-                Polygon(pts)
-            extrude(amount=height)
-            bb = bp.part.bounding_box()
-            top_z = bb.max.Z
-            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - top_z) < 0.01]
-            if top_edges and chamfer_size > 0:
-                chamfer(top_edges, length=chamfer_size)
+        sk = Sketch() + Polygon(pts)
+        # Extrude generously; taper causes it to stop early once degenerate
+        top = extrude(sk, amount=height, taper=45)
+        taper_h = top.bounding_box().max.Z
+        straight_h = height - taper_h
+        if straight_h < 0.1:
+            # Taper alone doesn't fit in the available height — cap it
+            # and accept a very small residual flat area at the tip.
+            straight_h = 0.1
+            top = extrude(sk, amount=height - straight_h, taper=45)
+            taper_h = top.bounding_box().max.Z
 
-        tab = bp.part
+        bottom = extrude(sk, amount=straight_h)
+        top = top.moved(Location((0, 0, straight_h)))
+        tab = Part(bottom) + Part(top)
         bb = tab.bounding_box()
         tab = tab.moved(Location((0, 0, -bb.min.Z)))
         return tab
     except Exception:
-        # Fallback: simple extruded dovetail (no chamfer)
+        # Fallback: simple extruded dovetail (no taper)
         sk = Sketch() + Polygon(pts)
         tab = extrude(sk, amount=height)
         bb = tab.bounding_box()
@@ -391,17 +398,17 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
 
     Strictly confined to Z = -0.5..height (never above height, so it can
     never poke into the tray's floor/wall material sitting above the base).
-    The top is chamfered to match the tab's 45° top, so the cutout's
-    "ceiling" also narrows to a ridge instead of a flat horizontal ceiling
-    — fully support-free.
+    The top uses the same 45° taper-to-ridge technique as the tab, so the
+    cutout's "ceiling" also closes to a near-zero-area ridge instead of a
+    flat horizontal ceiling — fully support-free.
 
     A small lead-in below Z=0 (down to -0.5) guarantees a clean boolean
     cut at the base's bottom face.
 
     direction is "-x" or "-y" — the slot opens at the segment edge.
+    Polygon points must be wound counter-clockwise for the taper extrude.
     """
     extra = DOVETAIL_EXTRA_MM
-    chamfer_size = _dovetail_chamfer_size(height) + tol
     lead_in = 0.5  # extends slightly below Z=0 for a clean boolean cut
 
     slot_depth = depth + tol
@@ -411,9 +418,9 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
     if direction == "-x":
         pts = [
             (-lead_in, -base_w / 2),
-            (-lead_in, base_w / 2),
-            (slot_depth, tip_w / 2),
             (slot_depth, -tip_w / 2),
+            (slot_depth, tip_w / 2),
+            (-lead_in, base_w / 2),
         ]
     else:  # "-y"
         pts = [
@@ -424,17 +431,19 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
         ]
 
     try:
-        with BuildPart() as bp:
-            with BuildSketch(Plane.XY):
-                Polygon(pts)
-            extrude(amount=height + lead_in)
-            bb = bp.part.bounding_box()
-            top_z = bb.max.Z
-            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - top_z) < 0.01]
-            if top_edges and chamfer_size > 0:
-                chamfer(top_edges, length=chamfer_size)
+        sk = Sketch() + Polygon(pts)
+        top = extrude(sk, amount=height + lead_in, taper=45)
+        taper_h = top.bounding_box().max.Z
+        straight_h = height - taper_h
+        if straight_h < 0.1:
+            straight_h = 0.1
+            top = extrude(sk, amount=height + lead_in - straight_h, taper=45)
+            taper_h = top.bounding_box().max.Z
 
-        slot = bp.part
+        bottom = extrude(sk, amount=straight_h + lead_in)
+        bottom = bottom.moved(Location((0, 0, -lead_in)))
+        top = top.moved(Location((0, 0, straight_h)))
+        slot = Part(bottom) + Part(top)
         bb = slot.bounding_box()
         # Position so the top sits exactly at Z=height (never above it)
         slot = slot.moved(Location((0, 0, height - bb.max.Z)))
