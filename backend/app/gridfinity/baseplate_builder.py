@@ -66,14 +66,17 @@ def compute_grid(params: BaseplateParams) -> tuple[int, int, float, float]:
 
     Returns (grid_w, grid_l, plate_w, plate_l) where:
     - grid_w/grid_l = number of 42mm cells
-    - plate_w/plate_l = actual baseplate size in mm (= grid * 42)
+    - plate_w/plate_l = actual baseplate size in mm — fills the entire
+      drawer (minus padding/clearance), not just the grid cells. The
+      leftover space beyond the grid becomes solid filler material.
     """
     avail_w = params.drawer_w_mm - params.padding_left_mm - params.padding_right_mm - 2 * params.drawer_clearance_mm
     avail_l = params.drawer_l_mm - params.padding_top_mm - params.padding_bottom_mm - 2 * params.drawer_clearance_mm
     grid_w = max(1, int(avail_w // C.GRID_UNIT_MM))
     grid_l = max(1, int(avail_l // C.GRID_UNIT_MM))
-    plate_w = grid_w * C.GRID_UNIT_MM
-    plate_l = grid_l * C.GRID_UNIT_MM
+    # Plate fills the entire available drawer space, not just grid cells
+    plate_w = avail_w
+    plate_l = avail_l
     return grid_w, grid_l, plate_w, plate_l
 
 
@@ -403,6 +406,7 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
 def _build_segment_shape(
     seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
     grid_w: int, grid_l: int,
+    plate_w: float, plate_l: float,
     cuts_x: list[int], cuts_y: list[int],
     params: BaseplateParams,
     total_h: float,
@@ -416,16 +420,31 @@ def _build_segment_shape(
        cut lines — prevents double walls at seams.
     2. Base slab (Z = 0 .. base_h): full margin + dovetail tabs/slots
        (only if use_clips is True and base_h > 0).
-    """
-    plate_w = grid_w * C.GRID_UNIT_MM
-    plate_l = grid_l * C.GRID_UNIT_MM
 
+    The grid cells are centered within the plate. The first segment in
+    each direction extends to the plate edge (including filler material),
+    and the last segment extends to the opposite plate edge.
+    """
+    grid_w_mm = grid_w * C.GRID_UNIT_MM
+    grid_l_mm = grid_l * C.GRID_UNIT_MM
+    # Grid is centered in the plate; offset from plate center to grid edge
+    grid_x_offset = (plate_w - grid_w_mm) / 2  # filler on each side
+    grid_y_offset = (plate_l - grid_l_mm) / 2
+
+    # Segment bounds in grid coordinates
     seg_w = (seg_x_end - seg_x_start) * C.GRID_UNIT_MM
     seg_l = (seg_y_end - seg_y_start) * C.GRID_UNIT_MM
-    seg_x_min = -plate_w / 2 + seg_x_start * C.GRID_UNIT_MM
-    seg_x_max = -plate_w / 2 + seg_x_end * C.GRID_UNIT_MM
-    seg_y_min = -plate_l / 2 + seg_y_start * C.GRID_UNIT_MM
-    seg_y_max = -plate_l / 2 + seg_y_end * C.GRID_UNIT_MM
+    # Grid-local coordinates (centered at origin)
+    seg_x_min_grid = -grid_w_mm / 2 + seg_x_start * C.GRID_UNIT_MM
+    seg_x_max_grid = -grid_w_mm / 2 + seg_x_end * C.GRID_UNIT_MM
+    seg_y_min_grid = -grid_l_mm / 2 + seg_y_start * C.GRID_UNIT_MM
+    seg_y_max_grid = -grid_l_mm / 2 + seg_y_end * C.GRID_UNIT_MM
+
+    # Convert to plate coordinates (shift by grid offset)
+    seg_x_min = seg_x_min_grid - grid_x_offset
+    seg_x_max = seg_x_max_grid - grid_x_offset
+    seg_y_min = seg_y_min_grid - grid_y_offset
+    seg_y_max = seg_y_max_grid - grid_y_offset
     seg_cx = (seg_x_min + seg_x_max) / 2
     seg_cy = (seg_y_min + seg_y_max) / 2
 
@@ -438,10 +457,30 @@ def _build_segment_shape(
     above_is_cut = seg_y_end in y_cuts_set
 
     # --- Socket section: exact bounds, no margin at cut lines ---
+    # First/last segments extend to the plate edge (including filler material)
     socket_margin_left = 0.01 if left_is_cut else 1.0
     socket_margin_right = 0.01 if right_is_cut else 1.0
     socket_margin_below = 0.01 if below_is_cut else 1.0
     socket_margin_above = 0.01 if above_is_cut else 1.0
+
+    # Extend to plate edges for outer segments (filler material)
+    plate_x_min = -plate_w / 2
+    plate_x_max = plate_w / 2
+    plate_y_min = -plate_l / 2
+    plate_y_max = plate_l / 2
+
+    # If this is the first segment in X, extend left to plate edge
+    if seg_x_start == 0:
+        socket_margin_left = seg_x_min - plate_x_min + 1.0
+    # If this is the last segment in X, extend right to plate edge
+    if seg_x_end == grid_w:
+        socket_margin_right = plate_x_max - seg_x_max + 1.0
+    # If this is the first segment in Y, extend down to plate edge
+    if seg_y_start == 0:
+        socket_margin_below = seg_y_min - plate_y_min + 1.0
+    # If this is the last segment in Y, extend up to plate edge
+    if seg_y_end == grid_l:
+        socket_margin_above = plate_y_max - seg_y_max + 1.0
 
     socket_h = total_h - base_h
     socket_box = Box(
@@ -460,9 +499,17 @@ def _build_segment_shape(
         return socket_box
 
     # --- Base slab: full margin + optional dovetail tabs ---
-    base_margin = 1.0
-    base_box = Box(seg_w + 2 * base_margin, seg_l + 2 * base_margin, base_h + 0.02)
-    base_box = base_box.moved(Location((seg_cx, seg_cy, base_h / 2)))
+    # Use the same extended margins as the socket section (includes filler)
+    base_box = Box(
+        seg_w + socket_margin_left + socket_margin_right,
+        seg_l + socket_margin_below + socket_margin_above,
+        base_h + 0.02,
+    )
+    base_box = base_box.moved(Location((
+        seg_cx + (socket_margin_right - socket_margin_left) / 2,
+        seg_cy + (socket_margin_above - socket_margin_below) / 2,
+        base_h / 2,
+    )))
 
     shape = base_box + socket_box
 
@@ -475,8 +522,9 @@ def _build_segment_shape(
     tol = params.clip_tolerance_mm
 
     # --- Vertical cut lines (X cuts) ---
+    # Cut lines are at grid cell boundaries, in plate coordinates
     for cx in cuts_x:
-        cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
+        cut_x_mm = -grid_w_mm / 2 + cx * C.GRID_UNIT_MM - grid_x_offset
         is_left = seg_x_end == cx
         is_right = seg_x_start == cx
         if not (is_left or is_right):
@@ -509,7 +557,7 @@ def _build_segment_shape(
 
     # --- Horizontal cut lines (Y cuts) ---
     for cy_cut in cuts_y:
-        cut_y_mm = -plate_l / 2 + cy_cut * C.GRID_UNIT_MM
+        cut_y_mm = -grid_l_mm / 2 + cy_cut * C.GRID_UNIT_MM - grid_y_offset
         is_below = seg_y_end == cy_cut
         is_above = seg_y_start == cy_cut
         if not (is_below or is_above):
@@ -551,16 +599,19 @@ def _add_seam_magnets(
     segment: Part,
     seg_x_start: int, seg_x_end: int, seg_y_start: int, seg_y_end: int,
     grid_w: int, grid_l: int,
+    plate_w: float, plate_l: float,
     cuts_x: list[int], cuts_y: list[int],
     total_h: float,
 ) -> Part:
     """Add magnet holes at seam midpoints for alignment."""
-    plate_w = grid_w * C.GRID_UNIT_MM
-    plate_l = grid_l * C.GRID_UNIT_MM
+    grid_w_mm = grid_w * C.GRID_UNIT_MM
+    grid_l_mm = grid_l * C.GRID_UNIT_MM
+    grid_x_offset = (plate_w - grid_w_mm) / 2
+    grid_y_offset = (plate_l - grid_l_mm) / 2
 
     for cx in cuts_x:
-        cut_x_mm = -plate_w / 2 + cx * C.GRID_UNIT_MM
-        seg_y_center = -plate_l / 2 + (seg_y_start + seg_y_end) / 2 * C.GRID_UNIT_MM
+        cut_x_mm = -grid_w_mm / 2 + cx * C.GRID_UNIT_MM - grid_x_offset
+        seg_y_center = -grid_l_mm / 2 + (seg_y_start + seg_y_end) / 2 * C.GRID_UNIT_MM - grid_y_offset
         if seg_x_start == cx or seg_x_end == cx:
             hole = Cylinder(C.MAGNET_DIAMETER_MM / 2, C.MAGNET_DEPTH_MM + 0.1)
             hole = hole.moved(Location((cut_x_mm, seg_y_center, total_h - C.MAGNET_DEPTH_MM / 2)))
@@ -570,8 +621,8 @@ def _add_seam_magnets(
                 pass
 
     for cy in cuts_y:
-        cut_y_mm = -plate_l / 2 + cy * C.GRID_UNIT_MM
-        seg_x_center = -plate_w / 2 + (seg_x_start + seg_x_end) / 2 * C.GRID_UNIT_MM
+        cut_y_mm = -grid_l_mm / 2 + cy * C.GRID_UNIT_MM - grid_y_offset
+        seg_x_center = -grid_w_mm / 2 + (seg_x_start + seg_x_end) / 2 * C.GRID_UNIT_MM - grid_x_offset
         if seg_y_start == cy or seg_y_end == cy:
             hole = Cylinder(C.MAGNET_DIAMETER_MM / 2, C.MAGNET_DEPTH_MM + 0.1)
             hole = hole.moved(Location((seg_x_center, cut_y_mm, total_h - C.MAGNET_DEPTH_MM / 2)))
@@ -683,7 +734,8 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
     for (sx_start, sx_end, sy_start, sy_end) in segments:
         seg_shape = _build_segment_shape(
             sx_start, sx_end, sy_start, sy_end,
-            grid_w, grid_l, cuts_x, cuts_y, params, total_h, base_h, use_clips,
+            grid_w, grid_l, plate_w, plate_l,
+            cuts_x, cuts_y, params, total_h, base_h, use_clips,
         )
 
         try:
@@ -698,7 +750,8 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
         if params.connector_type == "magnets":
             seg_part = _add_seam_magnets(
                 seg_part, sx_start, sx_end, sy_start, sy_end,
-                grid_w, grid_l, cuts_x, cuts_y, total_h,
+                grid_w, grid_l, plate_w, plate_l,
+                cuts_x, cuts_y, total_h,
             )
 
         # Re-apply partial cutouts after segmentation
@@ -744,6 +797,11 @@ def get_segment_info(design: BaseplateDesign) -> dict:
         cuts_y = auto_y
 
     segments_list = []
+    grid_w_mm = grid_w * C.GRID_UNIT_MM
+    grid_l_mm = grid_l * C.GRID_UNIT_MM
+    grid_x_offset = (plate_w - grid_w_mm) / 2
+    grid_y_offset = (plate_l - grid_l_mm) / 2
+
     if not cuts_x and not cuts_y:
         segments_list.append({
             "index": 1, "cells_w": grid_w, "cells_h": grid_l,
@@ -752,15 +810,34 @@ def get_segment_info(design: BaseplateDesign) -> dict:
     else:
         seg_bounds = _segment_bounds(grid_w, grid_l, cuts_x, cuts_y)
         for i, (sx_start, sx_end, sy_start, sy_end) in enumerate(seg_bounds):
+            # Grid-local bounds
             w = (sx_end - sx_start) * C.GRID_UNIT_MM
             h = (sy_end - sy_start) * C.GRID_UNIT_MM
-            x = -plate_w / 2 + sx_start * C.GRID_UNIT_MM + w / 2
-            y = -plate_l / 2 + sy_start * C.GRID_UNIT_MM + h / 2
+            x_grid = -grid_w_mm / 2 + sx_start * C.GRID_UNIT_MM + w / 2
+            y_grid = -grid_l_mm / 2 + sy_start * C.GRID_UNIT_MM + h / 2
+            # Convert to plate coordinates
+            x = x_grid - grid_x_offset
+            y = y_grid - grid_y_offset
+            # For outer segments, extend w/h to include filler
+            actual_w = w
+            actual_h = h
+            if sx_start == 0:
+                actual_w += grid_x_offset
+                x -= grid_x_offset / 2
+            if sx_end == grid_w:
+                actual_w += grid_x_offset
+                x += grid_x_offset / 2
+            if sy_start == 0:
+                actual_h += grid_y_offset
+                y -= grid_y_offset / 2
+            if sy_end == grid_l:
+                actual_h += grid_y_offset
+                y += grid_y_offset / 2
             segments_list.append({
                 "index": i + 1,
                 "cells_w": sx_end - sx_start,
                 "cells_h": sy_end - sy_start,
-                "w": w, "h": h, "x": x, "y": y,
+                "w": actual_w, "h": actual_h, "x": x, "y": y,
             })
 
     return {
