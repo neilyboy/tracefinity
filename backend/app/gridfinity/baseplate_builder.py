@@ -438,13 +438,21 @@ def _build_puzzle_segment(
     total_h: float,
     base_h: float,
 ) -> Solid:
-    """Build a segment shape with dovetail locking tabs confined to the base slab.
+    """Build a segment intersection shape with dovetail tabs in the base slab only.
 
-    One side of each cut gets a dovetail TAB (wider at the tip), the other
-    side gets a matching dovetail SLOT. Both are limited to the solid flat
-    base slab height (Z = 0..base_h) so they never intersect the tapered
-    socket geometry above. base_h must match the actual base slab height
-    used when the plate was built (see generate_baseplate).
+    The shape is split into two Z layers to avoid double walls at seams:
+
+    1. Socket section (Z = base_h .. total_h): exact segment bounds with NO
+       margin at cut lines. This ensures each segment gets exactly half the
+       wall at the seam — no overlap, no double walls. A tiny margin (0.01mm)
+       is used only at the plate's outer edges for clean boolean ops.
+
+    2. Base slab (Z = 0 .. base_h): segment bounds + margin + dovetail tabs/
+       slots. The tabs protrude past the cut line for locking; the margin
+       ensures clean intersection at the outer edges.
+
+    Dovetail tabs are confined to the base slab (Z = 0..base_h) so they
+    never touch the tapered socket geometry.
     """
     plate_w = grid_w * C.GRID_UNIT_MM
     plate_l = grid_l * C.GRID_UNIT_MM
@@ -458,10 +466,42 @@ def _build_puzzle_segment(
     seg_cx = (seg_x_min + seg_x_max) / 2
     seg_cy = (seg_y_min + seg_y_max) / 2
 
-    margin = 1.0
-    shape = Box(seg_w + 2 * margin, seg_l + 2 * margin, total_h + 4)
-    shape = shape.moved(Location((seg_cx, seg_cy, total_h / 2)))
+    # Determine which edges are internal (cut lines) vs external (plate edges)
+    x_cuts_set = set(cuts_x)
+    y_cuts_set = set(cuts_y)
+    # Internal edges: cut lines that border this segment
+    left_is_cut = seg_x_start in x_cuts_set
+    right_is_cut = seg_x_end in x_cuts_set
+    below_is_cut = seg_y_start in y_cuts_set
+    above_is_cut = seg_y_end in y_cuts_set
 
+    # --- Socket section: exact bounds, no margin at cut lines ---
+    # Use 0.01mm margin at cut lines (for clean boolean), 1mm at outer edges
+    socket_margin_left = 0.01 if left_is_cut else 1.0
+    socket_margin_right = 0.01 if right_is_cut else 1.0
+    socket_margin_below = 0.01 if below_is_cut else 1.0
+    socket_margin_above = 0.01 if above_is_cut else 1.0
+
+    socket_h = total_h - base_h
+    socket_box = Box(
+        seg_w + socket_margin_left + socket_margin_right,
+        seg_l + socket_margin_below + socket_margin_above,
+        socket_h + 0.02,
+    )
+    socket_box = socket_box.moved(Location((
+        seg_cx + (socket_margin_right - socket_margin_left) / 2,
+        seg_cy + (socket_margin_above - socket_margin_below) / 2,
+        base_h + socket_h / 2,
+    )))
+
+    # --- Base slab: full margin + dovetail tabs ---
+    base_margin = 1.0
+    base_box = Box(seg_w + 2 * base_margin, seg_l + 2 * base_margin, base_h + 0.02)
+    base_box = base_box.moved(Location((seg_cx, seg_cy, base_h / 2)))
+
+    shape = base_box + socket_box
+
+    # Add dovetail tabs/slots to the base slab section only
     tab_w = params.clip_width_mm
     tab_d = params.clip_depth_mm
     tol = params.clip_tolerance_mm
