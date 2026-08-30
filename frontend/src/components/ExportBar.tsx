@@ -6,7 +6,7 @@ import type { ExportFormat } from '../types'
 const FORMATS: { fmt: ExportFormat; label: string; icon: string; desc: string }[] = [
   { fmt: 'svg', label: 'SVG', icon: '📐', desc: '2D vector (laser/foam)' },
   { fmt: 'dxf', label: 'DXF', icon: '📐', desc: '2D CAD (laser/CNC)' },
-  { fmt: 'stl', label: 'STL', icon: '🧊', desc: '3D mesh (3D print)' },
+  { fmt: 'stl', label: 'STL', icon: '🧊', desc: '3D mesh (3D print). Large trays auto-split into a ZIP of segments.' },
   { fmt: 'stl_flat', label: 'Flat STL', icon: '📋', desc: 'Flat insert layer (two-tone: sits inside tray lip, shows tray color through cutouts)' },
   { fmt: 'stl_lid', label: 'Lid STL', icon: '🗄', desc: 'Bin lid (snaps onto bin, Gridfinity base on bottom, optional text label)' },
   { fmt: '3mf', label: '3MF', icon: '🧊', desc: '3D mesh (advanced)' },
@@ -20,15 +20,36 @@ export default function ExportBar() {
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(design.id)
 
+  // Check if tray will be segmented (client-side prediction for UI display)
+  const p = design.params
+  const trayW = p.grid_w * 42
+  const trayL = p.grid_l * 42
+  const willSegment = p.force_segment || trayW > (p.print_bed_w_mm || 220) || trayL > (p.print_bed_l_mm || 220)
+
   const handleExport = async (fmt: ExportFormat) => {
     setExporting(fmt)
     const is3D = fmt === 'stl' || fmt === '3mf' || fmt === 'step' || fmt === 'stl_flat' || fmt === 'stl_lid'
     setExportStatus(is3D ? 'Generating 3D model...' : 'Exporting...')
     try {
       const blob = await exportDesign(design, fmt)
-      // stl_flat and stl_lid are STL files with different names
-      const ext = (fmt === 'stl_flat' || fmt === 'stl_lid') ? 'stl' : fmt
-      const suffix = fmt === 'stl_flat' ? '-flat' : fmt === 'stl_lid' ? '-lid' : ''
+      // Determine filename based on format and actual content type
+      // (segmented trays return a ZIP even when fmt is 'stl')
+      const isZip = blob.type === 'application/zip' || blob.type === 'application/x-zip-compressed'
+      let ext: string
+      let suffix: string
+      if (isZip) {
+        ext = 'zip'
+        suffix = '-segments'
+      } else if (fmt === 'stl_flat') {
+        ext = 'stl'
+        suffix = '-flat'
+      } else if (fmt === 'stl_lid') {
+        ext = 'stl'
+        suffix = '-lid'
+      } else {
+        ext = fmt
+        suffix = ''
+      }
       const filename = `${design.name || 'tracefinity'}${suffix}.${ext}`
       setExportStatus('Downloading...')
       downloadBlob(blob, filename)
@@ -98,9 +119,15 @@ export default function ExportBar() {
           }}
         >
           {f.icon} {f.label}
+          {f.fmt === 'stl' && willSegment && <span style={{ color: '#f59e0b', fontSize: 10, marginLeft: 2 }}>(ZIP)</span>}
           {exporting === f.fmt && ' ...'}
         </button>
       ))}
+      {willSegment && (
+        <span style={{ fontSize: 11, color: '#f59e0b' }}>
+          Tray {trayW}×{trayL}mm exceeds bed → will split into segments
+        </span>
+      )}
       {exporting && (
         <span style={{ fontSize: 12, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="spinner" style={{
