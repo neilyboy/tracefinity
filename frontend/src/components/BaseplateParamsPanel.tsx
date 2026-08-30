@@ -128,15 +128,14 @@ export default function BaseplateParamsPanel() {
 
       {/* Baseplate Thickness */}
       <Section title="Baseplate">
-        <Field label={`Extra base thickness: ${p.base_thickness_mm.toFixed(1)}mm`}>
+        <Field label={`Base thickness: ${p.base_thickness_mm.toFixed(1)}mm`}>
           <input type="range" min={0} max={10} step={0.2} value={p.base_thickness_mm}
             onChange={(e) => update({ base_thickness_mm: parseFloat(e.target.value) })}
             style={{ width: '100%' }} />
           <span style={{ fontSize: 11, color: '#52525b' }}>
-            A flat base slab always exists beneath the socket taper (minimum
-            ~1mm, more if magnets or edge clips need room). This slider adds
-            extra thickness on top of that minimum — e.g. to make up for
-            drawer depth or add rigidity. Total height ≈ 4mm + base.
+            {p.base_thickness_mm <= 0
+              ? 'Filament-saving mode: socket cavities go all the way through (no flat floor). Lightest and thinnest. Segments get simple flat edges (no clips).'
+              : 'Flat base slab below the socket profile. Set to 0 for filament-saving through-holes. Total height ≈ 5mm + base.'}
           </span>
         </Field>
         <Toggle
@@ -144,6 +143,11 @@ export default function BaseplateParamsPanel() {
           checked={p.magnet_holes}
           onChange={(v) => update({ magnet_holes: v })}
         />
+        {p.magnet_holes && p.base_thickness_mm <= 0 && (
+          <span style={{ fontSize: 10, color: '#f59e0b', display: 'block', marginTop: 2 }}>
+            Magnets need a base slab — thickness will be auto-raised to 2.4mm.
+          </span>
+        )}
         <Toggle
           label="Screw holes"
           checked={p.screw_holes}
@@ -219,10 +223,9 @@ export default function BaseplateParamsPanel() {
             </Row>
             <Field label="Tolerance (mm)"><NumInput value={p.clip_tolerance_mm} onChange={(v) => update({ clip_tolerance_mm: v })} min={0} max={1} step={0.05} /></Field>
             <span style={{ fontSize: 10, color: '#71717a', display: 'block', marginTop: 2 }}>
-              Locking tabs form in the flat base slab (below the socket
-              taper), so a base thickness of at least 1.6mm is used
-              automatically across the whole plate when edge clips are
-              enabled.
+              {p.base_thickness_mm <= 0
+                ? 'Filament-saving mode: segments get simple flat edges (no tabs). Use glue, tape, or external clips to join.'
+                : 'Locking dovetail tabs form in the flat base slab. Base thickness auto-raised to 1.6mm minimum if needed.'}
             </span>
           </>
         )}

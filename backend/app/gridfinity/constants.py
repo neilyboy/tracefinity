@@ -77,14 +77,64 @@ DEFAULT_WALL_THICKNESS_MM = 1.2
 DEFAULT_SCOOP_DEPTH_MM = 8.0
 
 # --- Baseplate ---
-# The socket pattern is cut INTO the top of the baseplate (same 4mm profile as bin bases).
-BASEPLATE_SOCKET_DEPTH_MM = 4.0  # depth of the gridfinity socket cut into the plate
-BASEPLATE_DEFAULT_THICKNESS_MM = 2.4  # base thickness below the socket
-BASEPLATE_MIN_THICKNESS_MM = 1.0
+# Based on Kennetek's gridfinity-rebuilt-openscad reference implementation.
+# https://github.com/kennetek/gridfinity-rebuilt-openscad
+#
+# The baseplate socket profile (cut into the top of the plate) has three
+# sections, all with 45° chamfers:
+#
+#   Z=0 (bottom):     narrowest  — socket_bottom_size (36.3mm)
+#   Z=0..0.7:         45° chamfer widening out by 0.7mm per side
+#   Z=0.7..2.5:       vertical section (1.8mm tall) at socket_neck_size (37.7mm)
+#   Z=2.5..4.65:      45° chamfer widening out by 2.15mm per side
+#   Z=4.65 (top):     widest — full grid size (42mm)
+#
+# Total profile height: 4.65mm. Baseplate height = 5mm (includes 0.35mm
+# clearance above the profile to ensure the bin base contacts the lip).
+
+# Profile section heights (mm)
+BASEPLATE_PROFILE_BOTTOM_CHAMFER_H = 0.7   # bottom 45° chamfer height
+BASEPLATE_PROFILE_VERTICAL_H = 1.8         # vertical section height
+BASEPLATE_PROFILE_TOP_CHAMFER_H = 2.15     # top 45° chamfer height
+BASEPLATE_PROFILE_TOTAL_H = (
+    BASEPLATE_PROFILE_BOTTOM_CHAMFER_H
+    + BASEPLATE_PROFILE_VERTICAL_H
+    + BASEPLATE_PROFILE_TOP_CHAMFER_H
+)  # 4.65mm
+
+# Profile horizontal insets (mm, per side)
+BASEPLATE_PROFILE_BOTTOM_CHAMFER_INSET = 0.7    # bottom chamfer horizontal
+BASEPLATE_PROFILE_TOP_CHAMFER_INSET = 2.15      # top chamfer horizontal
+BASEPLATE_PROFILE_TOTAL_INSET = (
+    BASEPLATE_PROFILE_BOTTOM_CHAMFER_INSET
+    + BASEPLATE_PROFILE_TOP_CHAMFER_INSET
+)  # 2.85mm per side
+
+# Socket sizes (mm, square)
+BASEPLATE_SOCKET_TOP_SIZE = GRID_UNIT_MM  # 42mm at the very top (full grid size)
+BASEPLATE_SOCKET_NECK_SIZE = (
+    BASEPLATE_SOCKET_TOP_SIZE - 2 * BASEPLATE_PROFILE_TOP_CHAMFER_INSET
+)  # 37.7mm at the vertical neck
+BASEPLATE_SOCKET_BOTTOM_SIZE = (
+    BASEPLATE_SOCKET_NECK_SIZE - 2 * BASEPLATE_PROFILE_BOTTOM_CHAMFER_INSET
+)  # 36.3mm at the very bottom (narrowest)
+
+# Total baseplate height (socket profile + clearance)
+BASEPLATE_HEIGHT_MM = 5.0  # standard gridfinity baseplate height
+BASEPLATE_CLEARANCE_H = BASEPLATE_HEIGHT_MM - BASEPLATE_PROFILE_TOTAL_H  # 0.35mm
+
+# Corner radius
+BASEPLATE_OUTER_RADIUS = 4.0  # outer corner radius of the baseplate
+BASEPLATE_INNER_RADIUS = 1.15  # inner corner radius of the socket cavity
+
+# Base slab (below the socket profile)
+BASEPLATE_DEFAULT_THICKNESS_MM = 2.4  # default extra base thickness below socket
+BASEPLATE_MIN_THICKNESS_MM = 0.0      # 0 = filament-saving mode (through holes)
 BASEPLATE_MAX_THICKNESS_MM = 10.0
+
 # Default edge clip dimensions for segmented baseplates
-BASEPLATE_CLIP_WIDTH_MM = 8.0
-BASEPLATE_CLIP_DEPTH_MM = 4.0
+BASEPLATE_CLIP_WIDTH_MM = 6.0
+BASEPLATE_CLIP_DEPTH_MM = 3.0
 BASEPLATE_CLIP_TOLERANCE_MM = 0.2
 # Print bed presets (mm) — common consumer printers
 PRINT_BED_PRESETS = {
