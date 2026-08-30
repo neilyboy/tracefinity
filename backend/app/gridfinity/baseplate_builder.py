@@ -118,44 +118,32 @@ def _build_socket_cutter(grid_w: int, grid_l: int, plate_top_z: float, through_h
 
     If through_hole=True, the cutter extends below the socket profile to
     cut all the way through the plate (filament-saving mode).
+
+    Optimization: builds one cell, then creates translated copies and fuses
+    them all at once via a compound (much faster than sequential fusing).
     """
-    bottom_size = C.BASEPLATE_SOCKET_BOTTOM_SIZE   # 36.3mm
-    neck_size = C.BASEPLATE_SOCKET_NECK_SIZE       # 37.7mm
-    top_size = C.BASEPLATE_SOCKET_TOP_SIZE         # 42mm
+    # Build one cell at origin, then translate copies
+    base_cell = _build_single_socket_cell(
+        C.BASEPLATE_SOCKET_BOTTOM_SIZE, C.BASEPLATE_SOCKET_NECK_SIZE, C.BASEPLATE_SOCKET_TOP_SIZE,
+        C.BASEPLATE_PROFILE_BOTTOM_CHAMFER_H, C.BASEPLATE_PROFILE_VERTICAL_H,
+        C.BASEPLATE_PROFILE_TOP_CHAMFER_H, C.BASEPLATE_CLEARANCE_H,
+        through_hole, plate_top_z,
+    )
 
-    bottom_chamfer_h = C.BASEPLATE_PROFILE_BOTTOM_CHAMFER_H   # 0.7mm
-    vertical_h = C.BASEPLATE_PROFILE_VERTICAL_H               # 1.8mm
-    top_chamfer_h = C.BASEPLATE_PROFILE_TOP_CHAMFER_H         # 2.15mm
-    clearance_h = C.BASEPLATE_CLEARANCE_H                     # 0.35mm
-
-    # Z positions (plate_top_z is the top surface of the plate)
-    z_top = plate_top_z                                          # top of plate
-    z_chamfer_top_end = z_top - clearance_h                      # top of profile (42mm)
-    z_chamfer_top_start = z_chamfer_top_end - top_chamfer_h     # start of top chamfer (37.7mm)
-    z_vertical_end = z_chamfer_top_start                         # end of vertical (37.7mm)
-    z_vertical_start = z_vertical_end - vertical_h              # start of vertical (37.7mm)
-    z_bottom_chamfer_end = z_vertical_start                     # end of bottom chamfer (37.7mm)
-    z_bottom = z_bottom_chamfer_end - bottom_chamfer_h          # very bottom (36.3mm)
-
-    cutter = None
+    # Create all translated copies as a list of Solids
+    cells = []
     for gx in range(grid_w):
         for gy in range(grid_l):
             cx = -grid_w * C.GRID_UNIT_MM / 2 + (gx + 0.5) * C.GRID_UNIT_MM
             cy = -grid_l * C.GRID_UNIT_MM / 2 + (gy + 0.5) * C.GRID_UNIT_MM
+            cells.append(base_cell.moved(Location((cx, cy, 0))))
 
-            cell = _build_single_socket_cell(
-                bottom_size, neck_size, top_size,
-                bottom_chamfer_h, vertical_h, top_chamfer_h, clearance_h,
-                through_hole, plate_top_z,
-            )
-            cell = cell.moved(Location((cx, cy, 0)))
-
-            if cutter is None:
-                cutter = Part(cell)
-            else:
-                cutter = cutter + Part(cell)
-
-    return cutter
+    # Fuse all cells at once using Compound (avoids N-1 sequential boolean ops)
+    from build123d import Compound
+    compound = Compound(children=cells)
+    # Convert to a single fused solid
+    cutter = compound.fuse()
+    return cutter if isinstance(cutter, Part) else Part(cutter)
 
 
 def _build_single_socket_cell(
@@ -222,49 +210,59 @@ def _build_single_socket_cell(
 # Magnet holes
 # ---------------------------------------------------------------------------
 
-def _build_magnet_holes(grid_w: int, grid_l: int, plate_top_z: float, base_h: float) -> list[Solid]:
-    """Build magnet hole cutters for each cell corner.
+def _build_magnet_holes(grid_w: int, grid_l: int, plate_top_z: float, base_h: float) -> Part | None:
+    """Build magnet hole cutters for all cell corners as a single fused part.
 
     Magnets sit at the bottom of the socket (deepest point), which is
     at Z = plate_top_z - BASEPLATE_HEIGHT_MM (the bottom of the socket profile).
     Holes go downward into the base slab from there.
+
+    Returns a single fused Part (or None if no holes) for efficient
+    single-pass subtraction from the plate.
     """
-    holes = []
     magnet_d = C.MAGNET_DIAMETER_MM
     magnet_depth = C.MAGNET_DEPTH_MM
-    # Magnet center is inset from the cell corner
     inset = 8.0  # mm from cell edge to magnet center
-
     socket_bottom_z = plate_top_z - C.BASEPLATE_HEIGHT_MM
 
+    # Build one cylinder at origin, then create translated copies
+    base_hole = Cylinder(magnet_d / 2, magnet_depth + 0.1)
+    base_hole = base_hole.moved(Location((0, 0, -magnet_depth / 2 - 0.05)))
+
+    holes = []
     for gx in range(grid_w):
         for gy in range(grid_l):
             cx = -grid_w * C.GRID_UNIT_MM / 2 + (gx + 0.5) * C.GRID_UNIT_MM
             cy = -grid_l * C.GRID_UNIT_MM / 2 + (gy + 0.5) * C.GRID_UNIT_MM
 
-            # 4 corners of the cell
             for dx in [-1, 1]:
                 for dy in [-1, 1]:
                     mx = cx + dx * (C.GRID_UNIT_MM / 2 - inset)
                     my = cy + dy * (C.GRID_UNIT_MM / 2 - inset)
-                    # Hole goes from socket_bottom_z downward by magnet_depth
-                    hole = Cylinder(magnet_d / 2, magnet_depth + 0.1)
-                    hole = hole.moved(Location((mx, my, socket_bottom_z - magnet_depth / 2)))
-                    holes.append(hole)
+                    holes.append(base_hole.moved(Location((mx, my, socket_bottom_z))))
 
-    return holes
+    if not holes:
+        return None
+
+    from build123d import Compound
+    compound = Compound(children=holes)
+    fused = compound.fuse()
+    return fused if isinstance(fused, Part) else Part(fused)
 
 
 # ---------------------------------------------------------------------------
 # Screw holes
 # ---------------------------------------------------------------------------
 
-def _build_screw_holes(grid_w: int, grid_l: int, total_h: float) -> list[Solid]:
-    """Build screw hole cutters (M3 through-holes) at cell corners."""
-    holes = []
+def _build_screw_holes(grid_w: int, grid_l: int, total_h: float) -> Part | None:
+    """Build screw hole cutters (M3 through-holes) at cell corners as a single fused part."""
     screw_d = C.SCREW_DIAMETER_MM
     inset = 8.0
 
+    base_hole = Cylinder(screw_d / 2, total_h + 2)
+    base_hole = base_hole.moved(Location((0, 0, total_h / 2)))
+
+    holes = []
     for gx in range(grid_w):
         for gy in range(grid_l):
             cx = -grid_w * C.GRID_UNIT_MM / 2 + (gx + 0.5) * C.GRID_UNIT_MM
@@ -274,11 +272,15 @@ def _build_screw_holes(grid_w: int, grid_l: int, total_h: float) -> list[Solid]:
                 for dy in [-1, 1]:
                     mx = cx + dx * (C.GRID_UNIT_MM / 2 - inset)
                     my = cy + dy * (C.GRID_UNIT_MM / 2 - inset)
-                    hole = Cylinder(screw_d / 2, total_h + 2)
-                    hole = hole.moved(Location((mx, my, total_h / 2)))
-                    holes.append(hole)
+                    holes.append(base_hole.moved(Location((mx, my, 0))))
 
-    return holes
+    if not holes:
+        return None
+
+    from build123d import Compound
+    compound = Compound(children=holes)
+    fused = compound.fuse()
+    return fused if isinstance(fused, Part) else Part(fused)
 
 
 # ---------------------------------------------------------------------------
@@ -695,19 +697,21 @@ def generate_baseplate(design: BaseplateDesign) -> list[Part]:
             except Exception:
                 pass
 
-    # 4. Add magnet holes (only with a base slab)
+    # 4. Add magnet holes (only with a base slab) — single fused cutter
     if params.magnet_holes and base_h > 0:
-        for magnet in _build_magnet_holes(grid_w, grid_l, plate_top_z, base_h):
+        magnet_cutter = _build_magnet_holes(grid_w, grid_l, plate_top_z, base_h)
+        if magnet_cutter is not None:
             try:
-                plate = plate - magnet
+                plate = plate - magnet_cutter
             except Exception:
                 pass
 
-    # 5. Add screw holes (only with a base slab)
+    # 5. Add screw holes (only with a base slab) — single fused cutter
     if params.screw_holes and base_h > 0:
-        for screw in _build_screw_holes(grid_w, grid_l, total_h):
+        screw_cutter = _build_screw_holes(grid_w, grid_l, total_h)
+        if screw_cutter is not None:
             try:
-                plate = plate - screw
+                plate = plate - screw_cutter
             except Exception:
                 pass
 
