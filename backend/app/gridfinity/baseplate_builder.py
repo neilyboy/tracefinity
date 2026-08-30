@@ -330,17 +330,16 @@ def _build_cutout_solid(
 # ---------------------------------------------------------------------------
 
 def _build_dovetail_tab(depth: float, width: float, height: float, direction: str) -> Solid:
-    """Build a dovetail locking tab — simple straight extrusion.
+    """Build a dovetail locking tab with 45° chamfered top.
 
-    The tab is a trapezoid (dovetail shape: wider at the protruding tip)
-    extruded straight up. The flat top is fine for printing the tab itself.
-
-    For support-free printing of the matching SLOT, the slot is made as
-    a through-hole (open at top) — see _build_dovetail_slot.
+    The tab is a trapezoid (dovetail: wider at the protruding tip) with:
+    - Straight walls for most of the height
+    - 45° chamfer on all top edges (support-free when printed)
 
     Confined to Z = 0..height. direction is "+x" or "+y".
     """
     extra = DOVETAIL_EXTRA_MM
+    chamfer_size = min(height * 0.35, 1.2)  # 45° chamfer on top edges
 
     if direction == "+x":
         pts = [
@@ -358,29 +357,37 @@ def _build_dovetail_tab(depth: float, width: float, height: float, direction: st
         ]
 
     try:
+        from build123d import BuildPart, BuildSketch, Plane, chamfer as bp_chamfer
+        with BuildPart() as bp:
+            with BuildSketch(Plane.XY):
+                Polygon(pts)
+            extrude(amount=height)
+            # Chamfer top edges (at Z = height)
+            top_edges = [e for e in bp.edges() if abs(e.position_at(0.5).Z - height) < 0.01]
+            if top_edges:
+                bp_chamfer(top_edges, length=chamfer_size)
+
+        tab = bp.part
+        bb = tab.bounding_box()
+        tab = tab.moved(Location((0, 0, -bb.min.Z)))
+        return tab
+    except Exception:
+        # Fallback: simple extruded dovetail (no chamfer)
         sk = Sketch() + Polygon(pts)
         tab = extrude(sk, amount=height)
         bb = tab.bounding_box()
         tab = tab.moved(Location((0, 0, -bb.min.Z)))
         return tab
-    except Exception:
-        # Fallback: simple box
-        if direction == "+x":
-            return Box(depth, width + 2 * extra, height).moved(Location((depth / 2, 0, height / 2)))
-        else:
-            return Box(width + 2 * extra, depth, height).moved(Location((0, depth / 2, height / 2)))
 
 
 def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, direction: str) -> Solid:
-    """Build a through-hole dovetail slot cutter — fully support-free.
+    """Build a through-hole dovetail slot — fully support-free.
 
-    The slot is a through-hole: it extends above and below the base slab,
-    so there is NO ceiling at all. This means no horizontal overhangs
-    and no supports needed when printing.
+    The slot is a through-hole through the BASE ONLY (Z = -1 to height+1).
+    It does NOT extend above the base into the tray's floor/walls area.
 
-    The tab slides in from the side and locks horizontally via the
-    dovetail shape. Vertical locking is provided by gravity (the tray
-    sits on a baseplate) or by the adjacent segment's weight.
+    No ceiling = no horizontal overhangs = no supports needed.
+    The tab slides in from the side and locks horizontally via dovetail.
 
     direction is "-x" or "-y" — the slot opens at the segment edge.
     """
@@ -406,16 +413,16 @@ def _build_dovetail_slot(depth: float, width: float, height: float, tol: float, 
 
     try:
         sk = Sketch() + Polygon(pts)
-        # Extrude well beyond the base height to create a through-hole.
-        # extrude goes in -Z, so result is Z=[-h*3, 0]. Move up to center on Z=0.
-        slot = extrude(sk, amount=height * 3)
-        slot = slot.moved(Location((0, 0, height * 1.5)))  # center on Z=0
+        # Through-hole through the base only: Z = -1 to height+1
+        # extrude goes in -Z (result is Z=[-(h+2), 0]), then move up by h+1
+        slot = extrude(sk, amount=height + 2)
+        slot = slot.moved(Location((0, 0, height + 1)))  # Z = [-1, height+1]
         return slot
     except Exception:
         if direction == "-x":
-            return Box(slot_depth + 1, tip_w, height * 3).moved(Location((slot_depth / 2 - 0.5, 0, height / 2)))
+            return Box(slot_depth + 1, tip_w, height + 2).moved(Location((slot_depth / 2 - 0.5, 0, 0)))
         else:
-            return Box(tip_w, slot_depth + 1, height * 3).moved(Location((0, slot_depth / 2 - 0.5, height / 2)))
+            return Box(tip_w, slot_depth + 1, height + 2).moved(Location((0, slot_depth / 2 - 0.5, 0)))
 
 
 # ---------------------------------------------------------------------------

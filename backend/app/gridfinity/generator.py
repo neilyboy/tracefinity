@@ -413,7 +413,7 @@ def _add_tray_connectors(
     # How far the tab extends into the segment to overlap with solid base.
     # Gridfinity base has ~3.5mm gaps between cell sockets, so we need
     # enough overlap to reach solid material on both sides of the gap.
-    tab_overlap = 5.0  # mm of tab that sits inside the segment
+    tab_overlap = 5.0  # mm of tab that sits inside the segment (tabs only, not slots)
 
     # --- Vertical cut lines (X cuts) ---
     for cx in cuts_x:
@@ -441,9 +441,10 @@ def _add_tray_connectors(
                 except Exception:
                     pass
             elif is_right:
-                # Slot starts INSIDE the segment and opens toward -x
-                slot = _build_dovetail_slot(clip_d + tab_overlap, clip_w, tab_h, clip_tol, "-x")
-                slot = slot.moved(Location((cut_x_mm + tab_overlap, ty, 0)))
+                # Slot opens at the cut edge and goes inward by clip_d
+                # NO tab_overlap for slots — they start at the cut edge
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-x")
+                slot = slot.moved(Location((cut_x_mm, ty, 0)))
                 try:
                     seg_part = seg_part - slot
                 except Exception:
@@ -474,8 +475,9 @@ def _add_tray_connectors(
                 except Exception:
                     pass
             elif is_above:
-                slot = _build_dovetail_slot(clip_d + tab_overlap, clip_w, tab_h, clip_tol, "-y")
-                slot = slot.moved(Location((tx, cut_y_mm + tab_overlap, 0)))
+                # Slot opens at the cut edge, no tab_overlap
+                slot = _build_dovetail_slot(clip_d, clip_w, tab_h, clip_tol, "-y")
+                slot = slot.moved(Location((tx, cut_y_mm, 0)))
                 try:
                     seg_part = seg_part - slot
                 except Exception:
@@ -545,31 +547,26 @@ def generate_gridfinity_segmented(design: Design) -> list[Part]:
             intersect_result = full_tray.intersect(cut_box)
             if not intersect_result:
                 continue
-            # intersect may return multiple disconnected solids — fuse them all
+            # intersect returns ShapeList of Solids (including tiny slivers).
+            # Fuse ALL solids via Compound to get the real segment.
             if hasattr(intersect_result, '__iter__') and not isinstance(intersect_result, (Part, Solid)):
                 solids = list(intersect_result)
             else:
                 solids = [intersect_result]
             if not solids:
                 continue
-            seg_part = solids[0]
-            for s in solids[1:]:
-                try:
-                    seg_part = seg_part + s
-                except Exception:
-                    pass
+            # Use Compound.fuse() to merge all solids at once
+            compound = Compound(children=solids)
+            fused = compound.fuse()
+            # fused can be Solid or Part depending on number of inputs
+            if isinstance(fused, Part):
+                seg_part = fused
+            elif isinstance(fused, Solid):
+                seg_part = Part(fused.wrapped)
+            else:
+                seg_part = Part(fused)
         except Exception:
             continue
-
-        if not isinstance(seg_part, Part):
-            try:
-                # Solid → Part conversion: wrap the solid's underlying shape
-                if hasattr(seg_part, 'wrapped'):
-                    seg_part = Part(seg_part.wrapped)
-                else:
-                    seg_part = Part(seg_part)
-            except Exception:
-                continue
 
         # Step 2: Add tabs and cut slots AFTER intersection
         if use_clips:
