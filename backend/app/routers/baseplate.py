@@ -69,6 +69,7 @@ async def export_baseplate(payload: dict):
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
 
     from ..gridfinity.baseplate_builder import generate_baseplate, get_segment_info
+    from ..gridfinity.segment_layout import render_segment_map
     from ..exporters.mesh import export_stl
 
     segments = generate_baseplate(design)
@@ -114,7 +115,16 @@ async def export_baseplate(payload: dict):
             "5. Press down to seat the segments flat on the drawer floor.",
             "",
             "Segment Layout (top-down view, Y increases downward):",
+            "",
         ]
+        # Visual ASCII map
+        for line in render_segment_map(
+            info["grid_w"], info["grid_l"],
+            info.get("cuts_x", []), info.get("cuts_y", []),
+        ):
+            readme_lines.append(line)
+        readme_lines.append("")
+        # Detailed per-segment dimensions
         for seg in info["segments"]:
             readme_lines.append(
                 f"  S{seg['index']}: {seg['cells_w']}x{seg['cells_h']} cells "

@@ -60,6 +60,7 @@ async def export_design(payload: dict):
                 generate_gridfinity_segmented, get_tray_segment_info,
             )
             from ..gridfinity.lid_builder import generate_lid
+            from ..gridfinity.segment_layout import render_segment_map
             from ..exporters.mesh import export_stl, export_3mf
             from ..exporters.step import export_step
 
@@ -99,8 +100,17 @@ async def export_design(payload: dict):
                             "3. If using edge clips, slide the tab side into the slot side.",
                             "4. Press together to seat the dovetail tabs.",
                             "",
-                            "Segment Layout:",
+                            "Segment Layout (top-down view, Y increases downward):",
+                            "",
                         ]
+                        # Visual ASCII map
+                        for line in render_segment_map(
+                            seg_info["grid_w"], seg_info["grid_l"],
+                            seg_info.get("cuts_x", []), seg_info.get("cuts_y", []),
+                        ):
+                            readme.append(line)
+                        readme.append("")
+                        # Detailed per-segment dimensions
                         for seg in seg_info["segments"]:
                             readme.append(
                                 f"  S{seg['index']}: {seg['cells_w']}x{seg['cells_h']} cells "
