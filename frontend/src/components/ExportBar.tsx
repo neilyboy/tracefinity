@@ -8,7 +8,7 @@ const FORMATS: { fmt: ExportFormat; label: string; icon: string; desc: string }[
   { fmt: 'dxf', label: 'DXF', icon: '📐', desc: '2D CAD (laser/CNC)' },
   { fmt: 'stl', label: 'STL', icon: '🧊', desc: '3D mesh (3D print). Large trays auto-split into a ZIP of segments.' },
   { fmt: 'stl_flat', label: 'Flat STL', icon: '📋', desc: 'Flat insert layer (two-tone: sits inside tray lip, shows tray color through cutouts)' },
-  { fmt: 'stl_lid', label: 'Lid STL', icon: '🗄', desc: 'Bin lid (snaps onto bin, Gridfinity base on bottom, optional text label)' },
+  { fmt: 'stl_lid', label: 'Lid STL', icon: '�', desc: 'Bin lid (snaps onto bin, optional text label)' },
   { fmt: '3mf', label: '3MF', icon: '🧊', desc: '3D mesh (advanced)' },
   { fmt: 'step', label: 'STEP', icon: '🔧', desc: '3D CAD (Fusion/FreeCAD)' },
 ]
