@@ -114,12 +114,21 @@ def render_segment_map(
             _clear_row(canvas, mid_y, cx_start * cell_w + 1, cx_end * cell_w)
             _place_text(canvas, mid_y, mid_x, label, rows, cols)
 
-            # Show dimensions on a second line if there's room
+            # Show dimensions on a second line if there's room.
+            # Place at mid_y - 1 because the canvas is vertically flipped
+            # at the end, so mid_y - 1 in canvas → mid_y + 1 in display
+            # (below the S-label).
             size_label = f"{cells_w}x{cells_h}"
             if interior_h >= 3 and len(size_label) <= cells_w * cell_w - 1:
-                _clear_row(canvas, mid_y + 1, cx_start * cell_w + 1, cx_end * cell_w)
-                _place_text(canvas, mid_y + 1, mid_x, size_label, rows, cols)
+                _clear_row(canvas, mid_y - 1, cx_start * cell_w + 1, cx_end * cell_w)
+                _place_text(canvas, mid_y - 1, mid_x, size_label, rows, cols)
 
+    # Flip vertically so high-Y (top of drawer) appears at the top,
+    # matching the frontend's top-down view (SVG Y-down with flipped
+    # backend coords).  Without this, y=0 (bottom of drawer) would
+    # appear at the top of the map — the reverse of what the user
+    # sees on screen.
+    canvas.reverse()
     return ["".join(row) for row in canvas]
 
 
