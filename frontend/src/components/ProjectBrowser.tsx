@@ -28,6 +28,7 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
   const [newFolderName, setNewFolderName] = useState('')
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null) // project being moved
+  const [searchQuery, setSearchQuery] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -56,6 +57,38 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
 
   const projectsInFolder = (folderId: string | null) =>
     projects.filter((p) => p.folder_id === folderId)
+
+  // Build a breadcrumb path string for a folder (e.g., "Parent / Sub / Leaf")
+  const folderPath = (folderId: string | null): string => {
+    if (!folderId) return ''
+    const parts: string[] = []
+    let cursor: string | null = folderId
+    while (cursor) {
+      const f = folders.find((fld) => fld.id === cursor)
+      if (!f) break
+      parts.unshift(f.name)
+      cursor = f.parent_id
+    }
+    return parts.join(' / ')
+  }
+
+  // --- Search filtering ---
+  const hasSearch = searchQuery.trim().length > 0
+  const query = searchQuery.trim().toLowerCase()
+
+  // When searching, find matching projects and folders (case-insensitive substring)
+  const matchingProjects = hasSearch
+    ? projects.filter((p) => p.name.toLowerCase().includes(query))
+    : []
+
+  const matchingFolderIds = hasSearch
+    ? new Set(folders.filter((f) => f.name.toLowerCase().includes(query)).map((f) => f.id))
+    : new Set<string>()
+
+  // Also include folders that contain matching projects (so the user sees context)
+  for (const p of matchingProjects) {
+    if (p.folder_id) matchingFolderIds.add(p.folder_id)
+  }
 
   const toggleExpand = (folderId: string) => {
     setExpandedFolders((prev) => {
@@ -391,7 +424,7 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
   return (
     <div style={{ width: 680, background: '#18181b', borderRadius: 12, padding: 16, border: '1px solid #3f3f46' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h3 style={{ fontSize: 14, color: '#a1a1aa', margin: 0 }}>Saved Projects {totalCount > 0 && `(${totalCount})`}</h3>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => { setShowNewFolderDialog(true); setNewFolderParent(null); setNewFolderName('') }}
@@ -409,16 +442,100 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
         </div>
       </div>
 
+      {/* Search bar */}
+      {totalCount > 0 || folders.length > 0 ? (
+        <div style={{ position: 'relative', marginBottom: 12 }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search projects and folders..."
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              background: '#27272a', border: '1px solid #3f3f46', borderRadius: 6,
+              padding: '6px 12px 6px 30px', color: '#e4e4e7', fontSize: 13,
+            }}
+          />
+          <span style={{
+            position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+            fontSize: 14, color: '#52525b', pointerEvents: 'none',
+          }}>🔍</span>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              style={{
+                position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: '#71717a', cursor: 'pointer',
+                fontSize: 16, padding: '0 4px',
+              }}
+              title="Clear search"
+            >✕</button>
+          )}
+        </div>
+      ) : null}
+
       {/* Hidden import file input */}
       <input ref={importRef} type="file" accept=".json,application/json" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = '' }} />
 
-      {/* Tree */}
+      {/* Content: tree view or search results */}
       {totalCount === 0 && rootFolders.length === 0 ? (
         <p style={{ color: '#52525b', fontSize: 13, textAlign: 'center', padding: 20 }}>
           No saved projects yet. Create a tray or baseplate and click Save in the editor to save it.
         </p>
+      ) : hasSearch ? (
+        /* Search results — flat list with folder breadcrumbs */
+        <div style={{ maxHeight: 400, overflow: 'auto' }}>
+          {matchingProjects.length === 0 && matchingFolderIds.size === 0 ? (
+            <p style={{ color: '#52525b', fontSize: 13, textAlign: 'center', padding: 20 }}>
+              No matches for "{searchQuery}"
+            </p>
+          ) : (
+            <>
+              {/* Matching folders */}
+              {folders.filter((f) => f.name.toLowerCase().includes(query)).map((f) => (
+                <div key={`search-folder-${f.id}`} style={{ ...rowStyle }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#f59e0b'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#3f3f46'}
+                >
+                  <div onClick={() => { setSearchQuery(''); setExpandedFolders((prev) => new Set(prev).add(f.id)) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 18 }}>📁</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: '#f59e0b', fontWeight: 600 }}>{f.name}</div>
+                      <div style={{ fontSize: 11, color: '#71717a' }}>{folderPath(f.parent_id) || 'Root'}</div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#71717a', cursor: 'pointer' }}
+                    onClick={() => { setSearchQuery(''); setExpandedFolders((prev) => new Set(prev).add(f.id)) }}>→</span>
+                </div>
+              ))}
+              {/* Matching projects with folder path */}
+              {matchingProjects.map((p) => (
+                <div key={`search-proj-${p.id}`} style={{ ...rowStyle }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#7c3aed'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#3f3f46'}
+                >
+                  <div onClick={() => handleLoadProject(p)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                    <span style={badgeStyle(p.type)}>{p.type === 'tray' ? '📐 Tray' : '🔳 Base'}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: '#e4e4e7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: '#71717a' }}>
+                        {folderPath(p.folder_id) || 'Root'} · {new Date(p.updated_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); handleExportProject(p) }} title="Export" style={iconBtnStyle}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#a78bfa'; e.currentTarget.style.borderColor = '#7c3aed' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = '#71717a'; e.currentTarget.style.borderColor = '#3f3f46' }}>📤</button>
+                  <span onClick={() => handleLoadProject(p)} style={{ fontSize: 18, color: '#71717a', cursor: 'pointer', marginLeft: 4 }}>→</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
       ) : (
+        /* Normal tree view */
         <div style={{ maxHeight: 400, overflow: 'auto' }}>
           {/* Root-level folders */}
           {rootFolders.map((f) => renderFolder(f, 0))}
