@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { useBaseplate } from '../editor/useBaseplateState'
 import { traceImage, listDesigns, loadDesign, deleteDesign, listBaseplateDesigns, loadBaseplateDesign, deleteBaseplateDesign, listToolLibrary } from '../api/client'
-import type { PaperSize, ProjectSummary } from '../types'
+import { downloadBlob } from '../api/client'
+import type { PaperSize, ProjectSummary, Design, BaseplateDesign } from '../types'
 import type { ToolLibrarySummary } from '../api/client'
 
 export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBaseplate?: () => void }) {
@@ -19,6 +20,7 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
   const [blankL, setBlankL] = useState(2)
   const [blankH, setBlankH] = useState(4)
   const [libraryCount, setLibraryCount] = useState(0)
+  const importRef = useRef<HTMLInputElement>(null)
 
   const loading = useEditor((s) => s.loading)
 
@@ -128,6 +130,78 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Delete failed')
       setDeletingId(null)
+    }
+  }
+
+  const handleExportProject = async (project: ProjectSummary) => {
+    setLoading(true)
+    setError(null)
+    try {
+      let design: Design | BaseplateDesign
+      if (project.type === 'tray') {
+        design = await loadDesign(project.id)
+      } else {
+        design = await loadBaseplateDesign(project.id)
+      }
+      // Wrap in a portable format with type info and version
+      const exportData = {
+        type: project.type,
+        version: 1,
+        exported_at: new Date().toISOString(),
+        design,
+      }
+      const json = JSON.stringify(exportData, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const safeName = (project.name || 'untitled').replace(/[^a-zA-Z0-9_-]/g, '_')
+      downloadBlob(blob, `${safeName}.tracefinity.json`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Export failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleImportProject = async (file: File) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+
+      // Validate format
+      if (!data.type || !data.design) {
+        throw new Error('Invalid project file: missing type or design data')
+      }
+
+      // Strip the ID so it creates a fresh record when saved
+      const design = data.design
+      design.id = null
+
+      if (data.type === 'tray') {
+        // Mark as imported copy in the name
+        if (!design.name.endsWith(' (imported)')) {
+          design.name = `${design.name || 'Imported'} (imported)`
+        }
+        setDesign(design)
+        setView('editor')
+      } else if (data.type === 'baseplate') {
+        if (!design.name.endsWith(' (imported)')) {
+          design.name = `${design.name || 'Imported'} (imported)`
+        }
+        useBaseplate.setState({
+          design,
+          history: [JSON.parse(JSON.stringify(design))],
+          historyIndex: 0,
+          selectedCutoutId: null,
+        })
+        onSwitchToBaseplate?.()
+      } else {
+        throw new Error(`Unknown project type: ${data.type}`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -265,10 +339,34 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
       />
 
+      {/* Hidden import file input */}
+      <input
+        ref={importRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportProject(f); e.target.value = '' }}
+      />
+
       {/* Saved projects list */}
       {showSaved && (
         <div style={{ width: 620, background: '#18181b', borderRadius: 12, padding: 16, border: '1px solid #3f3f46' }}>
-          <h3 style={{ fontSize: 14, color: '#a1a1aa', marginTop: 0, marginBottom: 12 }}>Saved Projects</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, color: '#a1a1aa', margin: 0 }}>Saved Projects</h3>
+            <button
+              onClick={() => importRef.current?.click()}
+              title="Import a .tracefinity.json file shared by someone else"
+              style={{
+                padding: '4px 12px', borderRadius: 6, border: '1px solid #3f3f46',
+                background: '#27272a', color: '#a1a1aa', cursor: 'pointer', fontSize: 12,
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa' }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3f3f46'; e.currentTarget.style.color = '#a1a1aa' }}
+            >
+              📥 Import
+            </button>
+          </div>
 
           {/* Filter tabs */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -350,6 +448,20 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
                           </div>
                         </div>
                       </div>
+                      {/* Export button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExportProject(p) }}
+                        title="Export as shareable .json file"
+                        style={{
+                          padding: '4px 8px', borderRadius: 4, border: '1px solid #3f3f46',
+                          background: '#27272a', color: '#71717a', cursor: 'pointer', fontSize: 14,
+                          marginRight: 4,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = '#a78bfa'; e.currentTarget.style.borderColor = '#7c3aed' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = '#71717a'; e.currentTarget.style.borderColor = '#3f3f46' }}
+                      >
+                        📤
+                      </button>
                       {/* Delete button */}
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeletingId(p.id) }}
