@@ -1,5 +1,5 @@
 // API client for the Tracefinity backend.
-import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat, BaseplateDesign, BaseplateDesignSummary, SegmentInfo } from '../types'
+import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat, BaseplateDesign, BaseplateDesignSummary, SegmentInfo, FolderSummary, ProjectSummary } from '../types'
 
 const API = '/api'
 
@@ -264,4 +264,100 @@ export async function exportBaseplate(design: BaseplateDesign): Promise<Blob> {
     throw new Error(err.detail || 'Export baseplate failed')
   }
   return res.blob()
+}
+
+// --- Project Folders ---
+
+export async function listFolders(): Promise<FolderSummary[]> {
+  const res = await fetch(`${API}/projects/folders`)
+  if (!res.ok) throw new Error('List folders failed')
+  return res.json()
+}
+
+export async function createFolder(name: string, parentId: string | null = null): Promise<FolderSummary> {
+  const res = await fetch(`${API}/projects/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parent_id: parentId }),
+  })
+  if (!res.ok) throw new Error('Create folder failed')
+  return res.json()
+}
+
+export async function renameFolder(folderId: string, name: string): Promise<void> {
+  const res = await fetch(`${API}/projects/folders/${folderId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Rename folder failed')
+}
+
+export async function deleteFolder(folderId: string): Promise<void> {
+  const res = await fetch(`${API}/projects/folders/${folderId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Delete folder failed')
+}
+
+export async function moveFolder(folderId: string, parentId: string | null): Promise<void> {
+  const res = await fetch(`${API}/projects/folders/${folderId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: parentId }),
+  })
+  if (!res.ok) throw new Error('Move folder failed')
+}
+
+export async function moveDesignToFolder(designId: string, folderId: string | null): Promise<void> {
+  const res = await fetch(`${API}/projects/designs/${designId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: folderId }),
+  })
+  if (!res.ok) throw new Error('Move design failed')
+}
+
+export async function renameDesign(designId: string, name: string): Promise<void> {
+  const res = await fetch(`${API}/projects/designs/${designId}/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Rename design failed')
+}
+
+export async function moveBaseplateToFolder(designId: string, folderId: string | null): Promise<void> {
+  const res = await fetch(`${API}/projects/baseplates/${designId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: folderId }),
+  })
+  if (!res.ok) throw new Error('Move baseplate failed')
+}
+
+export async function renameBaseplate(designId: string, name: string): Promise<void> {
+  const res = await fetch(`${API}/projects/baseplates/${designId}/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Rename baseplate failed')
+}
+
+export async function exportFolderTree(folderId: string | null = null): Promise<any> {
+  const url = folderId
+    ? `${API}/projects/folders/${folderId}/export`
+    : `${API}/projects/folders/export`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('Export folder failed')
+  return res.json()
+}
+
+export async function importFolderTree(data: any, parentId: string | null = null): Promise<{ folder_id: string | null }> {
+  const res = await fetch(`${API}/projects/folders/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data, parent_id: parentId }),
+  })
+  if (!res.ok) throw new Error('Import folder failed')
+  return res.json()
 }

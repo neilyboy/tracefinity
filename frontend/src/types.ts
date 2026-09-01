@@ -130,6 +130,7 @@ export interface DesignSummary {
   created_at: string
   updated_at: string
   thumbnail_url: string | null
+  folder_id: string | null
 }
 
 export interface ProjectSummary {
@@ -139,6 +140,15 @@ export interface ProjectSummary {
   created_at: string
   updated_at: string
   thumbnail_url: string | null
+  folder_id: string | null
+}
+
+export interface FolderSummary {
+  id: string
+  name: string
+  parent_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 export const DEFAULT_PARAMS: BinParams = {
@@ -245,6 +255,7 @@ export interface BaseplateDesignSummary {
   name: string
   created_at: string
   updated_at: string
+  folder_id: string | null
 }
 
 export const DEFAULT_BASEPLATE_PARAMS: BaseplateParams = {
