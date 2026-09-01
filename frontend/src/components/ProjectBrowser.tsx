@@ -295,18 +295,19 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
     }
 
     if (movingId === p.id) {
-      // Show move-to-folder dropdown
-      const availableFolders = folders.filter((f) => f.id !== p.folder_id)
+      // Show move-to-folder tree picker
       return (
-        <div key={p.id} style={{ ...rowStyle, paddingLeft: 12 + indent * 20, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
-          <div style={{ fontSize: 12, color: '#a1a1aa' }}>Move "{p.name}" to:</div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <button onClick={() => handleMoveProject(p, null)} style={moveBtnStyle}>Root</button>
-            {availableFolders.map((f) => (
-              <button key={f.id} onClick={() => handleMoveProject(p, f.id)} style={moveBtnStyle}>{f.name}</button>
-            ))}
+        <div key={p.id} style={{ ...rowStyle, paddingLeft: 12 + indent * 20, flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#a1a1aa' }}>Move "{p.name}" to:</span>
+            <span style={{ flex: 1 }} />
+            <button onClick={() => setMovingId(null)} style={{ ...moveBtnStyle, borderColor: '#3f3f46', color: '#71717a', padding: '2px 8px' }}>Cancel</button>
           </div>
-          <button onClick={() => setMovingId(null)} style={{ ...moveBtnStyle, borderColor: '#3f3f46', color: '#71717a' }}>Cancel</button>
+          <MoveTree
+            folders={folders}
+            currentFolderId={p.folder_id}
+            onSelect={(targetId) => handleMoveProject(p, targetId)}
+          />
         </div>
       )
     }
@@ -559,6 +560,120 @@ export default function ProjectBrowser({ onSwitchToBaseplate }: Props) {
             <button onClick={handleCreateFolder} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #7c3aed', background: '#7c3aed', color: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Create</button>
             <button onClick={() => setShowNewFolderDialog(false)} style={cancelBtnStyle}>Cancel</button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// MoveTree — nested folder picker for the "move to" action
+// ---------------------------------------------------------------------------
+
+function MoveTree({
+  folders,
+  currentFolderId,
+  onSelect,
+}: {
+  folders: FolderSummary[]
+  currentFolderId: string | null
+  onSelect: (folderId: string | null) => void
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const childrenOf = (parentId: string | null) =>
+    folders.filter((f) => f.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name))
+
+  const renderNode = (folder: FolderSummary, indent: number): React.ReactNode => {
+    const isExpanded = expanded.has(folder.id)
+    const children = childrenOf(folder.id)
+    const isCurrent = folder.id === currentFolderId
+
+    return (
+      <div key={folder.id}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          padding: '3px 6px', borderRadius: 4, marginLeft: indent * 16,
+        }}>
+          {children.length > 0 ? (
+            <button onClick={() => toggle(folder.id)} style={{
+              background: 'none', border: 'none', color: '#71717a', cursor: 'pointer',
+              fontSize: 12, padding: '0 2px', width: 16,
+            }}>
+              {isExpanded ? '▼' : '▶'}
+            </button>
+          ) : (
+            <span style={{ width: 16, display: 'inline-block' }} />
+          )}
+          <span style={{ fontSize: 15 }}>📁</span>
+          <button
+            onClick={() => onSelect(folder.id)}
+            disabled={isCurrent}
+            style={{
+              background: isCurrent ? 'rgba(245,158,11,0.15)' : 'transparent',
+              border: `1px solid ${isCurrent ? 'rgba(245,158,11,0.3)' : 'transparent'}`,
+              color: isCurrent ? '#f59e0b' : '#a1a1aa',
+              cursor: isCurrent ? 'default' : 'pointer',
+              fontSize: 13, padding: '2px 8px', borderRadius: 4,
+              fontWeight: isCurrent ? 600 : 400,
+            }}
+            onMouseEnter={(e) => { if (!isCurrent) { e.currentTarget.style.background = 'rgba(124,58,237,0.15)'; e.currentTarget.style.color = '#a78bfa' } }}
+            onMouseLeave={(e) => { if (!isCurrent) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#a1a1aa' } }}
+          >
+            {folder.name} {isCurrent && '✓'}
+          </button>
+        </div>
+        {isExpanded && children.length > 0 && (
+          <div>{children.map((c) => renderNode(c, indent + 1))}</div>
+        )}
+      </div>
+    )
+  }
+
+  const rootFolders = childrenOf(null)
+
+  return (
+    <div style={{
+      background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6,
+      padding: 8, maxHeight: 250, overflow: 'auto',
+    }}>
+      {/* Root option */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: '3px 6px', borderRadius: 4,
+      }}>
+        <span style={{ width: 16, display: 'inline-block' }} />
+        <span style={{ fontSize: 15 }}>🏠</span>
+        <button
+          onClick={() => onSelect(null)}
+          disabled={currentFolderId === null}
+          style={{
+            background: currentFolderId === null ? 'rgba(245,158,11,0.15)' : 'transparent',
+            border: `1px solid ${currentFolderId === null ? 'rgba(245,158,11,0.3)' : 'transparent'}`,
+            color: currentFolderId === null ? '#f59e0b' : '#a1a1aa',
+            cursor: currentFolderId === null ? 'default' : 'pointer',
+            fontSize: 13, padding: '2px 8px', borderRadius: 4,
+            fontWeight: currentFolderId === null ? 600 : 400,
+          }}
+          onMouseEnter={(e) => { if (currentFolderId !== null) { e.currentTarget.style.background = 'rgba(124,58,237,0.15)'; e.currentTarget.style.color = '#a78bfa' } }}
+          onMouseLeave={(e) => { if (currentFolderId !== null) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#a1a1aa' } }}
+        >
+          Root {currentFolderId === null && '✓'}
+        </button>
+      </div>
+      {rootFolders.map((f) => renderNode(f, 0))}
+      {rootFolders.length === 0 && (
+        <div style={{ padding: '6px 12px', fontSize: 12, color: '#52525b', fontStyle: 'italic' }}>
+          No folders created yet. Use "New Folder" to create one.
         </div>
       )}
     </div>
