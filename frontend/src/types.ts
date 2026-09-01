@@ -132,6 +132,15 @@ export interface DesignSummary {
   thumbnail_url: string | null
 }
 
+export interface ProjectSummary {
+  id: string
+  name: string
+  type: 'tray' | 'baseplate'
+  created_at: string
+  updated_at: string
+  thumbnail_url: string | null
+}
+
 export const DEFAULT_PARAMS: BinParams = {
   output_mode: 'gridfinity',
   grid_w: 2,
