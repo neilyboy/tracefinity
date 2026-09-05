@@ -1,6 +1,7 @@
 // TypeScript types mirroring the backend Pydantic schemas.
 
 export type PaperSize = 'letter' | 'a4'
+export type TraceEngine = 'auto' | 'hybrid' | 'fastsam'
 export type ExportFormat = 'svg' | 'dxf' | 'stl' | '3mf' | 'step' | 'stl_flat' | 'stl_lid'
 export type OutputMode = 'foam' | 'gridfinity'
 
@@ -110,6 +111,15 @@ export interface Design {
   labels: TextLabel[]
   params: BinParams
   image_filename: string | null
+  trace_engine: TraceEngine
+}
+
+export interface TraceEngineInfo {
+  id: TraceEngine
+  name: string
+  available: boolean
+  ready: boolean
+  description: string
 }
 
 export interface TraceResult {
@@ -121,6 +131,8 @@ export interface TraceResult {
   rectified_image_url: string
   original_image_url: string
   outlines: ToolOutline[]
+  trace_engine: TraceEngine
+  trace_engine_used: TraceEngine
   paper_detected: boolean
 }
 

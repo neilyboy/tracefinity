@@ -6,17 +6,54 @@ from pydantic import BaseModel
 
 from ..config import PAPER_SIZES_MM, settings
 from ..cv.pipeline import run_trace, run_rectify_with_corners
-from ..cv.tool_detect import auto_rotate_angle, detect_tool_at_point
-from ..schemas import ManualRectifyRequest, Point, ToolOutline
+from ..cv.tool_detect import auto_rotate_angle, detect_tool_at_point, detect_tools, merge_tool_outlines, resolve_trace_engine, split_tool_outline, trace_engine_status
+from ..schemas import ManualRectifyRequest, Point, RetraceResult, ToolOutline, TraceEngine, TraceEngineInfo, TraceResult
 
 router = APIRouter()
 
 
-@router.post("/trace", response_model=None)
+@router.get("/trace-engines", response_model=list[TraceEngineInfo])
+async def list_trace_engines():
+    return trace_engine_status()
+
+
+class RetraceRequest(BaseModel):
+    rectified_image_url: str
+    scale_mm_per_px: float
+    smoothing: float = 0.3
+    trace_engine: TraceEngine = "hybrid"
+
+
+@router.post("/retrace", response_model=RetraceResult)
+async def retrace_image(req: RetraceRequest):
+    import cv2
+    filename = req.rectified_image_url.split("/")[-1]
+    filepath = settings.data_dir / "images" / filename
+    img = cv2.imread(str(filepath))
+    if img is None:
+        raise HTTPException(status_code=400, detail=f"Could not load image: {filename}")
+    try:
+        outlines = detect_tools(
+            img,
+            req.scale_mm_per_px,
+            smoothing=req.smoothing,
+            engine=req.trace_engine,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {
+        "outlines": outlines,
+        "trace_engine": req.trace_engine,
+        "trace_engine_used": resolve_trace_engine(req.trace_engine),
+    }
+
+
+@router.post("/trace", response_model=TraceResult)
 async def trace_image(
     file: UploadFile = File(...),
     paper_size: str = Form("letter"),
     smoothing: float = Form(0.3),
+    trace_engine: TraceEngine = Form("hybrid"),
 ):
     """Upload a photo of tools on paper; returns detected outlines + rectified image.
 
@@ -35,9 +72,13 @@ async def trace_image(
         raise HTTPException(status_code=413, detail=f"Image too large (max {settings.max_upload_mb}MB).")
 
     try:
-        result, _rect_filename, orig_filename = run_trace(image_bytes, paper_size, smoothing=smoothing)  # type: ignore[arg-type]
+        result, _rect_filename, orig_filename = run_trace(
+            image_bytes, paper_size, smoothing=smoothing, trace_engine=trace_engine  # type: ignore[arg-type]
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     # Set the original image URL for manual corner adjustment.
     result.original_image_url = f"/data/images/{orig_filename}"
@@ -47,7 +88,7 @@ async def trace_image(
     return result
 
 
-@router.post("/rectify", response_model=None)
+@router.post("/rectify", response_model=TraceResult)
 async def rectify_with_corners(req: ManualRectifyRequest):
     """Re-rectify an already-uploaded image using manually-specified paper corners.
 
@@ -61,10 +102,16 @@ async def rectify_with_corners(req: ManualRectifyRequest):
 
     try:
         result, _filename = run_rectify_with_corners(
-            req.original_image_url, req.corners, req.paper_size, smoothing=req.smoothing
+            req.original_image_url,
+            req.corners,
+            req.paper_size,
+            smoothing=req.smoothing,
+            trace_engine=req.trace_engine,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     result.original_image_url = req.original_image_url
     result.paper_detected = True
@@ -78,6 +125,7 @@ class ClickDetectRequest(BaseModel):
     click_x: int  # pixel x in rectified image
     click_y: int  # pixel y in rectified image
     smoothing: float = 0.3
+    trace_engine: TraceEngine = "hybrid"
 
 
 @router.post("/detect-at-point", response_model=None)
@@ -95,11 +143,48 @@ async def detect_at_point(req: ClickDetectRequest):
     if img is None:
         raise HTTPException(status_code=400, detail=f"Could not load image: {filename}")
 
-    outline = detect_tool_at_point(img, req.scale_mm_per_px, req.click_x, req.click_y, smoothing=req.smoothing)
+    try:
+        outline = detect_tool_at_point(
+            img,
+            req.scale_mm_per_px,
+            req.click_x,
+            req.click_y,
+            smoothing=req.smoothing,
+            engine=req.trace_engine,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     if outline is None:
         raise HTTPException(status_code=400, detail="No tool detected at that point.")
 
     return outline
+
+
+class MergeOutlinesRequest(BaseModel):
+    outlines: list[ToolOutline]
+
+
+@router.post("/merge-outlines", response_model=ToolOutline)
+async def merge_outlines(req: MergeOutlinesRequest):
+    try:
+        return merge_tool_outlines(req.outlines)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class SplitOutlineRequest(BaseModel):
+    outline: ToolOutline
+    start: Point
+    end: Point
+    gap_mm: float = 1.0
+
+
+@router.post("/split-outline", response_model=list[ToolOutline])
+async def split_outline(req: SplitOutlineRequest):
+    try:
+        return split_tool_outline(req.outline, req.start, req.end, req.gap_mm)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class AutoRotateRequest(BaseModel):

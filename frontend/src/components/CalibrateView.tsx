@@ -135,7 +135,7 @@ export default function CalibrateView() {
     setLoading(true)
     setError(null)
     try {
-      const result = await rectifyWithCorners(originalImageUrl, corners, design.paper_size)
+      const result = await rectifyWithCorners(originalImageUrl, corners, design.paper_size, design.trace_engine ?? 'hybrid')
       useEditor.setState((s) => ({
         design: {
           ...s.design,
@@ -145,6 +145,7 @@ export default function CalibrateView() {
           paper_corners_px: result.paper_corners_px,
           outlines: result.outlines,
           image_filename: result.rectified_image_url.split('/').pop() || null,
+          trace_engine: result.trace_engine,
         },
         _paperDetected: true,
       } as any))

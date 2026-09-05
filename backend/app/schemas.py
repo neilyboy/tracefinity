@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 PaperSize = Literal["letter", "a4"]
+TraceEngine = Literal["auto", "hybrid", "fastsam"]
 ExportFormat = Literal["svg", "dxf", "stl", "3mf", "step", "stl_flat", "stl_lid"]
 OutputMode = Literal["foam", "gridfinity"]
 
@@ -158,10 +159,25 @@ class Design(BaseModel):
     labels: list[TextLabel] = Field(default_factory=list)
     params: BinParams = Field(default_factory=BinParams)
     image_filename: str | None = None
+    trace_engine: TraceEngine = "hybrid"
 
 
 class TraceRequest(BaseModel):
     paper_size: PaperSize = "letter"
+
+
+class TraceEngineInfo(BaseModel):
+    id: TraceEngine
+    name: str
+    available: bool
+    ready: bool
+    description: str
+
+
+class RetraceResult(BaseModel):
+    outlines: list[ToolOutline]
+    trace_engine: TraceEngine
+    trace_engine_used: TraceEngine
 
 
 class TraceResult(BaseModel):
@@ -173,6 +189,8 @@ class TraceResult(BaseModel):
     rectified_image_url: str
     original_image_url: str = ""
     outlines: list[ToolOutline]
+    trace_engine: TraceEngine = "hybrid"
+    trace_engine_used: TraceEngine = "hybrid"
     # True if paper was auto-detected; False if user needs to set corners manually.
     paper_detected: bool = True
 
@@ -184,6 +202,7 @@ class ManualRectifyRequest(BaseModel):
     corners: list[Point]  # 4 corners in original image pixel coords
     paper_size: PaperSize = "letter"
     smoothing: float = 0.3
+    trace_engine: TraceEngine = "hybrid"
 
 
 class ExportRequest(BaseModel):

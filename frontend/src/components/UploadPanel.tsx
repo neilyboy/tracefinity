@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useEditor } from '../editor/useEditorState'
-import { traceImage, listDesigns, listBaseplateDesigns, listToolLibrary } from '../api/client'
-import type { PaperSize, ProjectSummary } from '../types'
+import { traceImage, listDesigns, listBaseplateDesigns, listToolLibrary, listTraceEngines } from '../api/client'
+import type { PaperSize, ProjectSummary, TraceEngine, TraceEngineInfo } from '../types'
 import ProjectBrowser from './ProjectBrowser'
 
 export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBaseplate?: () => void }) {
   const { setLoading, setError, setDesign, setView, setPaperSize, reset } = useEditor()
   const [paperSize, setPaper] = useState<PaperSize>('letter')
+  const [traceEngine, setTraceEngine] = useState<TraceEngine>('hybrid')
+  const [traceEngines, setTraceEngines] = useState<TraceEngineInfo[]>([])
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [savedProjects, setSavedProjects] = useState<ProjectSummary[]>([])
@@ -22,6 +24,7 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
   useEffect(() => {
     refreshProjectCount()
     listToolLibrary().then((tools) => setLibraryCount(tools.length)).catch(() => {})
+    listTraceEngines().then(setTraceEngines).catch(() => {})
   }, [])
 
   const refreshProjectCount = async () => {
@@ -43,7 +46,7 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
     setError(null)
     setPaperSize(paperSize)
     try {
-      const result = await traceImage(file, paperSize)
+      const result = await traceImage(file, paperSize, traceEngine)
       useEditor.setState((s) => ({
         design: {
           ...s.design,
@@ -54,6 +57,7 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
           paper_corners_px: result.paper_corners_px,
           outlines: result.outlines,
           image_filename: result.rectified_image_url.split('/').pop() || null,
+          trace_engine: result.trace_engine,
         },
         _originalImageUrl: result.original_image_url,
         _paperDetected: result.paper_detected,
@@ -108,6 +112,26 @@ export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBasepla
           <option value="letter">US Letter (8.5×11")</option>
           <option value="a4">A4 (210×297mm)</option>
         </select>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', maxWidth: 620 }}>
+        <label style={{ color: '#a1a1aa', fontSize: 14 }}>Tracing engine:</label>
+        <select
+          value={traceEngine}
+          onChange={(e) => setTraceEngine(e.target.value as TraceEngine)}
+          style={{ background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46', borderRadius: 6, padding: '6px 12px' }}
+        >
+          {(traceEngines.length ? traceEngines : [
+            { id: 'hybrid' as TraceEngine, name: 'Hybrid OpenCV', available: true, ready: true, description: '' },
+          ]).map((engine) => (
+            <option key={engine.id} value={engine.id} disabled={!engine.available}>
+              {engine.name}{engine.id === 'fastsam' && !engine.ready ? ' (downloads model on first use)' : ''}{!engine.available ? ' (unavailable)' : ''}
+            </option>
+          ))}
+        </select>
+        <span style={{ color: '#71717a', fontSize: 12 }}>
+          {traceEngines.find((engine) => engine.id === traceEngine)?.description}
+        </span>
       </div>
 
       {/* Four options: Upload, Design from scratch, Baseplate Designer, Load Saved Project */}

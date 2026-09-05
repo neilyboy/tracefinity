@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import pytest
 
-from app.cv.tool_detect import detect_tools
+from app.cv.tool_detect import detect_tools, merge_tool_outlines, resolve_trace_engine, split_tool_outline, trace_engine_status
+from app.schemas import Point, ToolOutline
 
 
 @pytest.fixture
@@ -55,3 +56,47 @@ def test_detect_tools_rejects_small_noise():
     outlines = detect_tools(img, scale_mm_per_px=0.3)
     # Should only find the rectangle, not the tiny dot
     assert len(outlines) == 1
+
+
+def test_trace_engines_include_selectable_hybrid_and_fastsam():
+    engines = {engine["id"]: engine for engine in trace_engine_status()}
+    assert {"auto", "hybrid", "fastsam"} <= engines.keys()
+    assert engines["hybrid"]["available"] is True
+
+
+def test_unknown_trace_engine_is_rejected(rectified_paper_with_tools):
+    with pytest.raises(ValueError, match="Unknown trace engine"):
+        detect_tools(rectified_paper_with_tools, 0.3, engine="missing")
+
+
+def test_hybrid_engine_remains_default(rectified_paper_with_tools):
+    default = detect_tools(rectified_paper_with_tools, 0.3)
+    hybrid = detect_tools(rectified_paper_with_tools, 0.3, engine="hybrid")
+    assert len(default) == len(hybrid)
+    assert resolve_trace_engine("hybrid") == "hybrid"
+
+
+def test_merge_nearby_split_outlines():
+    first = ToolOutline(
+        id="first",
+        outer=[Point(x=0, y=0), Point(x=20, y=0), Point(x=20, y=10), Point(x=0, y=10)],
+    )
+    second = ToolOutline(
+        id="second",
+        outer=[Point(x=22, y=0), Point(x=42, y=0), Point(x=42, y=10), Point(x=22, y=10)],
+    )
+    merged = merge_tool_outlines([first, second])
+    assert merged.id not in {"first", "second"}
+    assert min(point.x for point in merged.outer) == pytest.approx(0, abs=0.5)
+    assert max(point.x for point in merged.outer) == pytest.approx(42, abs=0.5)
+
+
+def test_split_outline_with_crossing_line():
+    outline = ToolOutline(
+        id="whole",
+        outer=[Point(x=0, y=0), Point(x=40, y=0), Point(x=40, y=20), Point(x=0, y=20)],
+    )
+    pieces = split_tool_outline(outline, Point(x=20, y=-2), Point(x=20, y=22))
+    assert len(pieces) == 2
+    assert all(len(piece.outer) >= 3 for piece in pieces)
+    assert all(piece.id != "whole" for piece in pieces)

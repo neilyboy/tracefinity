@@ -1,12 +1,13 @@
 // API client for the Tracefinity backend.
-import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceResult, ExportFormat, BaseplateDesign, BaseplateDesignSummary, SegmentInfo, FolderSummary, ProjectSummary } from '../types'
+import type { Design, DesignSummary, FontInfo, PaperSize, Point, ToolOutline, TraceEngine, TraceEngineInfo, TraceResult, ExportFormat, BaseplateDesign, BaseplateDesignSummary, SegmentInfo, FolderSummary, ProjectSummary } from '../types'
 
 const API = '/api'
 
-export async function traceImage(file: File, paperSize: PaperSize): Promise<TraceResult> {
+export async function traceImage(file: File, paperSize: PaperSize, traceEngine: TraceEngine = 'hybrid'): Promise<TraceResult> {
   const form = new FormData()
   form.append('file', file)
   form.append('paper_size', paperSize)
+  form.append('trace_engine', traceEngine)
   const res = await fetch(`${API}/trace`, { method: 'POST', body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -19,6 +20,7 @@ export async function rectifyWithCorners(
   originalImageUrl: string,
   corners: Point[],
   paperSize: PaperSize,
+  traceEngine: TraceEngine = 'hybrid',
 ): Promise<TraceResult> {
   const res = await fetch(`${API}/rectify`, {
     method: 'POST',
@@ -27,6 +29,7 @@ export async function rectifyWithCorners(
       original_image_url: originalImageUrl,
       corners,
       paper_size: paperSize,
+      trace_engine: traceEngine,
     }),
   })
   if (!res.ok) {
@@ -41,6 +44,7 @@ export async function detectToolAtPoint(
   scaleMmPerPx: number,
   clickX: number,
   clickY: number,
+  traceEngine: TraceEngine = 'hybrid',
 ): Promise<ToolOutline> {
   const res = await fetch(`${API}/detect-at-point`, {
     method: 'POST',
@@ -50,11 +54,72 @@ export async function detectToolAtPoint(
       scale_mm_per_px: scaleMmPerPx,
       click_x: clickX,
       click_y: clickY,
+      trace_engine: traceEngine,
     }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || 'Detection failed')
+  }
+  return res.json()
+}
+
+export async function listTraceEngines(): Promise<TraceEngineInfo[]> {
+  const res = await fetch(`${API}/trace-engines`)
+  if (!res.ok) throw new Error('Could not load tracing engines')
+  return res.json()
+}
+
+export async function retraceImage(
+  rectifiedImageUrl: string,
+  scaleMmPerPx: number,
+  traceEngine: TraceEngine,
+  smoothing: number = 0.3,
+): Promise<{ outlines: ToolOutline[]; trace_engine: TraceEngine; trace_engine_used: TraceEngine }> {
+  const res = await fetch(`${API}/retrace`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rectified_image_url: rectifiedImageUrl,
+      scale_mm_per_px: scaleMmPerPx,
+      smoothing,
+      trace_engine: traceEngine,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Re-trace failed')
+  }
+  return res.json()
+}
+
+export async function mergeOutlines(outlines: ToolOutline[]): Promise<ToolOutline> {
+  const res = await fetch(`${API}/merge-outlines`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outlines }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Merge failed')
+  }
+  return res.json()
+}
+
+export async function splitOutline(
+  outline: ToolOutline,
+  start: Point,
+  end: Point,
+  gapMm: number = 1,
+): Promise<ToolOutline[]> {
+  const res = await fetch(`${API}/split-outline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outline, start, end, gap_mm: gapMm }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Split failed')
   }
   return res.json()
 }

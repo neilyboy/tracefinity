@@ -76,6 +76,7 @@ const emptyDesign: Design = {
   labels: [],
   params: { ...DEFAULT_PARAMS },
   image_filename: null,
+  trace_engine: 'hybrid',
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -723,6 +724,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   pushHistory: () => {
     const { design, history, historyIndex } = get()
+    if (historyIndex >= 0 && JSON.stringify(history[historyIndex]) === JSON.stringify(design)) return
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push(design)
     set({ history: newHistory, historyIndex: newHistory.length - 1 })

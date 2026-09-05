@@ -18,7 +18,10 @@ simplified. 0.0 = nearly raw, 0.3 = balanced, 1.0 = very smooth.
 """
 from __future__ import annotations
 
+import os
 import uuid
+from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -28,7 +31,41 @@ from ..schemas import Point, ToolOutline
 from ..utils.geometry import polygon_area
 
 
-def detect_tools(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float = 0.3) -> list[ToolOutline]:
+TraceEngine = Literal["auto", "hybrid", "fastsam"]
+_FASTSAM_MODEL = None
+
+
+def trace_engine_status() -> list[dict[str, str | bool]]:
+    fastsam_importable = _fastsam_importable()
+    fastsam_ready = fastsam_importable and _find_fastsam_weights() is not None
+    return [
+        {"id": "auto", "name": "Auto", "available": True, "ready": True, "description": "Uses FastSAM when its weights are installed, otherwise Hybrid OpenCV."},
+        {"id": "hybrid", "name": "Hybrid OpenCV", "available": True, "ready": True, "description": "Fast local tracing with thresholding, component merging, and GrabCut."},
+        {"id": "fastsam", "name": "FastSAM", "available": fastsam_importable, "ready": fastsam_ready, "description": "AI-assisted segmentation for reflective tools and difficult boundaries."},
+    ]
+
+
+def resolve_trace_engine(engine: TraceEngine) -> Literal["hybrid", "fastsam"]:
+    if engine not in {"auto", "hybrid", "fastsam"}:
+        raise ValueError(f"Unknown trace engine: {engine}")
+    if engine == "auto":
+        return "fastsam" if _find_fastsam_weights() is not None and _fastsam_importable() else "hybrid"
+    return engine
+
+
+def detect_tools(
+    rectified: np.ndarray,
+    scale_mm_per_px: float,
+    smoothing: float = 0.3,
+    engine: TraceEngine = "hybrid",
+) -> list[ToolOutline]:
+    resolved = resolve_trace_engine(engine)
+    if resolved == "hybrid":
+        return _detect_tools_hybrid(rectified, scale_mm_per_px, smoothing)
+    return _detect_tools_fastsam(rectified, scale_mm_per_px, smoothing)
+
+
+def _detect_tools_hybrid(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float = 0.3) -> list[ToolOutline]:
     """Detect tool outlines in the rectified image.
 
     Args:
@@ -100,7 +137,7 @@ def detect_tools(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float
             continue
 
         holes_mm = []
-        min_hole_area_px = max(20.0, 25.0 / (scale_mm_per_px ** 2))
+        min_hole_area_px = max(20.0, 50.0 / (scale_mm_per_px ** 2))
         for child_idx in parent_to_children.get(i, []):
             child_cnt = contours[child_idx]
             if cv2.contourArea(child_cnt) < min_hole_area_px:
@@ -137,11 +174,215 @@ def detect_tools(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float
     return outlines
 
 
+def _fastsam_importable() -> bool:
+    try:
+        from ultralytics import FastSAM  # noqa: F401
+        return True
+    except (ImportError, OSError):
+        return False
+
+
+def _fastsam_weight_candidates() -> list[Path]:
+    configured = os.getenv("TRACEFINITY_FASTSAM_MODEL")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend([
+        settings.data_dir / "models" / "FastSAM-s.pt",
+        Path.cwd() / "FastSAM-s.pt",
+        Path.cwd().parent / "FastSAM-s.pt",
+    ])
+    return candidates
+
+
+def _find_fastsam_weights() -> Path | None:
+    return next((path for path in _fastsam_weight_candidates() if path.is_file()), None)
+
+
+def _load_fastsam():
+    global _FASTSAM_MODEL
+    if _FASTSAM_MODEL is not None:
+        return _FASTSAM_MODEL
+    try:
+        from ultralytics import FastSAM
+    except (ImportError, OSError) as exc:
+        raise RuntimeError("FastSAM is unavailable. Install compatible CPU torch, torchvision, and ultralytics packages.") from exc
+    weights = _find_fastsam_weights()
+    if weights is None:
+        from ultralytics.utils.downloads import safe_download
+        model_dir = settings.data_dir / "models"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        weights = model_dir / "FastSAM-s.pt"
+        safe_download(
+            url="https://github.com/ultralytics/assets/releases/download/v8.4.0/FastSAM-s.pt",
+            file=weights,
+            unzip=False,
+            exist_ok=True,
+        )
+    _FASTSAM_MODEL = FastSAM(str(weights))
+    return _FASTSAM_MODEL
+
+
+def _detect_tools_fastsam(
+    rectified: np.ndarray, scale_mm_per_px: float, smoothing: float
+) -> list[ToolOutline]:
+    hybrid = _detect_tools_hybrid(rectified, scale_mm_per_px, smoothing)
+    if not hybrid:
+        return []
+
+    model = _load_fastsam()
+    try:
+        results = model(
+            rectified,
+            device="cpu",
+            retina_masks=True,
+            imgsz=1024,
+            conf=0.25,
+            iou=0.9,
+            verbose=False,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"FastSAM inference failed: {exc}") from exc
+    if not results or results[0].masks is None:
+        return hybrid
+
+    h, w = rectified.shape[:2]
+    candidates: list[np.ndarray] = []
+    for tensor in results[0].masks.data:
+        mask = (tensor.detach().cpu().numpy() > 0.5).astype(np.uint8) * 255
+        if mask.shape != (h, w):
+            mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        area = cv2.countNonZero(mask)
+        if area < settings.min_tool_area_mm2 / (scale_mm_per_px ** 2) or area > 0.5 * h * w:
+            continue
+        candidates.append(mask)
+
+    used: set[int] = set()
+    refined: list[ToolOutline] = []
+    for outline in hybrid:
+        base_mask = _outline_mask(outline, scale_mm_per_px, (h, w))
+        base_area = max(1, cv2.countNonZero(base_mask))
+        best_idx = -1
+        best_score = 0.0
+        for idx, mask in enumerate(candidates):
+            if idx in used:
+                continue
+            intersection = cv2.countNonZero(cv2.bitwise_and(base_mask, mask))
+            if intersection / base_area < 0.25:
+                continue
+            union = cv2.countNonZero(cv2.bitwise_or(base_mask, mask))
+            score = intersection / max(1, union)
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+        if best_idx < 0:
+            refined.append(outline)
+            continue
+        growth = max(3, round(6.0 / scale_mm_per_px))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (growth * 2 + 1, growth * 2 + 1))
+        search_region = cv2.dilate(base_mask, kernel, iterations=1)
+        candidate_mask = cv2.bitwise_and(candidates[best_idx], search_region)
+        candidate = _tool_outline_from_mask(
+            candidate_mask, rectified, scale_mm_per_px, smoothing, outline.id
+        )
+        if candidate is None:
+            refined.append(outline)
+            continue
+        combined_holes = list(candidate.holes)
+        candidate_outer = np.array([[point.x, point.y] for point in candidate.outer], dtype=np.float32)
+        existing_centers = [
+            np.mean(np.array([[point.x, point.y] for point in hole]), axis=0)
+            for hole in combined_holes
+        ]
+        for hole in outline.holes:
+            center = np.mean(np.array([[point.x, point.y] for point in hole]), axis=0)
+            if cv2.pointPolygonTest(candidate_outer, (float(center[0]), float(center[1])), False) < 0:
+                continue
+            if any(np.linalg.norm(center - existing) < 3.0 for existing in existing_centers):
+                continue
+            combined_holes.append(hole)
+            existing_centers.append(center)
+        candidate = candidate.model_copy(update={"holes": combined_holes})
+        used.add(best_idx)
+        refined.append(candidate)
+
+    refined.sort(
+        key=lambda o: polygon_area(np.array([[p.x, p.y] for p in o.outer])),
+        reverse=True,
+    )
+    return refined
+
+
+def _outline_mask(outline: ToolOutline, scale_mm_per_px: float, shape: tuple[int, int]) -> np.ndarray:
+    mask = np.zeros(shape, dtype=np.uint8)
+    outer = np.array(
+        [[round(p.x / scale_mm_per_px), round(p.y / scale_mm_per_px)] for p in outline.outer],
+        dtype=np.int32,
+    )
+    cv2.fillPoly(mask, [outer], 255)
+    for hole in outline.holes:
+        points = np.array(
+            [[round(p.x / scale_mm_per_px), round(p.y / scale_mm_per_px)] for p in hole],
+            dtype=np.int32,
+        )
+        cv2.fillPoly(mask, [points], 0)
+    return mask
+
+
+def _tool_outline_from_mask(
+    mask: np.ndarray,
+    image: np.ndarray,
+    scale_mm_per_px: float,
+    smoothing: float,
+    outline_id: str,
+) -> ToolOutline | None:
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
+    if hierarchy is None:
+        return None
+    hierarchy = hierarchy[0]
+    top_level = [i for i, item in enumerate(hierarchy) if item[3] == -1]
+    if not top_level:
+        return None
+    outer_idx = max(top_level, key=lambda i: cv2.contourArea(contours[i]))
+    outer = _smooth_contour(contours[outer_idx], scale_mm_per_px, smoothing)
+    if len(outer) < 3:
+        return None
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    background = float(cv2.mean(gray, mask=cv2.bitwise_not(mask))[0])
+    min_hole_area = max(20.0, 50.0 / (scale_mm_per_px ** 2))
+    holes: list[list[Point]] = []
+    for idx, item in enumerate(hierarchy):
+        if item[3] != outer_idx or cv2.contourArea(contours[idx]) < min_hole_area:
+            continue
+        region = np.zeros(mask.shape, dtype=np.uint8)
+        cv2.drawContours(region, [contours[idx]], -1, 255, cv2.FILLED)
+        if float(cv2.mean(gray, mask=region)[0]) <= background - 30:
+            continue
+        hole = _smooth_contour(contours[idx], scale_mm_per_px, smoothing)
+        if len(hole) >= 3:
+            holes.append(hole)
+    return ToolOutline(id=outline_id, outer=outer, holes=holes, smoothing=smoothing)
+
+
 def detect_tool_at_point(
     rectified: np.ndarray, scale_mm_per_px: float,
     click_x: int, click_y: int, smoothing: float = 0.3,
+    engine: TraceEngine = "hybrid",
 ) -> ToolOutline | None:
     """Detect a single tool outline at a clicked point."""
+    if engine != "hybrid":
+        matches = []
+        for outline in detect_tools(rectified, scale_mm_per_px, smoothing, engine):
+            contour = np.array(
+                [[p.x / scale_mm_per_px, p.y / scale_mm_per_px] for p in outline.outer],
+                dtype=np.float32,
+            )
+            if cv2.pointPolygonTest(contour, (float(click_x), float(click_y)), False) >= 0:
+                matches.append(outline)
+        return min(
+            matches,
+            key=lambda outline: abs(polygon_area(np.array([[p.x, p.y] for p in outline.outer]))),
+            default=None,
+        )
+
     h, w = rectified.shape[:2]
     min_area_px = settings.min_tool_area_mm2 / (scale_mm_per_px ** 2)
 
@@ -193,7 +434,7 @@ def detect_tool_at_point(
         return None
 
     holes_mm = []
-    min_hole_area_px = max(20.0, 25.0 / (scale_mm_per_px ** 2))
+    min_hole_area_px = max(20.0, 50.0 / (scale_mm_per_px ** 2))
     for child_idx in parent_to_children.get(best_idx, []):
         child_cnt = contours[child_idx]
         if cv2.contourArea(child_cnt) < min_hole_area_px:
@@ -440,6 +681,126 @@ def _remove_close_points(pts: np.ndarray, min_dist_mm: float = 1.0) -> np.ndarra
     if len(out) < 3:
         return pts
     return out
+
+
+def merge_tool_outlines(outlines: list[ToolOutline]) -> ToolOutline:
+    if len(outlines) < 2:
+        raise ValueError("Select at least two outlines to merge.")
+    if any(len(outline.outer) < 3 for outline in outlines):
+        raise ValueError("Every selected outline must contain at least three points.")
+    all_points = [point for outline in outlines for path in [outline.outer, *outline.holes] for point in path]
+    min_x = min(point.x for point in all_points) - 3
+    min_y = min(point.y for point in all_points) - 3
+    max_x = max(point.x for point in all_points) + 3
+    max_y = max(point.y for point in all_points) + 3
+    resolution = 5.0
+    width = max(1, round((max_x - min_x) * resolution))
+    height = max(1, round((max_y - min_y) * resolution))
+    if width > 5000 or height > 5000:
+        raise ValueError("Outline coordinates exceed the supported editing area.")
+    mask = np.zeros((height, width), dtype=np.uint8)
+
+    def pixels(path: list[Point]) -> np.ndarray:
+        return np.array(
+            [[round((point.x - min_x) * resolution), round((point.y - min_y) * resolution)] for point in path],
+            dtype=np.int32,
+        )
+
+    for outline in outlines:
+        cv2.fillPoly(mask, [pixels(outline.outer)], 255)
+        for hole in outline.holes:
+            cv2.fillPoly(mask, [pixels(hole)], 0)
+
+    bridge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, bridge, iterations=1)
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
+    if hierarchy is None:
+        raise ValueError("The selected outlines could not be merged.")
+    hierarchy = hierarchy[0]
+    top = [index for index, item in enumerate(hierarchy) if item[3] == -1 and cv2.contourArea(contours[index]) > 25]
+    if len(top) != 1:
+        raise ValueError("The selected outlines are too far apart to merge. Move them within 4 mm and try again.")
+
+    def points(contour: np.ndarray) -> list[Point]:
+        raw = contour.reshape(-1, 2).astype(np.float32)
+        simplified = cv2.approxPolyDP(raw, 1.0, True).reshape(-1, 2)
+        return [
+            Point(x=round(float(point[0] / resolution + min_x), 2), y=round(float(point[1] / resolution + min_y), 2))
+            for point in simplified
+        ]
+
+    outer_index = top[0]
+    holes = [
+        points(contours[index])
+        for index, item in enumerate(hierarchy)
+        if item[3] == outer_index and cv2.contourArea(contours[index]) > 25
+    ]
+    return outlines[0].model_copy(
+        update={"id": str(uuid.uuid4())[:8], "outer": points(contours[outer_index]), "holes": holes}
+    )
+
+
+def split_tool_outline(
+    outline: ToolOutline, start: Point, end: Point, gap_mm: float = 1.0
+) -> list[ToolOutline]:
+    if len(outline.outer) < 3:
+        raise ValueError("The outline must contain at least three points.")
+    if not 0.1 <= gap_mm <= 5.0:
+        raise ValueError("Cut width must be between 0.1 and 5 mm.")
+    all_points = [point for path in [outline.outer, *outline.holes] for point in path]
+    min_x = min([point.x for point in all_points] + [start.x, end.x]) - 3
+    min_y = min([point.y for point in all_points] + [start.y, end.y]) - 3
+    max_x = max([point.x for point in all_points] + [start.x, end.x]) + 3
+    max_y = max([point.y for point in all_points] + [start.y, end.y]) + 3
+    resolution = 5.0
+    width = max(1, round((max_x - min_x) * resolution))
+    height = max(1, round((max_y - min_y) * resolution))
+    if width > 5000 or height > 5000:
+        raise ValueError("Outline coordinates exceed the supported editing area.")
+    mask = np.zeros((height, width), dtype=np.uint8)
+
+    def pixels(path: list[Point]) -> np.ndarray:
+        return np.array(
+            [[round((point.x - min_x) * resolution), round((point.y - min_y) * resolution)] for point in path],
+            dtype=np.int32,
+        )
+
+    cv2.fillPoly(mask, [pixels(outline.outer)], 255)
+    for hole in outline.holes:
+        cv2.fillPoly(mask, [pixels(hole)], 0)
+    start_px = (round((start.x - min_x) * resolution), round((start.y - min_y) * resolution))
+    end_px = (round((end.x - min_x) * resolution), round((end.y - min_y) * resolution))
+    cv2.line(mask, start_px, end_px, 0, max(2, round(gap_mm * resolution)))
+
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
+    if hierarchy is None:
+        raise ValueError("The cut line did not split the outline.")
+    hierarchy = hierarchy[0]
+    top = [index for index, item in enumerate(hierarchy) if item[3] == -1 and cv2.contourArea(contours[index]) > 25]
+    if len(top) < 2:
+        raise ValueError("Draw the cut line completely across the tool outline.")
+
+    def points(contour: np.ndarray) -> list[Point]:
+        simplified = cv2.approxPolyDP(contour.reshape(-1, 2).astype(np.float32), 1.0, True).reshape(-1, 2)
+        return [
+            Point(x=round(float(point[0] / resolution + min_x), 2), y=round(float(point[1] / resolution + min_y), 2))
+            for point in simplified
+        ]
+
+    result = []
+    for outer_index in top:
+        holes = [
+            points(contours[index])
+            for index, item in enumerate(hierarchy)
+            if item[3] == outer_index and cv2.contourArea(contours[index]) > 25
+        ]
+        result.append(outline.model_copy(update={
+            "id": str(uuid.uuid4())[:8],
+            "outer": points(contours[outer_index]),
+            "holes": holes,
+        }))
+    result.sort(key=lambda item: abs(polygon_area(np.array([[p.x, p.y] for p in item.outer]))), reverse=True)
+    return result
 
 
 def auto_rotate_angle(outer: list[Point]) -> float:

@@ -7,12 +7,17 @@ import cv2
 import numpy as np
 
 from ..config import settings
-from ..schemas import PaperSize, Point, TraceResult
+from ..schemas import PaperSize, Point, TraceEngine, TraceResult
 from .paper_detect import detect_and_rectify, detect_paper_quad, rectify_paper
-from .tool_detect import detect_tools
+from .tool_detect import detect_tools, resolve_trace_engine
 
 
-def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3) -> tuple[TraceResult, str, str]:
+def run_trace(
+    image_bytes: bytes,
+    paper_size: PaperSize,
+    smoothing: float = 0.3,
+    trace_engine: TraceEngine = "hybrid",
+) -> tuple[TraceResult, str, str]:
     """Run the full trace pipeline.
 
     Returns (TraceResult, rectified_image_filename, original_image_filename).
@@ -50,6 +55,8 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3)
                 paper_corners_px=[],
                 rectified_image_url=f"/data/images/{orig_filename}",
                 outlines=[],
+                trace_engine=trace_engine,
+                trace_engine_used=resolve_trace_engine(trace_engine),
             ),
             orig_filename,
             orig_filename,
@@ -61,7 +68,7 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3)
     cv2.imwrite(str(rect_filepath), rectified)
 
     # Detect tools.
-    outlines = detect_tools(rectified, scale, smoothing=smoothing)
+    outlines = detect_tools(rectified, scale, smoothing=smoothing, engine=trace_engine)
 
     return (
         TraceResult(
@@ -74,6 +81,8 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3)
             ],
             rectified_image_url=f"/data/images/{rect_filename}",
             outlines=outlines,
+            trace_engine=trace_engine,
+            trace_engine_used=resolve_trace_engine(trace_engine),
         ),
         rect_filename,
         orig_filename,
@@ -81,7 +90,11 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3)
 
 
 def run_rectify_with_corners(
-    original_image_url: str, corners: list[Point], paper_size: PaperSize, smoothing: float = 0.3
+    original_image_url: str,
+    corners: list[Point],
+    paper_size: PaperSize,
+    smoothing: float = 0.3,
+    trace_engine: TraceEngine = "hybrid",
 ) -> tuple[TraceResult, str]:
     """Re-rectify an already-uploaded image using manually-specified corners.
 
@@ -105,7 +118,7 @@ def run_rectify_with_corners(
     cv2.imwrite(str(rect_filepath), rectified)
 
     # Detect tools.
-    outlines = detect_tools(rectified, scale, smoothing=smoothing)
+    outlines = detect_tools(rectified, scale, smoothing=smoothing, engine=trace_engine)
 
     return (
         TraceResult(
@@ -116,6 +129,8 @@ def run_rectify_with_corners(
             paper_corners_px=[{"x": float(c.x), "y": float(c.y)} for c in corners],
             rectified_image_url=f"/data/images/{rect_filename}",
             outlines=outlines,
+            trace_engine=trace_engine,
+            trace_engine_used=resolve_trace_engine(trace_engine),
         ),
         rect_filename,
     )
