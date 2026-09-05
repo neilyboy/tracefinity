@@ -10,3 +10,8 @@ backend/app/static/
 .env
 *.tsbuildinfo
 *.pt
+
+# Test images and debug artifacts
+test_images/
+debug_out/
+debug_*.py
