@@ -440,10 +440,14 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
     # brightness transitions from dark (background) to bright (paper).
     refined_edges = _refine_edges_by_brightness_scan(gray, best)
     if _is_valid_paper_quad(gray, refined_edges, img_area, paper_size):
-        # Only accept if it improved edge brightness (closer to actual paper edge)
+        # Accept the refinement if it's valid and doesn't reduce edge
+        # brightness by more than 15%. The edge brightness score can decrease
+        # slightly even when the refinement is correct (e.g., when a corner
+        # moves to the actual paper edge, the edge brightness distribution
+        # changes), so we use a lenient threshold.
         old_eb = _edge_brightness_score(gray, best)
         new_eb = _edge_brightness_score(gray, refined_edges)
-        if new_eb >= old_eb:
+        if new_eb >= old_eb * 0.85:
             best = refined_edges
 
     return scale_back(best)
@@ -561,6 +565,12 @@ def _refine_edges_by_brightness_scan(gray: np.ndarray, corners: np.ndarray) -> n
 
     We scan from OUTSIDE to INSIDE to avoid detecting tool edges inside the paper.
     The boundary is where brightness increases most rapidly (entering the paper).
+
+    Only boundary points with a significant gradient are kept. For each edge, we
+    compute the perpendicular offset at each END of the edge (near each corner)
+    using the nearest strong-gradient boundary points. This allows the edge to
+    shift non-uniformly — e.g., if one corner is correct but the other is too far
+    out, only the incorrect corner gets adjusted.
     """
     ordered = order_corners(corners)
     h_img, w_img = gray.shape
@@ -570,14 +580,17 @@ def _refine_edges_by_brightness_scan(gray: np.ndarray, corners: np.ndarray) -> n
 
     centroid = ordered.mean(axis=0)
 
-    lines = []  # Each: (point_on_line, direction)
+    # For each edge, collect strong-gradient boundary points with their
+    # parameter t (position along edge, 0=start corner, 1=end corner)
+    # and their perpendicular offset from the original edge.
+    edge_data = []  # List of (start_corner_idx, end_corner_idx, [(t, offset), ...])
 
     for i in range(4):
         p1 = ordered[i]
         p2 = ordered[(i + 1) % 4]
         edge_len = np.linalg.norm(p2 - p1)
         if edge_len < 1e-6:
-            lines.append((p1, np.array([1.0, 0.0])))
+            edge_data.append((i, (i + 1) % 4, []))
             continue
 
         edge_dir = (p2 - p1) / edge_len
@@ -591,11 +604,9 @@ def _refine_edges_by_brightness_scan(gray: np.ndarray, corners: np.ndarray) -> n
         search_outside = int(edge_len * 0.15)
         search_inside = int(edge_len * 0.05)
 
-        boundary_pts = []
+        strong_offsets = []  # (t, perpendicular_offset)
         for t in np.linspace(0.15, 0.85, 12):
             base_pt = p1 * (1 - t) + p2 * t
-            # Scan from outside to inside, find the point with maximum
-            # brightness INCREASE (gradient). This is the paper boundary.
             best_grad = 0
             best_pos = base_pt.copy()
             prev_bright = None
@@ -606,29 +617,67 @@ def _refine_edges_by_brightness_scan(gray: np.ndarray, corners: np.ndarray) -> n
                     continue
                 curr_bright = float(smooth[py, px])
                 if prev_bright is not None:
-                    # Gradient = brightness increase (positive = entering paper)
                     grad = curr_bright - prev_bright
                     if grad > best_grad:
                         best_grad = grad
                         best_pos = pt.copy()
                 prev_bright = curr_bright
 
-            # Only keep boundary points with a significant gradient
             if best_grad > 8:
-                boundary_pts.append(best_pos)
-            else:
-                boundary_pts.append(base_pt.copy())
+                # Compute perpendicular offset from original edge
+                # Normal points outward, so negative offset = boundary is
+                # INSIDE the original edge (the contour was too far out).
+                # Positive offset = boundary is OUTSIDE the original edge
+                # (the contour was too far in). We only keep INWARD offsets
+                # (negative), because outward offsets often come from gradual
+                # brightness transitions where the max gradient is not at the
+                # actual paper edge.
+                offset = (best_pos - mid) @ normal
+                if offset <= 0:  # Only keep inward corrections
+                    strong_offsets.append((t, offset))
 
-        if len(boundary_pts) < 4:
-            lines.append((mid, edge_dir))
+        edge_data.append((i, (i + 1) % 4, strong_offsets))
+
+    # For each corner, compute the offset from each of its two adjacent edges.
+    # The offset for a corner on a given edge is the offset of the NEAREST
+    # strong-gradient boundary point on that edge. No extrapolation — this
+    # prevents over-correction at corners where gradients are weak.
+    corner_offsets = [np.zeros(2) for _ in range(4)]  # (dx, dy) offset per corner
+    corner_offset_count = [0] * 4
+
+    for edge_idx, (start_idx, end_idx, offsets) in enumerate(edge_data):
+        if not offsets:
             continue
 
-        # Use boundary points to find WHERE the edge is (center point),
-        # but keep the original edge DIRECTION (paper edges are straight).
-        # Use median instead of mean to be robust against outliers.
-        boundary_arr = np.array(boundary_pts)
-        center_pt = np.median(boundary_arr, axis=0)
-        lines.append((center_pt, edge_dir))
+        # For the start corner (t=0), use the offset of the nearest point (smallest t)
+        # For the end corner (t=1), use the offset of the nearest point (largest t)
+        offset_at_start = min(offsets, key=lambda x: abs(x[0] - 0.0))[1]
+        offset_at_end = min(offsets, key=lambda x: abs(x[0] - 1.0))[1]
+
+        # Get the edge normal for this edge
+        p1 = ordered[start_idx]
+        p2 = ordered[end_idx]
+        edge_dir = (p2 - p1) / max(np.linalg.norm(p2 - p1), 1e-6)
+        normal = np.array([edge_dir[1], -edge_dir[0]])
+        mid = (p1 + p2) / 2
+        if np.dot(normal, mid - centroid) < 0:
+            normal = -normal
+
+        # Apply offset to start corner
+        corner_offsets[start_idx] += normal * offset_at_start
+        corner_offset_count[start_idx] += 1
+        # Apply offset to end corner
+        corner_offsets[end_idx] += normal * offset_at_end
+        corner_offset_count[end_idx] += 1
+
+    # Average the offsets from the two adjacent edges for each corner
+    refined = ordered.copy().astype(np.float64)
+    for i in range(4):
+        if corner_offset_count[i] > 0:
+            avg_offset = corner_offsets[i] / corner_offset_count[i]
+            refined[i] = ordered[i] + avg_offset
+
+    return refined.astype(np.float32)
 
     # Recompute corners from line intersections.
     # Corner i = intersection of edge (i-1)%4 and edge i.
