@@ -16,6 +16,7 @@ router = APIRouter()
 async def trace_image(
     file: UploadFile = File(...),
     paper_size: str = Form("letter"),
+    smoothing: float = Form(0.3),
 ):
     """Upload a photo of tools on paper; returns detected outlines + rectified image.
 
@@ -34,7 +35,7 @@ async def trace_image(
         raise HTTPException(status_code=413, detail=f"Image too large (max {settings.max_upload_mb}MB).")
 
     try:
-        result, _rect_filename, orig_filename = run_trace(image_bytes, paper_size)  # type: ignore[arg-type]
+        result, _rect_filename, orig_filename = run_trace(image_bytes, paper_size, smoothing=smoothing)  # type: ignore[arg-type]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -60,7 +61,7 @@ async def rectify_with_corners(req: ManualRectifyRequest):
 
     try:
         result, _filename = run_rectify_with_corners(
-            req.original_image_url, req.corners, req.paper_size
+            req.original_image_url, req.corners, req.paper_size, smoothing=req.smoothing
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -76,6 +77,7 @@ class ClickDetectRequest(BaseModel):
     scale_mm_per_px: float
     click_x: int  # pixel x in rectified image
     click_y: int  # pixel y in rectified image
+    smoothing: float = 0.3
 
 
 @router.post("/detect-at-point", response_model=None)
@@ -93,7 +95,7 @@ async def detect_at_point(req: ClickDetectRequest):
     if img is None:
         raise HTTPException(status_code=400, detail=f"Could not load image: {filename}")
 
-    outline = detect_tool_at_point(img, req.scale_mm_per_px, req.click_x, req.click_y)
+    outline = detect_tool_at_point(img, req.scale_mm_per_px, req.click_x, req.click_y, smoothing=req.smoothing)
     if outline is None:
         raise HTTPException(status_code=400, detail="No tool detected at that point.")
 

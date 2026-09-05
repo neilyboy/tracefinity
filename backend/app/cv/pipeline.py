@@ -12,7 +12,7 @@ from .paper_detect import detect_and_rectify, detect_paper_quad, rectify_paper
 from .tool_detect import detect_tools
 
 
-def run_trace(image_bytes: bytes, paper_size: PaperSize) -> tuple[TraceResult, str, str]:
+def run_trace(image_bytes: bytes, paper_size: PaperSize, smoothing: float = 0.3) -> tuple[TraceResult, str, str]:
     """Run the full trace pipeline.
 
     Returns (TraceResult, rectified_image_filename, original_image_filename).
@@ -61,7 +61,7 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize) -> tuple[TraceResult, s
     cv2.imwrite(str(rect_filepath), rectified)
 
     # Detect tools.
-    outlines = detect_tools(rectified, scale)
+    outlines = detect_tools(rectified, scale, smoothing=smoothing)
 
     return (
         TraceResult(
@@ -81,7 +81,7 @@ def run_trace(image_bytes: bytes, paper_size: PaperSize) -> tuple[TraceResult, s
 
 
 def run_rectify_with_corners(
-    original_image_url: str, corners: list[Point], paper_size: PaperSize
+    original_image_url: str, corners: list[Point], paper_size: PaperSize, smoothing: float = 0.3
 ) -> tuple[TraceResult, str]:
     """Re-rectify an already-uploaded image using manually-specified corners.
 
@@ -105,7 +105,7 @@ def run_rectify_with_corners(
     cv2.imwrite(str(rect_filepath), rectified)
 
     # Detect tools.
-    outlines = detect_tools(rectified, scale)
+    outlines = detect_tools(rectified, scale, smoothing=smoothing)
 
     return (
         TraceResult(

@@ -11,12 +11,13 @@ backgrounds, because:
 4. It's much faster (milliseconds vs seconds for AI inference)
 
 The pipeline (inspired by georgslazdans/outline-app):
-1. Bilateral filter — preserves edges while removing noise
-2. Adaptive threshold — paper=white, tools=black (handles uneven lighting)
-3. Morphological close — fills small holes in tool masks
-4. Find contours — extract tool outlines
-5. Filter by size — remove noise and background
-6. Smooth and simplify — produce clean outlines for rendering
+1. Shading correction — removes paper wrinkles and uneven lighting
+2. Bilateral filter — preserves edges while removing noise
+3. Adaptive threshold — paper=white, tools=black (handles uneven lighting)
+4. Morphological close/open — fills small holes and removes specks
+5. Find contours — extract tool outlines and their inner holes
+6. Filter by size + shape — remove noise and background artifacts
+7. Smooth and simplify — produce clean outlines for rendering
 """
 from __future__ import annotations
 
@@ -30,89 +31,107 @@ from ..schemas import Point, ToolOutline
 from ..utils.geometry import polygon_area
 
 
-def detect_tools(rectified: np.ndarray, scale_mm_per_px: float) -> list[ToolOutline]:
+def detect_tools(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float = 0.3) -> list[ToolOutline]:
     """Detect tool outlines in the rectified image using OpenCV.
 
     The rectified image is a top-down view of the paper with tools on it.
     Paper is light, tools are dark. We use adaptive thresholding to separate
     them, then extract contours.
+
+    Args:
+        rectified: top-down image of the paper with tools
+        scale_mm_per_px: millimetres per pixel from paper rectification
+        smoothing: 0.0 = sharp/polygon, 0.3 = balanced, 1.0 = very smooth
     """
     h, w = rectified.shape[:2]
     min_area_px = settings.min_tool_area_mm2 / (scale_mm_per_px ** 2)
     max_area_px = 0.5 * h * w  # exclude background/paper
 
-    # Step 1: Convert to grayscale
+    # Step 1: Grayscale + shading correction
     gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+    filtered = _preprocess_gray(gray)
 
-    # Step 2: Bilateral filter — preserves edges while removing noise.
-    # This is critical for clean contours. d=9 is a good balance between
-    # noise removal and edge preservation.
-    filtered = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
-
-    # Step 3: Adaptive threshold — paper=white(255), tools=black(0).
-    # THRESH_BINARY_INV makes tools white (255) on black (0) background.
-    # blockSize=51 handles uneven lighting across the paper.
-    # C=5 is less aggressive than C=10, catching more of the tool edges
-    # including slightly lighter areas (handles, labels, reflections).
+    # Step 2: Adaptive threshold — paper=white(255), tools=black(0).
+    # C=8 is less sensitive to small shadows/wrinkles than C=5.
     block_size = _nearest_odd(max(31, int(20 / scale_mm_per_px)))
     thresh = cv2.adaptiveThreshold(
         filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, block_size, C=5,
+        cv2.THRESH_BINARY_INV, block_size, C=8,
     )
 
-    # Step 4: Morphological operations to clean up the binary image.
-    # Close fills small holes inside tools (from reflections, text, etc.)
+    # Step 3: Morphological operations to clean up the binary image.
+    # Close fills small holes inside tools (labels, reflections).
     # Open removes small noise specks.
-    # Dilate slightly to expand outlines beyond the exact tool boundary.
     close_kernel = np.ones((5, 5), np.uint8)
     open_kernel = np.ones((3, 3), np.uint8)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, close_kernel, iterations=2)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel, iterations=1)
-    # Dilate by a few px to expand outlines slightly beyond the tool edge,
-    # giving a small built-in margin so the outline isn't too tight.
-    dilate_kernel = np.ones((3, 3), np.uint8)
-    thresh = cv2.dilate(thresh, dilate_kernel, iterations=2)
 
-    # Step 5: Find contours — external contours only (no holes inside tools)
+    # Step 4: Find contours — external and their inner holes.
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return []
 
     hierarchy = hierarchy[0]
-    outlines: list[ToolOutline] = []
+    parent_to_holes = {}
+    for i, _ in enumerate(contours):
+        parent = hierarchy[i][3]
+        if parent != -1:
+            parent_to_holes.setdefault(parent, []).append(i)
 
+    outlines: list[ToolOutline] = []
     for i, cnt in enumerate(contours):
         if hierarchy[i][3] != -1:
-            continue  # skip inner contours (holes)
+            continue  # skip inner contours; we'll gather them per parent
+
         area_px = cv2.contourArea(cnt)
         if area_px < min_area_px or area_px > max_area_px:
             continue
 
         # Check dimensions — reject shadows and noise
-        ys, xs = np.where(thresh > 0)  # not used; use contour bbox instead
-        x, y, cw, ch = cv2.boundingRect(cnt)
+        _, _, cw, ch = cv2.boundingRect(cnt)
         w_mm = cw * scale_mm_per_px
         h_mm = ch * scale_mm_per_px
         if min(w_mm, h_mm) < 3.0:
             continue
-        # Reject wide thin streaks (shadows along paper edges)
         if w_mm > 100 and h_mm < 15:
             continue
 
-        outer_mm = _smooth_simplify_contour(cnt, scale_mm_per_px)
+        # Reject low-solidity slivers (paper wrinkles, shadows).
+        hull = cv2.convexHull(cnt)
+        hull_area = cv2.contourArea(hull)
+        if hull_area > 0 and area_px / hull_area < 0.25:
+            continue
+
+        outer_mm = _smooth_simplify_contour(cnt, scale_mm_per_px, smoothing)
         if len(outer_mm) < 3:
             continue
 
-        # NOTE: We do NOT detect holes inside tools. Tool pockets are solid
-        # depressions — the tool sits in a pocket shaped like its outline.
-        # Detecting holes would create a "doughnut" effect where the center
-        # of the tool isn't cut out, which is wrong for tool storage.
+        # Collect inner holes for this tool. Large holes (e.g., scissors
+        # finger holes) are returned; tiny specks are ignored. The designer
+        # can later choose which holes to keep or fill.
+        holes_mm = []
+        min_hole_area = 25.0 / (scale_mm_per_px ** 2)
+        for hi in parent_to_holes.get(i, []):
+            hcnt = contours[hi]
+            if cv2.contourArea(hcnt) < min_hole_area:
+                continue
+            # Verify the hole is actually inside the outer contour.
+            if not all(
+                cv2.pointPolygonTest(cnt, (float(p[0][0]), float(p[0][1])), False) >= 0
+                for p in hcnt
+            ):
+                continue
+            hole_mm = _smooth_simplify_contour(hcnt, scale_mm_per_px, smoothing)
+            if len(hole_mm) >= 3:
+                holes_mm.append(hole_mm)
 
         outlines.append(
             ToolOutline(
                 id=str(uuid.uuid4())[:8],
                 outer=outer_mm,
-                holes=[],  # no holes — solid pockets
+                holes=holes_mm,
+                smoothing=smoothing,
             )
         )
 
@@ -130,7 +149,7 @@ def detect_tools(rectified: np.ndarray, scale_mm_per_px: float) -> list[ToolOutl
     return outlines
 
 
-def detect_tool_at_point(rectified: np.ndarray, scale_mm_per_px: float, click_x: int, click_y: int) -> ToolOutline | None:
+def detect_tool_at_point(rectified: np.ndarray, scale_mm_per_px: float, click_x: int, click_y: int, smoothing: float = 0.3) -> ToolOutline | None:
     """Detect a single tool outline at a clicked point.
 
     This implements Tooltrace-style click-based detection: the user clicks
@@ -138,11 +157,9 @@ def detect_tool_at_point(rectified: np.ndarray, scale_mm_per_px: float, click_x:
     adaptive threshold as auto-detection, then find the contour that contains
     the clicked point.
     """
-    h, w = rectified.shape[:2]
     gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
-    filtered = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
+    filtered = _preprocess_gray(gray)
 
-    # Same adaptive threshold as auto-detection
     block_size = _nearest_odd(max(31, int(20 / scale_mm_per_px)))
     thresh = cv2.adaptiveThreshold(
         filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -153,7 +170,6 @@ def detect_tool_at_point(rectified: np.ndarray, scale_mm_per_px: float, click_x:
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, close_kernel, iterations=2)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel, iterations=1)
 
-    # Find all contours and return the one containing the click point
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
@@ -161,32 +177,71 @@ def detect_tool_at_point(rectified: np.ndarray, scale_mm_per_px: float, click_x:
     min_area_px = settings.min_tool_area_mm2 / (scale_mm_per_px ** 2)
     hierarchy = hierarchy[0] if hierarchy is not None else []
 
-    # Find the outer contour that contains the click point
-    best_cnt = None
+    parent_to_holes = {}
+    for i, _ in enumerate(contours):
+        parent = hierarchy[i][3]
+        if parent != -1:
+            parent_to_holes.setdefault(parent, []).append(i)
+
+    best_idx = -1
     best_area = 0
     for i, cnt in enumerate(contours):
         if hierarchy[i][3] != -1:
-            continue  # skip inner contours
+            continue
         area = cv2.contourArea(cnt)
         if area < min_area_px:
             continue
         if cv2.pointPolygonTest(cnt, (click_x, click_y), False) >= 0:
             if area > best_area:
-                best_cnt = cnt
+                best_idx = i
                 best_area = area
 
-    if best_cnt is None:
+    if best_idx == -1:
         return None
 
-    outer_mm = _smooth_simplify_contour(best_cnt, scale_mm_per_px)
+    cnt = contours[best_idx]
+    outer_mm = _smooth_simplify_contour(cnt, scale_mm_per_px, smoothing)
     if len(outer_mm) < 3:
         return None
+
+    holes_mm = []
+    min_hole_area = 25.0 / (scale_mm_per_px ** 2)
+    for hi in parent_to_holes.get(best_idx, []):
+        hcnt = contours[hi]
+        if cv2.contourArea(hcnt) < min_hole_area:
+            continue
+        hole_mm = _smooth_simplify_contour(hcnt, scale_mm_per_px, smoothing)
+        if len(hole_mm) >= 3:
+            holes_mm.append(hole_mm)
 
     return ToolOutline(
         id=str(uuid.uuid4())[:8],
         outer=outer_mm,
-        holes=[],
+        holes=holes_mm,
+        smoothing=smoothing,
     )
+
+
+def _preprocess_gray(gray: np.ndarray) -> np.ndarray:
+    """Remove low-frequency shading (paper wrinkles, uneven lighting).
+
+    We estimate the background with a large Gaussian blur, then subtract it
+    from the original so that shading variations are suppressed while
+    high-contrast tool edges remain. The result is re-centered around 128.
+    """
+    # Large blur to estimate low-frequency paper background. Kernel size is
+    # at least 51px and at most 1/4 of the smaller image dimension.
+    k = max(51, min(gray.shape[:2]) // 4)
+    k = _nearest_odd(k)
+    background = cv2.GaussianBlur(gray, (k, k), 0)
+
+    # corrected = gray + (128 - background)
+    # This makes paper regions ~128 and dark tools ~0, regardless of shading.
+    offset = cv2.subtract(np.full_like(gray, 128), background)
+    corrected = cv2.add(gray, offset)
+
+    # Bilateral filter removes noise while preserving edges.
+    return cv2.bilateralFilter(corrected, d=9, sigmaColor=75, sigmaSpace=75)
 
 
 def _nearest_odd(n: int) -> int:
@@ -214,15 +269,16 @@ def _is_likely_tool(pts: np.ndarray, max_aspect: float = 25.0, min_width_mm: flo
     return True
 
 
-def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float) -> list[Point]:
+def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float, smoothing: float = 0.3) -> list[Point]:
     """Produce a clean, smooth outline from a raw contour.
 
     Strategy:
     1. Resample to evenly-spaced points (kills pixel-level jaggedness)
     2. Gaussian smooth the contour (removes remaining noise)
-    3. Curvature-based simplification: keep more points where the outline
-       curves (corners, rounded ends) and fewer where it's straight.
-    4. The frontend renders smooth bezier curves through these points.
+    3. Douglas-Peucker simplification, with epsilon scaled by smoothing:
+       - low smoothing keeps sharp corners
+       - high smoothing produces rounder, simpler curves
+    4. Remove very close points
     """
     target_max = settings.max_outline_vertices
 
@@ -231,64 +287,35 @@ def _smooth_simplify_contour(cnt: np.ndarray, scale_mm_per_px: float) -> list[Po
         return []
 
     # Resample to high density for smooth Gaussian smoothing
-    pts_px = _resample_contour(pts_px, num_points=max(1000, len(pts_px)))
+    pts_px = _resample_contour(pts_px, num_points=max(400, len(pts_px)))
 
     # Gaussian smooth — removes per-pixel jaggedness from the mask boundary.
-    # Higher sigma = smoother curves. Two-pass smoothing for extra smoothness.
-    pts_px = _gaussian_smooth_2d(pts_px, sigma=5.0)
-    pts_px = _gaussian_smooth_2d(pts_px, sigma=3.0)
+    # sigma scales with the smoothing parameter.
+    if smoothing > 0:
+        base_sigma = 1.0 + smoothing * 7.0
+        pts_px = _gaussian_smooth_2d(pts_px, sigma=base_sigma)
+        if smoothing > 0.3:
+            pts_px = _gaussian_smooth_2d(pts_px, sigma=base_sigma * 0.5)
 
-    # Convert to mm
+    # Convert to mm for simplification (so tolerances are in physical units)
     pts_mm = pts_px * scale_mm_per_px
 
-    # Curvature-based simplification: keep points where curvature is high
-    # (corners, curves) and decimate where curvature is low (straight edges).
-    # More points = smoother curves in the frontend bezier rendering.
-    target_pts = min(target_max, max(40, len(pts_mm) // 5))
-    pts_mm = _simplify_by_curvature(pts_mm, target_pts=target_pts)
+    # Douglas-Peucker simplification with tolerance based on smoothing.
+    # For sharp (smoothing=0), keep a lot of points; for smooth (1.0), decimate.
+    if len(pts_mm) > target_max:
+        perim = float(np.sqrt(np.sum((np.roll(pts_mm, -1, axis=0) - pts_mm) ** 2, axis=1)).sum())
+        factor = 4.0 + smoothing * 6.0
+        epsilon = perim / (target_max * factor)
+        epsilon = max(0.05, min(epsilon, 5.0 * (smoothing + 0.1)))
+        pts_mm = cv2.approxPolyDP(pts_mm.astype(np.float32), epsilon, True).reshape(-1, 2).astype(np.float64)
 
     # Remove any points that ended up too close together
     pts_mm = _remove_close_points(pts_mm, min_dist_mm=0.5)
 
+    if len(pts_mm) < 3:
+        return []
+
     return [Point(x=round(float(p[0]), 2), y=round(float(p[1]), 2)) for p in pts_mm]
-
-
-def _simplify_by_curvature(pts: np.ndarray, target_pts: int) -> np.ndarray:
-    """Simplify a closed contour by keeping high-curvature points.
-
-    Points where the outline curves sharply (corners, rounded ends) are
-    kept. Points on straight sections are decimated.
-    """
-    n = len(pts)
-    if n <= target_pts or n < 6:
-        return pts
-
-    # Compute curvature at each point (angle change between adjacent segments)
-    curvatures = np.zeros(n)
-    for i in range(n):
-        p0 = pts[(i - 1) % n]
-        p1 = pts[i]
-        p2 = pts[(i + 1) % n]
-        v1 = p1 - p0
-        v2 = p2 - p1
-        len1 = np.linalg.norm(v1)
-        len2 = np.linalg.norm(v2)
-        if len1 < 1e-6 or len2 < 1e-6:
-            curvatures[i] = 0
-            continue
-        cos_angle = np.dot(v1, v2) / (len1 * len2)
-        cos_angle = np.clip(cos_angle, -1, 1)
-        curvatures[i] = 1.0 - cos_angle  # 0 = straight, 2 = sharp turn
-
-    # Select points: 70% by highest curvature, 30% evenly spaced
-    n_by_curv = int(target_pts * 0.7)
-    n_even = target_pts - n_by_curv
-
-    high_curv_idx = set(np.argsort(curvatures)[-n_by_curv:].tolist())
-    even_idx = set(np.linspace(0, n - 1, n_even, dtype=int).tolist())
-
-    keep_idx = sorted(high_curv_idx | even_idx)
-    return pts[keep_idx]
 
 
 def _resample_contour(pts: np.ndarray, num_points: int) -> np.ndarray:
@@ -319,10 +346,10 @@ def _resample_contour(pts: np.ndarray, num_points: int) -> np.ndarray:
 
 def _gaussian_smooth_2d(pts: np.ndarray, sigma: float = 2.0) -> np.ndarray:
     """Gaussian smooth a closed 2D point sequence."""
-    if len(pts) < 3:
+    if len(pts) < 3 or sigma <= 0:
         return pts
     radius = max(1, int(sigma * 3))
-    x = np.arange(-radius, radius + 1)
+    x = np.arange(-radius, radius + 1, dtype=np.float64)
     kernel = np.exp(-(x ** 2) / (2 * sigma ** 2))
     kernel /= kernel.sum()
     padded = np.vstack([pts[-radius:], pts, pts[:radius]])
@@ -345,7 +372,10 @@ def _remove_close_points(pts: np.ndarray, min_dist_mm: float = 1.0) -> np.ndarra
         dist = np.linalg.norm(result[-1] - result[0])
         if dist < min_dist_mm:
             result = result[:-1]
-    return np.array(result, dtype=np.float64)
+    out = np.array(result, dtype=np.float64)
+    if len(out) < 3:
+        return pts
+    return out
 
 
 def auto_rotate_angle(outer: list[Point]) -> float:

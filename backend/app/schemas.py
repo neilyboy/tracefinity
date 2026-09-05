@@ -183,6 +183,7 @@ class ManualRectifyRequest(BaseModel):
     original_image_url: str
     corners: list[Point]  # 4 corners in original image pixel coords
     paper_size: PaperSize = "letter"
+    smoothing: float = 0.3
 
 
 class ExportRequest(BaseModel):
