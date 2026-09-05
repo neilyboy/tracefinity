@@ -1022,17 +1022,33 @@ def _fix_corners_by_aspect_ratio(corners: np.ndarray, paper_size: str) -> np.nda
 
 
 def rectify_paper(image: np.ndarray, corners: np.ndarray, paper_size: str) -> tuple[np.ndarray, float]:
-    """Perspective-rectify the image so the paper fills the frame at known size."""
+    """Perspective-rectify the image so the paper fills the frame at known size.
+
+    Automatically detects whether the paper is portrait or landscape by
+    comparing the detected edge lengths, and uses the matching target
+    dimensions so the rectified image is not skewed.
+    """
     paper_w_mm, paper_h_mm = PAPER_SIZES_MM[paper_size]
-    target_w_px = int(paper_w_mm * 3)
-    target_h_px = int(paper_h_mm * 3)
+    ordered = order_corners(corners)
+    top_len = float(np.linalg.norm(ordered[1] - ordered[0]))
+    left_len = float(np.linalg.norm(ordered[3] - ordered[0]))
+
+    # If the detected top edge is longer than the left edge, the paper is
+    # landscape (rotated 90°). Swap target dimensions to match.
+    if top_len > left_len:
+        target_w_mm, target_h_mm = paper_h_mm, paper_w_mm
+    else:
+        target_w_mm, target_h_mm = paper_w_mm, paper_h_mm
+
+    target_w_px = int(target_w_mm * 3)
+    target_h_px = int(target_h_mm * 3)
     dst = np.array(
         [[0, 0], [target_w_px - 1, 0], [target_w_px - 1, target_h_px - 1], [0, target_h_px - 1]],
         dtype=np.float32,
     )
     matrix = cv2.getPerspectiveTransform(corners, dst)
     rectified = cv2.warpPerspective(image, matrix, (target_w_px, target_h_px))
-    scale_mm_per_px = paper_w_mm / target_w_px
+    scale_mm_per_px = target_w_mm / target_w_px
     return rectified, scale_mm_per_px
 
 
