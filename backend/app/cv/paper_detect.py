@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 from ..config import PAPER_SIZES_MM
 
@@ -326,13 +327,21 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         bright_mask = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel, iterations=3)
         bright_mask = cv2.morphologyEx(bright_mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        contours, _ = cv2.findContours(bright_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            continue
-        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
-            quad = _try_approx_quad(c)
-            if quad is not None:
-                add_candidate(quad, priority=10)  # Strategy 1: highest priority
+        # Erode the bright mask to remove the glare/transition penumbra around
+        # the paper. This makes the contour much closer to the actual paper
+        # edge, especially for photos with reflections on a dark table.
+        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        eroded = cv2.erode(bright_mask, erode_kernel, iterations=2)
+        # Also try without erosion for cases where the paper edge is already
+        # well-defined (e.g., flash photos).
+        for mask in (eroded, bright_mask):
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                continue
+            for c in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+                quad = _try_approx_quad(c)
+                if quad is not None:
+                    add_candidate(quad, priority=10)  # Strategy 1: highest priority
 
     # --- Strategy 2: Edge-based (Canny) ---
     for blur_size in [(5, 5), (9, 9)]:
@@ -436,19 +445,13 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
     best = _fix_corner_by_parallelogram(gray, best, paper_size)
 
     # Snap edges to the actual paper-background brightness boundary.
-    # This corrects for contour approximation errors by finding where
-    # brightness transitions from dark (background) to bright (paper).
-    refined_edges = _refine_edges_by_brightness_scan(gray, best)
-    if _is_valid_paper_quad(gray, refined_edges, img_area, paper_size):
-        # Accept the refinement if it's valid and doesn't reduce edge
-        # brightness by more than 15%. The edge brightness score can decrease
-        # slightly even when the refinement is correct (e.g., when a corner
-        # moves to the actual paper edge, the edge brightness distribution
-        # changes), so we use a lenient threshold.
-        old_eb = _edge_brightness_score(gray, best)
-        new_eb = _edge_brightness_score(gray, refined_edges)
-        if new_eb >= old_eb * 0.85:
-            best = refined_edges
+    # The threshold-detected bright region is usually larger than the paper
+    # because of reflections/glare on a dark table. Scan from inside the paper
+    # outward to find the first brightness drop — this is the actual paper
+    # edge, not the outer reflection boundary.
+    refined_edges = _refine_edges_by_paper_boundary(gray, best, paper_size)
+    if refined_edges is not None:
+        best = refined_edges
 
     return scale_back(best)
 
@@ -460,96 +463,117 @@ def _refine_edges_by_gradient(gray: np.ndarray, corners: np.ndarray) -> np.ndarr
     for the point where brightness transitions from dark (countertop) to
     bright (paper). This is the actual paper boundary.
 
-    We then recompute corner positions from the refined edge lines.
+    This improved version:
+    - Uses a larger search radius to handle cases where the initial contour is
+      far from the paper edge (e.g., due to glare/reflection on the table)
+    - Computes the threshold from local paper and background brightness per edge
+    - Uses per-corner offsets from nearest boundary points instead of a single
+      mean shift, so the edge can shift non-uniformly
+    - Only accepts inward offsets because the initial contour tends to be too
+      large (includes glare/shadow beyond the paper edge), not too small
     """
     ordered = order_corners(corners)
     h_img, w_img = gray.shape
 
-    # Smooth the grayscale image for stable brightness measurements
     smooth = cv2.GaussianBlur(gray, (9, 9), 0)
-
-    # Determine paper brightness from the center of the detected quad
     centroid = ordered.mean(axis=0)
-    cx, cy = int(centroid[0]), int(centroid[1])
-    r = 20
-    paper_brightness = float(smooth[
-        max(0, cy - r):min(h_img, cy + r),
-        max(0, cx - r):min(w_img, cx + r)
-    ].mean())
-    # Threshold: 75% of paper brightness is the paper boundary
-    brightness_threshold = paper_brightness * 0.75
 
-    lines = []  # Each: (point_on_line, direction)
+    edge_data = []  # (start_idx, end_idx, [(t, signed perpendicular offset)])
 
     for i in range(4):
         p1 = ordered[i]
         p2 = ordered[(i + 1) % 4]
         edge_len = np.linalg.norm(p2 - p1)
         if edge_len < 1e-6:
-            lines.append((p1, np.array([1.0, 0.0])))
+            edge_data.append((i, (i + 1) % 4, []))
             continue
 
         edge_dir = (p2 - p1) / edge_len
-        # Normal to edge — points outward (away from paper center)
         normal = np.array([edge_dir[1], -edge_dir[0]])
         mid = (p1 + p2) / 2
         if np.dot(normal, mid - centroid) < 0:
             normal = -normal
 
-        # For each sample point along the edge, search from OUTSIDE IN
-        # to find where brightness crosses the threshold (paper boundary).
-        # Starting from outside ensures we find the paper edge, not tool edges.
-        search_radius = max(int(edge_len * 0.08), 30)
-        boundary_pts = []
+        search_outside = int(edge_len * 0.25)
+        search_inside = int(edge_len * 0.10)
 
-        for t in np.linspace(0.1, 0.9, 15):
+        # Paper brightness from the quad centroid (well inside the paper).
+        # Sampling 30px inside the original edge was unreliable when the
+        # initial contour was far outside the actual paper (e.g., due to
+        # glare/reflection on the table).
+        cx, cy = int(centroid[0]), int(centroid[1])
+        r = 25
+        paper_b = float(smooth[
+            max(0, cy - r):min(h_img, cy + r + 1),
+            max(0, cx - r):min(w_img, cx + r + 1)
+        ].mean())
+
+        # Background brightness from far outside the edge.
+        outside_pt = mid + normal * 80
+        ox, oy = int(outside_pt[0]), int(outside_pt[1])
+        if 0 <= ox < w_img and 0 <= oy < h_img:
+            bg_b = float(smooth[oy, ox])
+        else:
+            bg_b = float(smooth.min())
+
+        # Use a threshold closer to the paper brightness to find the actual
+        # paper-to-background boundary, not the middle of the glare/transition
+        # zone. 0.85 favors the paper side; combined with scanning from outside
+        # inward, it finds where brightness rises to 85% of the paper interior.
+        brightness_threshold = paper_b * 0.85 + bg_b * 0.15
+
+        offsets = []
+        for t in np.linspace(0.05, 0.95, 20):
             base_pt = p1 * (1 - t) + p2 * t
-            # Search from far outside inward
-            found = False
-            for d in range(search_radius, -search_radius, -2):
+            for d in range(search_outside, -search_inside, -1):
                 pt = base_pt + normal * d
                 px, py = int(pt[0]), int(pt[1])
                 if not (0 <= px < w_img and 0 <= py < h_img):
                     continue
                 if float(smooth[py, px]) >= brightness_threshold:
-                    boundary_pts.append(pt.copy())
-                    found = True
+                    offset = (pt - mid) @ normal
+                    if offset <= 0:
+                        offsets.append((t, offset))
                     break
-            if not found:
-                # Keep the original position
-                boundary_pts.append(base_pt.copy())
 
-        # Use the boundary points to find WHERE the edge is (the center point),
-        # but keep the original edge DIRECTION (paper edges are straight).
-        boundary_arr = np.array(boundary_pts)
-        center_pt = boundary_arr.mean(axis=0)
-        lines.append((center_pt, edge_dir))
+        edge_data.append((i, (i + 1) % 4, offsets))
 
-    # Recompute corners from line intersections.
-    # Edges are ordered: [top, right, bottom, left] (edge i goes from corner i to corner (i+1)%4).
-    # Corner i is the intersection of edge (i-1)%4 and edge i.
-    #   TL (0) = left(3) ∩ top(0)
-    #   TR (1) = top(0) ∩ right(1)
-    #   BR (2) = right(1) ∩ bottom(2)
-    #   BL (3) = bottom(2) ∩ left(3)
-    refined = np.zeros((4, 2), dtype=np.float32)
+    refined = ordered.copy().astype(np.float64)
     for i in range(4):
-        p1, d1 = lines[(i - 1) % 4]
-        p2, d2 = lines[i]
-        refined[i] = _line_intersection(p1, d1, p2, d2)
+        corner = ordered[i]
+        corner_offset = np.zeros(2)
+        count = 0
+        for edge_idx in [(i - 1) % 4, i]:
+            start_idx, end_idx, offsets = edge_data[edge_idx]
+            if not offsets:
+                continue
+            if edge_idx == (i - 1) % 4:
+                _, offset = min(offsets, key=lambda x: abs(x[0] - 1.0))
+            else:
+                _, offset = min(offsets, key=lambda x: abs(x[0] - 0.0))
 
-    # Validate: each refined corner should be close to the original
-    # (within 20% of the average adjacent edge length).
-    # If refinement moved corners too far, it probably found wrong edges.
+            p1 = ordered[start_idx]
+            p2 = ordered[end_idx]
+            edge_dir = (p2 - p1) / max(np.linalg.norm(p2 - p1), 1e-6)
+            edge_normal = np.array([edge_dir[1], -edge_dir[0]])
+            mid = (p1 + p2) / 2
+            if np.dot(edge_normal, mid - centroid) < 0:
+                edge_normal = -edge_normal
+
+            corner_offset += edge_normal * offset
+            count += 1
+        if count > 0:
+            refined[i] = corner + corner_offset / count
+
     for i in range(4):
         e1_len = np.linalg.norm(ordered[(i + 1) % 4] - ordered[i])
         e2_len = np.linalg.norm(ordered[i] - ordered[(i - 1) % 4])
-        max_move = min(e1_len, e2_len) * 0.20
+        max_move = min(e1_len, e2_len) * 0.30
         dist = np.linalg.norm(refined[i] - ordered[i])
         if dist > max_move:
-            return ordered  # refinement too aggressive, keep original
+            return ordered
 
-    return refined
+    return refined.astype(np.float32)
 
 
 def _refine_edges_by_brightness_scan(gray: np.ndarray, corners: np.ndarray) -> np.ndarray:
@@ -739,6 +763,168 @@ def _fix_corner_by_parallelogram(gray: np.ndarray, corners: np.ndarray, paper_si
             best[i] = predicted
 
     return best
+
+
+def ransac_line(pts: np.ndarray, n_iter: int = 300, threshold: float = 5.0):
+    if len(pts) < 2:
+        return None
+    if len(pts) == 2:
+        return pts.mean(axis=0), (pts[1] - pts[0]) / np.linalg.norm(pts[1] - pts[0])
+
+    best_inliers = None
+    best_count = 0
+    for _ in range(n_iter):
+        idx = np.random.choice(len(pts), 2, replace=False)
+        p1, p2 = pts[idx]
+        if np.linalg.norm(p2 - p1) < 1e-6:
+            continue
+        direction = (p2 - p1) / np.linalg.norm(p2 - p1)
+        diffs = pts - p1
+        proj = diffs @ direction
+        closest = p1 + np.outer(proj, direction)
+        distances = np.linalg.norm(pts - closest, axis=1)
+        inliers = distances < threshold
+        if inliers.sum() > best_count:
+            best_count = inliers.sum()
+            best_inliers = inliers
+
+    if best_inliers is None or best_inliers.sum() < 2:
+        return None
+    inlier_pts = pts[best_inliers]
+    center = inlier_pts.mean(axis=0)
+    centered = inlier_pts - center
+    _, _, vh = np.linalg.svd(centered, full_matrices=False)
+    direction = vh[0]
+    return center, direction
+
+def _refine_edges_by_paper_boundary(gray: np.ndarray, corners: np.ndarray, paper_size: str = "letter") -> np.ndarray | None:
+    ordered = order_corners(corners)
+    h, w = gray.shape
+    smooth = cv2.GaussianBlur(gray, (9, 9), 0)
+    centroid = ordered.mean(axis=0)
+
+    # Paper brightness from a region around the centroid (well inside the paper)
+    cx, cy = int(centroid[0]), int(centroid[1])
+    r = 40
+    paper_b = float(smooth[
+        max(0, cy - r):min(h, cy + r + 1),
+        max(0, cx - r):min(w, cx + r + 1)
+    ].mean())
+    # Edge threshold: first point below 75% of paper brightness is the paper edge
+    threshold = paper_b * 0.85
+
+    edge_lines = []
+
+    for i in range(4):
+        p1 = ordered[i]
+        p2 = ordered[(i + 1) % 4]
+        edge_len = np.linalg.norm(p2 - p1)
+        if edge_len < 1e-6:
+            edge_lines.append((p1, np.array([1.0, 0.0])))
+            continue
+
+        edge_dir = (p2 - p1) / edge_len
+        # Normal pointing outward (away from centroid)
+        normal = np.array([edge_dir[1], -edge_dir[0]])
+        mid = (p1 + p2) / 2
+        if np.dot(normal, mid - centroid) < 0:
+            normal = -normal
+
+        # Search from well inside the paper outward to handle cases where the
+        # initial edge is outside the actual paper (e.g., due to reflection).
+        search_inside = int(edge_len * 0.20)
+        search_outside = int(edge_len * 0.20)
+
+        boundary_pts = []
+        for t in np.linspace(0.1, 0.9, 30):
+            base_pt = p1 * (1 - t) + p2 * t
+            # Build brightness profile from inside (-d) to outside (+d).
+            profile = []
+            ds = []
+            for d in range(-search_inside, search_outside + 1):
+                pt = base_pt + normal * d
+                px, py = int(pt[0]), int(pt[1])
+                if not (0 <= px < w and 0 <= py < h):
+                    continue
+                profile.append(float(smooth[py, px]))
+                ds.append(d)
+
+            if len(profile) < 10:
+                continue
+
+            profile = np.array(profile, dtype=np.float64)
+            ds = np.array(ds, dtype=np.float64)
+
+            # Smooth the profile for stable gradients
+            smooth_prof = gaussian_filter1d(profile, sigma=1.0)
+
+            # Compute gradient (drop in brightness when moving outward).
+            # Use a 5-point centered difference.
+            grad = np.zeros_like(smooth_prof)
+            for k in range(2, len(smooth_prof) - 2):
+                grad[k] = (smooth_prof[k + 2] - smooth_prof[k - 2]) / 4.0
+
+            # The paper edge is the first significant negative gradient when
+            # scanning from inside outward. A threshold alone tends to drift
+            # into reflection/halos; the steepest drop is at the actual edge.
+            contrast = max(profile) - min(profile)
+            sig_grad = -max(3.0, contrast * 0.03)
+
+            found_d = None
+            for k in range(2, len(smooth_prof) - 2):
+                neighborhood = grad[max(0, k - 3):min(len(grad), k + 4)]
+                if grad[k] < sig_grad and grad[k] <= min(neighborhood):
+                    found_d = ds[k]
+                    break
+
+            # Fallback: threshold-based if no gradient peak found
+            if found_d is None:
+                for k, d in enumerate(ds):
+                    if smooth_prof[k] < threshold:
+                        found_d = d
+                        break
+
+            if found_d is not None:
+                boundary_pts.append(base_pt + normal * found_d)
+
+        if len(boundary_pts) < 5:
+            edge_lines.append((mid, edge_dir))
+            continue
+
+        pts_arr = np.array(boundary_pts)
+        line = ransac_line(pts_arr, n_iter=400, threshold=5.0)
+        if line is None:
+            edge_lines.append((mid, edge_dir))
+            continue
+        center, fitted_dir = line
+        if np.dot(fitted_dir, edge_dir) < 0:
+            fitted_dir = -fitted_dir
+        edge_lines.append((center, fitted_dir))
+
+    # Intersect adjacent edge lines to get corners
+    refined = np.zeros((4, 2), dtype=np.float64)
+    for i in range(4):
+        c1, d1 = edge_lines[(i - 1) % 4]
+        c2, d2 = edge_lines[i]
+        A = np.array([[d1[0], -d2[0]], [d1[1], -d2[1]]])
+        if abs(np.linalg.det(A)) < 1e-6:
+            refined[i] = ordered[i]
+            continue
+        params = np.linalg.solve(A, c2 - c1)
+        refined[i] = c1 + params[0] * d1
+
+    # Validate
+    for i in range(4):
+        e1 = np.linalg.norm(ordered[(i + 1) % 4] - ordered[i])
+        e2 = np.linalg.norm(ordered[i] - ordered[(i - 1) % 4])
+        max_move = min(e1, e2) * 0.45
+        if np.linalg.norm(refined[i] - ordered[i]) > max_move:
+            return None
+
+    if not _is_valid_paper_quad(gray, refined.astype(np.float32), h * w, paper_size):
+        return None
+
+    return refined.astype(np.float32)
 
 
 def _fix_corners_by_aspect_ratio(corners: np.ndarray, paper_size: str) -> np.ndarray:
