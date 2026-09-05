@@ -435,8 +435,16 @@ def detect_paper_quad(image: np.ndarray, paper_size: str = "letter") -> np.ndarr
     # Fix wrong corners using the parallelogram constraint + brightness.
     best = _fix_corner_by_parallelogram(gray, best, paper_size)
 
-    # Fix perspective skew using the known paper aspect ratio.
-    best = _fix_corners_by_aspect_ratio(best, paper_size)
+    # Snap edges to the actual paper-background brightness boundary.
+    # This corrects for contour approximation errors by finding where
+    # brightness transitions from dark (background) to bright (paper).
+    refined_edges = _refine_edges_by_brightness_scan(gray, best)
+    if _is_valid_paper_quad(gray, refined_edges, img_area, paper_size):
+        # Only accept if it improved edge brightness (closer to actual paper edge)
+        old_eb = _edge_brightness_score(gray, best)
+        new_eb = _edge_brightness_score(gray, refined_edges)
+        if new_eb >= old_eb:
+            best = refined_edges
 
     return scale_back(best)
 
