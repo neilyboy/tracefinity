@@ -45,19 +45,55 @@ Choose a tracing engine before uploading or re-run another engine from the trace
 Auto/FastSAM does not blindly replace the OpenCV result. It uses the OpenCV outline as a tool candidate, assembles all compatible AI segments, constrains them to the candidate area, removes narrow spurs, and falls back safely when the AI mask is incomplete.
 
 ### 2.5 Review and Correct Every Trace
-The trace-review screen is the manufacturing checkpoint between image detection and tray design. Do not continue until each colored boundary represents the physical tool silhouette you want cut into the tray.
+The trace-review screen is the manufacturing checkpoint between image detection and tray design. This is where you define the exact tool shapes with the background image visible — a full vector editing environment with an icon-based toolbar, bezier handles, pen tool, and magnifier loupe.
+
+**Vector Editing Toolbar:**
+
+The toolbar at the top of the trace-review screen provides Inkscape-style vector editing tools:
+
+| Tool | Icon | Description |
+|---|---|---|
+| **Select** | 🖱 | Click tools, drag vertices, edit handles (default mode) |
+| **Draw Tool** | ✏ | Click to place points, close to create a new tool outline from scratch |
+| **Draw Island** | ✏ | Draw a custom solid island inside the selected tool |
+| **Auto-Detect** | 🔍 | Click on a tool in the image to auto-trace it |
+| **Handles** | ◐ | Show/hide bezier control handle circles |
+| **Loupe** | 🔍 | Toggle the 4× magnifier in the lower-right corner |
+| **Help** | ? | Show complete help and keyboard shortcuts |
+| **Split** | ✂ | Split a path with a cut line (click both sides) |
+| **Delete** | 🗑 | Delete the entire tool |
+| **Add Island** | ＋ | Add a solid island to the selected tool |
 
 **Outer boundary (purple/green):**
 - Click a tool in the image or tool list to select it.
 - Drag a visible path point to move that part of the boundary.
 - **Double-click an edge** to insert a new point where more local control is needed.
-- **Double-click a point** to remove it.
-- Use the **Smooth** control to reduce small contour jitter. Smoothing rounds an existing path; it does not repair a boundary that is in the wrong place.
+- **Double-click a vertex** to cycle its handle type: auto → smooth → sharp → straight.
+- **Right-click a vertex** to delete it.
+- Use the **Curve** slider to reduce small contour jitter. Smoothing rounds an existing path; it does not repair a boundary that is in the wrong place.
 - Use **Re-trace** to compare Auto, Hybrid OpenCV, and FastSAM without uploading the photo again.
 - Ctrl/Cmd-click multiple fragmented detections and choose **Merge selected paths**.
 - Select one incorrectly joined path and choose **Split with a cut line**, then click across the desired separation.
-- Use **+ Add Tool**, then click a missed tool in the rectified photograph.
-- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor for precise vertex placement. Toggle with the Loupe button.
+- Use **Auto-Detect**, then click a missed tool in the rectified photograph.
+- Use **Draw Tool** to draw a tool outline from scratch when auto-tracing doesn't work well.
+- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor for precise vertex placement. Toggle with the Loupe button or `L` key.
+
+**Bezier Handles (Inkscape-style curve editing):**
+
+Each vertex has a handle type that controls how the curve passes through it:
+
+| Type | Color | Behavior |
+|---|---|---|
+| **Auto** | Purple/Green | Catmull-Rom smoothing — no explicit handles needed (default) |
+| **Smooth** | Cyan | Mirrored handles — smooth curve through the vertex. Drag one blue circle and the other mirrors automatically. |
+| **Sharp** | Amber | Independent handles — corner with curved approaches on each side. Each blue circle moves independently. |
+| **Straight** | Gray | No curve — straight line segments to and from this vertex |
+
+- **Double-click a vertex** to cycle through handle types.
+- When a vertex is set to **smooth** or **sharp**, blue handle circles appear (if Handles toggle is on).
+- **Drag the blue circles** to shape the curve on each side of the vertex.
+- Dashed blue lines connect handles to their vertex for visual clarity.
+- Press **H** to toggle handle visibility.
 
 **Interior regions and solid islands:**
 
@@ -66,8 +102,9 @@ A tool pocket is cut from the complete outer silhouette. An interior polygon has
 - **Dashed amber region** — an automatically detected but unconfirmed interior. It remains included in the tool pocket by default, so it cannot accidentally leave a black/solid center.
 - **Preserve island** — confirm that the tool has a real physical opening and leave tray material inside it.
 - **Include in pocket** — dismiss a reflection, label, transparent plastic region, or other false interior and cut that area with the rest of the pocket.
-- **Solid island / red inner path** — a confirmed island. Select it to edit its points, or choose **Remove island** to make the pocket continuous again.
-- **Add solid island** — manually create an island when a real opening was not detected.
+- **Solid island / red inner path** — a confirmed island. Select it to edit its points, or choose **Remove Island** to make the pocket continuous again.
+- **Add Island** — manually create an island to shape manually.
+- **Draw Island** — use the pen tool to draw a custom island from scratch.
 
 For example, a bright stripe inside a screwdriver handle should normally remain **included in the pocket**. A genuine opening through scissors can be marked **Preserve island**. These decisions remain available later in **Tool Properties → Interior Regions**.
 
@@ -296,12 +333,13 @@ Some tools are hard to trace automatically — reflective surfaces, cast shadows
 
 1. **Start with Auto** — it picks the best available engine.
 2. **Compare engines** — if Auto gives incomplete results, try Hybrid OpenCV and FastSAM separately using the Re-trace button. One may handle reflections better; the other may handle shadows better.
-3. **Correct outer boundaries first** — drag vertices, add points where needed, or use the Pen Tool to redraw the outline from scratch.
+3. **Correct outer boundaries first** — drag vertices, add points where needed, or use the Draw Tool to redraw the outline from scratch.
 4. **Use bezier handles for curves** — double-click a vertex to switch it to "smooth" mode, then drag the blue handle circles to shape the curve. This is much faster than adding dozens of vertices.
 5. **Dismiss false interior candidates** — reflections, labels, and transparent regions should be "Included in pocket," not preserved as islands.
 6. **Preserve only real openings** — scissors finger holes and similar through-holes should be marked "Preserve island."
-7. **Draw missing islands** — if a real opening wasn't detected, use "Add Solid Island" or the "Draw Island" pen tool to create it manually.
-8. **Configure pocket geometry per tool** — set pocket shape (flat/spherical/cylindrical), depth, and margin before exporting.
+7. **Draw missing islands** — if a real opening wasn't detected, use "Add Island" or the "Draw Island" pen tool to create it manually.
+8. **Use the magnifier loupe** — toggle it on for precise vertex and handle placement on small details.
+9. **Continue to the editor** — once all tool shapes are defined, click "Open Editor →" to arrange them in the tray and configure pocket geometry.
 
 ### Known Limitations
 
