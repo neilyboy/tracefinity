@@ -694,22 +694,24 @@ export default function TraceView() {
                         const h = handles[vi]
                         const handleType = h?.type ?? 'auto'
                         const ptPx = mmToPx(pt)
+                        const cpInPx = h?.cp_in ? mmToPx(h.cp_in) : null
+                        const cpOutPx = h?.cp_out ? mmToPx(h.cp_out) : null
                         return (
                           <g key={`v-${vi}`}>
                             {/* Bezier handle lines and circles */}
-                            {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && h.cp_in && (
+                            {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && cpInPx && (
                               <>
-                                <line x1={ptPx.x} y1={ptPx.y} x2={h.cp_in.x} y2={h.cp_in.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
-                                <circle cx={h.cp_in.x} cy={h.cp_in.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
+                                <line x1={ptPx.x} y1={ptPx.y} x2={cpInPx.x} y2={cpInPx.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
+                                <circle cx={cpInPx.x} cy={cpInPx.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
                                   style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab' }}
                                   onPointerDown={(e) => handleHandlePointerDown(e, tool.id, selectedHole, vi, 'cp_in')}
                                 />
                               </>
                             )}
-                            {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && h.cp_out && (
+                            {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && cpOutPx && (
                               <>
-                                <line x1={ptPx.x} y1={ptPx.y} x2={h.cp_out.x} y2={h.cp_out.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
-                                <circle cx={h.cp_out.x} cy={h.cp_out.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
+                                <line x1={ptPx.x} y1={ptPx.y} x2={cpOutPx.x} y2={cpOutPx.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
+                                <circle cx={cpOutPx.x} cy={cpOutPx.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
                                   style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab' }}
                                   onPointerDown={(e) => handleHandlePointerDown(e, tool.id, selectedHole, vi, 'cp_out')}
                                 />
