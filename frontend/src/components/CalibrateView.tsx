@@ -194,7 +194,9 @@ export default function CalibrateView() {
           src={imageUrl}
           alt="original"
           onLoad={handleImgLoad}
-          style={{ display: 'block', maxWidth: 700, maxHeight: 500, objectFit: 'contain' }}
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          style={{ display: 'block', maxWidth: 700, maxHeight: 500, objectFit: 'contain', userSelect: 'none' }}
         />
         {imgSize.w > 0 && (
           <svg

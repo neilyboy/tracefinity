@@ -612,12 +612,15 @@ export default function TraceView() {
               ref={imgRef}
               src={design.image_filename ? `/data/images/${design.image_filename}` : ''}
               alt="rectified"
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
               onClick={handleImageClick}
               onDoubleClick={penMode !== 'none' ? handlePenDoubleClick : undefined}
               style={{
                 display: 'block', maxWidth: '100%',
                 cursor: penMode !== 'none' ? 'crosshair' : (addingTool || splitting ? 'crosshair' : 'default'),
                 opacity: detecting ? 0.5 : 1,
+                userSelect: 'none',
               }}
             />
             {detecting && (
