@@ -6,7 +6,7 @@ import type { FontInfo, TextLabel } from '../types'
 import { loadAllFonts } from '../editor/fontLoader'
 
 export default function ToolPropsPanel() {
-  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, rotateTools, alignTools, distributeTools, deleteLabel, updateLabel, mirrorTool } = useEditor()
+  const { design, selectedToolId, selectedToolIds, selectTool, updateTool, deleteTool, addTool, scaleTool, duplicateTool, duplicateToolN, arrayTool, rotateTools, alignTools, distributeTools, deleteLabel, updateLabel, mirrorTool, selectedHoleIdx, selectHole, addHole, removeHole } = useEditor()
   const tool = design.outlines.find((o) => o.id === selectedToolId)
   const multiSelected = selectedToolIds.length > 1 ? selectedToolIds : []
   const [rotating, setRotating] = useState(false)
@@ -443,19 +443,52 @@ export default function ToolPropsPanel() {
         </div>
       ))}
       {tool.holes.map((hole, i) => (
-        <div key={`void-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
-          <span style={{ flex: 1, fontSize: 11, color: '#fca5a5' }}>Solid island {i + 1} · tray material remains here</span>
+        <div
+          key={`void-${i}`}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5,
+            padding: '4px 6px', borderRadius: 4, cursor: 'pointer',
+            background: selectedHoleIdx === i ? '#3b0764' : '#27272a',
+            border: `1px solid ${selectedHoleIdx === i ? '#7c3aed' : '#3f3f46'}`,
+          }}
+          onClick={() => { selectTool(tool.id); selectHole(selectedHoleIdx === i ? null : i) }}
+        >
+          <span style={{ flex: 1, fontSize: 11, color: selectedHoleIdx === i ? '#a78bfa' : '#fca5a5' }}>
+            Solid island {i + 1} · {hole.length} pts{selectedHoleIdx === i ? ' · EDITING' : ' · click to edit'}
+          </span>
           <button
-            onClick={() => updateTool(tool.id, {
-              holes: tool.holes.filter((_, index) => index !== i),
-              hole_candidates: [...(tool.hole_candidates ?? []), hole],
-            })}
-            style={smallBtn}
+            onClick={(e) => {
+              e.stopPropagation()
+              updateTool(tool.id, {
+                holes: tool.holes.filter((_, index) => index !== i),
+                hole_candidates: [...(tool.hole_candidates ?? []), hole],
+              })
+            }}
+            style={{ ...smallBtn, fontSize: 9 }}
+            title="Convert back to unconfirmed"
           >
-            Remove island
+            Remove
           </button>
         </div>
       ))}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button
+          onClick={() => addHole(tool.id)}
+          style={{ ...smallBtn, borderColor: '#7c3aed', color: '#a78bfa' }}
+          title="Add a new solid island (preserves tray material inside the pocket)"
+        >
+          ＋ Add Solid Island
+        </button>
+        {selectedHoleIdx !== null && (
+          <button
+            onClick={() => { removeHole(tool.id, selectedHoleIdx) }}
+            style={{ ...smallBtn, color: '#fca5a5', borderColor: '#7f1d1d' }}
+            title="Delete the selected island"
+          >
+            ✕ Delete Island
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Finger Holes

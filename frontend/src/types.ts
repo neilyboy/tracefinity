@@ -17,6 +17,17 @@ export interface FingerHole {
   depth_mm: number | null
 }
 
+export type VertexHandleType = 'auto' | 'smooth' | 'sharp' | 'straight'
+
+export interface VertexHandle {
+  /** Control point before this vertex (incoming curve) */
+  cp_in: Point | null
+  /** Control point after this vertex (outgoing curve) */
+  cp_out: Point | null
+  /** How the handles behave: auto=Catmull-Rom, smooth=mirrored, sharp=corner, straight=no curve */
+  type: VertexHandleType
+}
+
 export interface TextLabel {
   id: string
   text: string
@@ -45,6 +56,10 @@ export interface ToolOutline {
   outer: Point[]
   holes: Point[][]
   hole_candidates?: Point[][]
+  /** Per-vertex bezier handles for outer path, parallel to outer[] */
+  outer_handles?: VertexHandle[]
+  /** Per-vertex bezier handles for holes, parallel to holes[][] */
+  holes_handles?: VertexHandle[][]
   label: string
   margin_mm: number | null
   pocket_depth_mm: number | null

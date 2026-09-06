@@ -1,13 +1,21 @@
 // Central editor state via zustand.
 import { create } from 'zustand'
-import type { BinParams, Design, PaperSize, Point, ToolOutline, TextLabel } from '../types'
+import type { BinParams, Design, PaperSize, Point, ToolOutline, TextLabel, VertexHandle, VertexHandleType } from '../types'
 import { DEFAULT_PARAMS } from '../types'
+import { computeAutoHandles, mirrorHandle } from '../utils/smoothPath'
+
+/** Helper: update a single handle in a handles array immutably */
+function updateHandleInArray(handles: VertexHandle[], idx: number, updates: Partial<VertexHandle>): VertexHandle[] {
+  return handles.map((h, i) => i === idx ? { ...h, ...updates } : h)
+}
 
 interface EditorState {
   // The current design being edited
   design: Design
   selectedToolId: string | null
   selectedToolIds: string[]  // multi-select (includes selectedToolId)
+  // Which hole/island is selected for vertex editing (null = outer path)
+  selectedHoleIdx: number | null
   // UI state
   view: 'upload' | 'calibrate' | 'trace' | 'editor'
   loading: boolean
@@ -28,6 +36,7 @@ interface EditorState {
   selectTool: (id: string | null) => void
   toggleToolSelection: (id: string) => void
   selectTools: (ids: string[]) => void
+  selectHole: (holeIdx: number | null) => void
   updateTool: (id: string, updates: Partial<ToolOutline>) => void
   deleteTool: (id: string) => void
   addTool: (tool: ToolOutline) => void
@@ -43,6 +52,17 @@ interface EditorState {
   updateVertex: (toolId: string, vertexIdx: number, pos: Point) => void
   addVertex: (toolId: string, afterIdx: number, pos: Point) => void
   deleteVertex: (toolId: string, vertexIdx: number) => void
+  // Hole/island vertex editing
+  updateHoleVertex: (toolId: string, holeIdx: number, vertexIdx: number, pos: Point) => void
+  addHoleVertex: (toolId: string, holeIdx: number, afterIdx: number, pos: Point) => void
+  deleteHoleVertex: (toolId: string, holeIdx: number, vertexIdx: number) => void
+  addHole: (toolId: string, hole?: Point[]) => void
+  removeHole: (toolId: string, holeIdx: number) => void
+  // Bezier handle editing
+  updateVertexHandle: (toolId: string, vertexIdx: number, handle: Partial<VertexHandle>) => void
+  updateHoleVertexHandle: (toolId: string, holeIdx: number, vertexIdx: number, handle: Partial<VertexHandle>) => void
+  setVertexHandleType: (toolId: string, vertexIdx: number, type: VertexHandleType) => void
+  setHoleVertexHandleType: (toolId: string, holeIdx: number, vertexIdx: number, type: VertexHandleType) => void
   toggleToolVisible: (id: string) => void
   scaleTool: (id: string, scaleFactor: number) => void
   mirrorTool: (id: string, axis: 'x' | 'y') => void
@@ -83,6 +103,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   design: { ...emptyDesign },
   selectedToolId: null,
   selectedToolIds: [],
+  selectedHoleIdx: null,
   view: 'upload',
   loading: false,
   error: null,
@@ -95,14 +116,16 @@ export const useEditor = create<EditorState>((set, get) => ({
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
 
-  setDesign: (design) => set({ design, view: 'editor', selectedToolId: null, selectedToolIds: [], history: [design], historyIndex: 0 }),
+  setDesign: (design) => set({ design, view: 'editor', selectedToolId: null, selectedToolIds: [], selectedHoleIdx: null, history: [design], historyIndex: 0 }),
 
   setParams: (params) => {
     get().pushHistory()
     set((s) => ({ design: { ...s.design, params: { ...s.design.params, ...params } } }))
   },
 
-  selectTool: (id) => set({ selectedToolId: id, selectedToolIds: id ? [id] : [] }),
+  selectTool: (id) => set({ selectedToolId: id, selectedToolIds: id ? [id] : [], selectedHoleIdx: null }),
+
+  selectHole: (holeIdx) => set({ selectedHoleIdx: holeIdx }),
 
   toggleToolSelection: (id) => set((s) => {
     const exists = s.selectedToolIds.includes(id)
@@ -153,12 +176,19 @@ export const useEditor = create<EditorState>((set, get) => ({
     const newId = `tool_${Date.now()}`
     // Offset the duplicate by 10mm so it doesn't overlap
     const offset = 10
+    const offsetHandle = (h: VertexHandle): VertexHandle => ({
+      ...h,
+      cp_in: h.cp_in ? { x: h.cp_in.x + offset, y: h.cp_in.y + offset } : null,
+      cp_out: h.cp_out ? { x: h.cp_out.x + offset, y: h.cp_out.y + offset } : null,
+    })
     const dup: ToolOutline = {
       ...tool,
       id: newId,
       outer: tool.outer.map((p) => ({ x: p.x + offset, y: p.y + offset })),
       holes: tool.holes.map((h) => h.map((p) => ({ x: p.x + offset, y: p.y + offset }))),
       hole_candidates: (tool.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + offset, y: p.y + offset }))),
+      outer_handles: (tool.outer_handles ?? []).map(offsetHandle),
+      holes_handles: (tool.holes_handles ?? []).map((hh) => hh.map(offsetHandle)),
       finger_holes: (tool.finger_holes ?? []).map((fh) => ({
         ...fh,
         x: fh.x + offset,
@@ -260,6 +290,16 @@ export const useEditor = create<EditorState>((set, get) => ({
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
                 holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
                 hole_candidates: (o.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                outer_handles: (o.outer_handles ?? []).map((h) => ({
+                  ...h,
+                  cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
+                  cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
+                })),
+                holes_handles: (o.holes_handles ?? []).map((hh) => hh.map((h) => ({
+                  ...h,
+                  cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
+                  cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
+                }))),
                 finger_holes: (o.finger_holes ?? []).map((fh) => ({
                   ...fh,
                   x: fh.x + dx,
@@ -284,6 +324,16 @@ export const useEditor = create<EditorState>((set, get) => ({
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
                 holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
                 hole_candidates: (o.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                outer_handles: (o.outer_handles ?? []).map((h) => ({
+                  ...h,
+                  cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
+                  cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
+                })),
+                holes_handles: (o.holes_handles ?? []).map((hh) => hh.map((h) => ({
+                  ...h,
+                  cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
+                  cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
+                }))),
                 finger_holes: (o.finger_holes ?? []).map((fh) => ({
                   ...fh,
                   x: fh.x + dx,
@@ -324,11 +374,18 @@ export const useEditor = create<EditorState>((set, get) => ({
             x: groupCx + (p.x - groupCx) * cos - (p.y - groupCy) * sin,
             y: groupCy + (p.x - groupCx) * sin + (p.y - groupCy) * cos,
           })
+          const rotateHandle = (h: VertexHandle): VertexHandle => ({
+            ...h,
+            cp_in: h.cp_in ? rotatePt(h.cp_in) : null,
+            cp_out: h.cp_out ? rotatePt(h.cp_out) : null,
+          })
           return {
             ...o,
             outer: o.outer.map(rotatePt),
             holes: o.holes.map((h) => h.map(rotatePt)),
             hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(rotatePt)),
+            outer_handles: (o.outer_handles ?? []).map(rotateHandle),
+            holes_handles: (o.holes_handles ?? []).map((hh) => hh.map(rotateHandle)),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
               x: groupCx + (fh.x - groupCx) * cos - (fh.y - groupCy) * sin,
@@ -483,18 +540,35 @@ export const useEditor = create<EditorState>((set, get) => ({
       return {
         design: {
           ...s.design,
-          outlines: s.design.outlines.map((o) =>
-            o.id === toolId
-              ? {
-                  ...o,
-                  outer: o.outer.map((p, i) => {
-                    if (i === vertexIdx) return pos
-                    if (i === mirroredIdx && mirroredPos) return mirroredPos
-                    return p
-                  }),
-                }
-              : o,
-          ),
+          outlines: s.design.outlines.map((o) => {
+            if (o.id !== toolId) return o
+            const oldPos = o.outer[vertexIdx]
+            const dx = pos.x - oldPos.x
+            const dy = pos.y - oldPos.y
+            // Move bezier handles along with the vertex
+            const handles = o.outer_handles ?? []
+            let newHandles = handles
+            if (handles.length === o.outer.length && handles[vertexIdx]) {
+              const h = handles[vertexIdx]
+              if (h.cp_in) {
+                const movedCpIn = { x: h.cp_in.x + dx, y: h.cp_in.y + dy }
+                newHandles = updateHandleInArray(newHandles, vertexIdx, { cp_in: movedCpIn })
+              }
+              if (h.cp_out) {
+                const movedCpOut = { x: h.cp_out.x + dx, y: h.cp_out.y + dy }
+                newHandles = updateHandleInArray(newHandles, vertexIdx, { cp_out: movedCpOut })
+              }
+            }
+            return {
+              ...o,
+              outer: o.outer.map((p, i) => {
+                if (i === vertexIdx) return pos
+                if (i === mirroredIdx && mirroredPos) return mirroredPos
+                return p
+              }),
+              outer_handles: newHandles,
+            }
+          }),
         },
       }
     })
@@ -505,11 +579,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => ({
       design: {
         ...s.design,
-        outlines: s.design.outlines.map((o) =>
-          o.id === toolId
-            ? { ...o, outer: [...o.outer.slice(0, afterIdx + 1), pos, ...o.outer.slice(afterIdx + 1)] }
-            : o,
-        ),
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const handles = o.outer_handles ?? []
+          // Insert a new "auto" handle for the new vertex
+          let newHandles = handles
+          if (handles.length === o.outer.length) {
+            newHandles = [...handles.slice(0, afterIdx + 1), { cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }, ...handles.slice(afterIdx + 1)]
+          }
+          return {
+            ...o,
+            outer: [...o.outer.slice(0, afterIdx + 1), pos, ...o.outer.slice(afterIdx + 1)],
+            outer_handles: newHandles,
+          }
+        }),
       },
     }))
   },
@@ -521,9 +604,311 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => ({
       design: {
         ...s.design,
-        outlines: s.design.outlines.map((o) =>
-          o.id === toolId ? { ...o, outer: o.outer.filter((_, i) => i !== vertexIdx) } : o,
-        ),
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const handles = o.outer_handles ?? []
+          let newHandles = handles
+          if (handles.length === o.outer.length) {
+            newHandles = handles.filter((_, i) => i !== vertexIdx)
+          }
+          return {
+            ...o,
+            outer: o.outer.filter((_, i) => i !== vertexIdx),
+            outer_handles: newHandles,
+          }
+        }),
+      },
+    }))
+  },
+
+  // --- Hole/island vertex editing ---
+  updateHoleVertex: (toolId, holeIdx, vertexIdx, pos) => {
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const hole = o.holes[holeIdx]
+          if (!hole) return o
+          const oldPos = hole[vertexIdx]
+          const dx = pos.x - oldPos.x
+          const dy = pos.y - oldPos.y
+          // Move handles along with the vertex
+          const holesHandles = o.holes_handles ?? []
+          let newHolesHandles = holesHandles
+          if (holesHandles.length === o.holes.length && holesHandles[holeIdx]) {
+            const holeHandles = holesHandles[holeIdx]
+            if (holeHandles.length === hole.length && holeHandles[vertexIdx]) {
+              const h = holeHandles[vertexIdx]
+              const updatedH = { ...h }
+              if (h.cp_in) updatedH.cp_in = { x: h.cp_in.x + dx, y: h.cp_in.y + dy }
+              if (h.cp_out) updatedH.cp_out = { x: h.cp_out.x + dx, y: h.cp_out.y + dy }
+              newHolesHandles = holesHandles.map((hh, hi) => hi === holeIdx
+                ? hh.map((vh, vi) => vi === vertexIdx ? updatedH : vh)
+                : hh)
+            }
+          }
+          return {
+            ...o,
+            holes: o.holes.map((h, hi) => hi === holeIdx
+              ? h.map((p, pi) => pi === vertexIdx ? pos : p)
+              : h),
+            holes_handles: newHolesHandles,
+          }
+        }),
+      },
+    }))
+  },
+
+  addHoleVertex: (toolId, holeIdx, afterIdx, pos) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const hole = o.holes[holeIdx]
+          if (!hole) return o
+          const holesHandles = o.holes_handles ?? []
+          let newHolesHandles = holesHandles
+          if (holesHandles.length === o.holes.length && holesHandles[holeIdx] && holesHandles[holeIdx].length === hole.length) {
+            newHolesHandles = holesHandles.map((hh, hi) => hi === holeIdx
+              ? [...hh.slice(0, afterIdx + 1), { cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }, ...hh.slice(afterIdx + 1)]
+              : hh)
+          }
+          return {
+            ...o,
+            holes: o.holes.map((h, hi) => hi === holeIdx
+              ? [...h.slice(0, afterIdx + 1), pos, ...h.slice(afterIdx + 1)]
+              : h),
+            holes_handles: newHolesHandles,
+          }
+        }),
+      },
+    }))
+  },
+
+  deleteHoleVertex: (toolId, holeIdx, vertexIdx) => {
+    const tool = get().design.outlines.find((o) => o.id === toolId)
+    if (!tool) return
+    const hole = tool.holes[holeIdx]
+    if (!hole || hole.length <= 3) return
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const holesHandles = o.holes_handles ?? []
+          let newHolesHandles = holesHandles
+          if (holesHandles.length === o.holes.length && holesHandles[holeIdx] && holesHandles[holeIdx].length === hole.length) {
+            newHolesHandles = holesHandles.map((hh, hi) => hi === holeIdx
+              ? hh.filter((_, vi) => vi !== vertexIdx)
+              : hh)
+          }
+          return {
+            ...o,
+            holes: o.holes.map((h, hi) => hi === holeIdx
+              ? h.filter((_, vi) => vi !== vertexIdx)
+              : h),
+            holes_handles: newHolesHandles,
+          }
+        }),
+      },
+    }))
+  },
+
+  addHole: (toolId, hole) => {
+    const tool = get().design.outlines.find((o) => o.id === toolId)
+    if (!tool) return
+    // Default: a small circle in the center of the tool
+    const newHole = hole ?? (() => {
+      const xs = tool.outer.map((p) => p.x)
+      const ys = tool.outer.map((p) => p.y)
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+      const rx = Math.max(2, (Math.max(...xs) - Math.min(...xs)) * 0.12)
+      const ry = Math.max(2, (Math.max(...ys) - Math.min(...ys)) * 0.12)
+      return Array.from({ length: 20 }, (_, i) => {
+        const a = i / 20 * Math.PI * 2
+        return { x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry }
+      })
+    })()
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const newHoleHandles = newHole.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }))
+          const holesHandles = o.holes_handles ?? []
+          return {
+            ...o,
+            holes: [...o.holes, newHole],
+            holes_handles: holesHandles.length === o.holes.length
+              ? [...holesHandles, newHoleHandles]
+              : holesHandles,
+          }
+        }),
+      },
+    }))
+  },
+
+  removeHole: (toolId, holeIdx) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const holesHandles = o.holes_handles ?? []
+          return {
+            ...o,
+            holes: o.holes.filter((_, hi) => hi !== holeIdx),
+            holes_handles: holesHandles.length === o.holes.length
+              ? holesHandles.filter((_, hi) => hi !== holeIdx)
+              : holesHandles,
+          }
+        }),
+      },
+    }))
+    // Clear hole selection if we removed the selected hole
+    if (get().selectedHoleIdx === holeIdx) {
+      set({ selectedHoleIdx: null })
+    }
+  },
+
+  // --- Bezier handle editing ---
+  updateVertexHandle: (toolId, vertexIdx, handle) => {
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const handles = o.outer_handles ?? []
+          // Ensure handles array is initialized
+          let newHandles: VertexHandle[]
+          if (handles.length !== o.outer.length) {
+            newHandles = o.outer.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }))
+          } else {
+            newHandles = [...handles]
+          }
+          const existing = newHandles[vertexIdx]
+          const updated = { ...existing, ...handle }
+          // If type is "smooth" and we updated one handle, mirror the other
+          if (updated.type === 'smooth' && updated.cp_out && handle.cp_out) {
+            updated.cp_in = mirrorHandle(o.outer[vertexIdx], updated.cp_out)
+          } else if (updated.type === 'smooth' && updated.cp_in && handle.cp_in) {
+            updated.cp_out = mirrorHandle(o.outer[vertexIdx], updated.cp_in)
+          }
+          newHandles[vertexIdx] = updated
+          return { ...o, outer_handles: newHandles }
+        }),
+      },
+    }))
+  },
+
+  updateHoleVertexHandle: (toolId, holeIdx, vertexIdx, handle) => {
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const hole = o.holes[holeIdx]
+          if (!hole) return o
+          let holesHandles = o.holes_handles ?? []
+          // Ensure holes_handles is properly initialized
+          if (holesHandles.length !== o.holes.length) {
+            holesHandles = o.holes.map((h) => h.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType })))
+          }
+          let holeHandles = holesHandles[holeIdx]
+          if (!holeHandles || holeHandles.length !== hole.length) {
+            holeHandles = hole.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }))
+          } else {
+            holeHandles = [...holeHandles]
+          }
+          const existing = holeHandles[vertexIdx]
+          const updated = { ...existing, ...handle }
+          // If type is "smooth" and we updated one handle, mirror the other
+          if (updated.type === 'smooth' && updated.cp_out && handle.cp_out) {
+            updated.cp_in = mirrorHandle(hole[vertexIdx], updated.cp_out)
+          } else if (updated.type === 'smooth' && updated.cp_in && handle.cp_in) {
+            updated.cp_out = mirrorHandle(hole[vertexIdx], updated.cp_in)
+          }
+          holeHandles[vertexIdx] = updated
+          return {
+            ...o,
+            holes_handles: holesHandles.map((hh, hi) => hi === holeIdx ? holeHandles : hh),
+          }
+        }),
+      },
+    }))
+  },
+
+  setVertexHandleType: (toolId, vertexIdx, type) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const handles = o.outer_handles ?? []
+          let newHandles: VertexHandle[]
+          if (handles.length !== o.outer.length) {
+            newHandles = o.outer.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }))
+          } else {
+            newHandles = [...handles]
+          }
+          if (type === 'auto' || type === 'straight') {
+            // Clear explicit handles
+            newHandles[vertexIdx] = { cp_in: null, cp_out: null, type }
+          } else if (type === 'smooth' || type === 'sharp') {
+            // Compute auto handles from Catmull-Rom as starting point
+            const n = o.outer.length
+            const prev = o.outer[(vertexIdx - 1 + n) % n]
+            const curr = o.outer[vertexIdx]
+            const next = o.outer[(vertexIdx + 1) % n]
+            const auto = computeAutoHandles(prev, curr, next, o.smoothing)
+            newHandles[vertexIdx] = { cp_in: auto.cp_in, cp_out: auto.cp_out, type }
+          }
+          return { ...o, outer_handles: newHandles }
+        }),
+      },
+    }))
+  },
+
+  setHoleVertexHandleType: (toolId, holeIdx, vertexIdx, type) => {
+    get().pushHistory()
+    set((s) => ({
+      design: {
+        ...s.design,
+        outlines: s.design.outlines.map((o) => {
+          if (o.id !== toolId) return o
+          const hole = o.holes[holeIdx]
+          if (!hole) return o
+          let holesHandles = o.holes_handles ?? []
+          if (holesHandles.length !== o.holes.length) {
+            holesHandles = o.holes.map((h) => h.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType })))
+          }
+          let holeHandles = [...holesHandles[holeIdx]]
+          if (!holeHandles || holeHandles.length !== hole.length) {
+            holeHandles = hole.map(() => ({ cp_in: null, cp_out: null, type: 'auto' as VertexHandleType }))
+          }
+          if (type === 'auto' || type === 'straight') {
+            holeHandles[vertexIdx] = { cp_in: null, cp_out: null, type }
+          } else if (type === 'smooth' || type === 'sharp') {
+            const n = hole.length
+            const prev = hole[(vertexIdx - 1 + n) % n]
+            const curr = hole[vertexIdx]
+            const next = hole[(vertexIdx + 1) % n]
+            const auto = computeAutoHandles(prev, curr, next, o.smoothing)
+            holeHandles[vertexIdx] = { cp_in: auto.cp_in, cp_out: auto.cp_out, type }
+          }
+          return {
+            ...o,
+            holes_handles: holesHandles.map((hh, hi) => hi === holeIdx ? holeHandles : hh),
+          }
+        }),
       },
     }))
   },
@@ -547,28 +932,26 @@ export const useEditor = create<EditorState>((set, get) => ({
           // Scale around centroid
           const cx = o.outer.reduce((a, p) => a + p.x, 0) / o.outer.length
           const cy = o.outer.reduce((a, p) => a + p.y, 0) / o.outer.length
+          const scalePt = (p: Point): Point => ({
+            x: cx + (p.x - cx) * scaleFactor,
+            y: cy + (p.y - cy) * scaleFactor,
+          })
+          const scaleHandle = (h: VertexHandle): VertexHandle => ({
+            ...h,
+            cp_in: h.cp_in ? scalePt(h.cp_in) : null,
+            cp_out: h.cp_out ? scalePt(h.cp_out) : null,
+          })
           return {
             ...o,
-            outer: o.outer.map((p) => ({
-              x: cx + (p.x - cx) * scaleFactor,
-              y: cy + (p.y - cy) * scaleFactor,
-            })),
-            holes: o.holes.map((h) =>
-              h.map((p) => ({
-                x: cx + (p.x - cx) * scaleFactor,
-                y: cy + (p.y - cy) * scaleFactor,
-              })),
-            ),
-            hole_candidates: (o.hole_candidates ?? []).map((h) =>
-              h.map((p) => ({
-                x: cx + (p.x - cx) * scaleFactor,
-                y: cy + (p.y - cy) * scaleFactor,
-              })),
-            ),
+            outer: o.outer.map(scalePt),
+            holes: o.holes.map((h) => h.map(scalePt)),
+            hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(scalePt)),
+            outer_handles: (o.outer_handles ?? []).map(scaleHandle),
+            holes_handles: (o.holes_handles ?? []).map((hh) => hh.map(scaleHandle)),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
-              x: cx + (fh.x - cx) * scaleFactor,
-              y: cy + (fh.y - cy) * scaleFactor,
+              x: scalePt(fh).x,
+              y: scalePt(fh).y,
               radius_mm: fh.radius_mm * scaleFactor,
             })),
           }
@@ -590,6 +973,12 @@ export const useEditor = create<EditorState>((set, get) => ({
           if (o.id !== id) return o
           const mirror = (p: Point): Point =>
             axis === 'x' ? { x: 2 * cx - p.x, y: p.y } : { x: p.x, y: 2 * cy - p.y }
+          const mirrorHandle = (h: VertexHandle): VertexHandle => ({
+            ...h,
+            // Swap cp_in and cp_out because mirroring reverses winding
+            cp_in: h.cp_out ? mirror(h.cp_out) : null,
+            cp_out: h.cp_in ? mirror(h.cp_in) : null,
+          })
           // Reverse winding for mirrored polygon to maintain CCW
           const mirroredOuter = o.outer.map(mirror).reverse()
           return {
@@ -597,6 +986,8 @@ export const useEditor = create<EditorState>((set, get) => ({
             outer: mirroredOuter,
             holes: o.holes.map((h) => h.map(mirror).reverse()),
             hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(mirror).reverse()),
+            outer_handles: (o.outer_handles ?? []).map(mirrorHandle).reverse(),
+            holes_handles: (o.holes_handles ?? []).map((hh) => hh.map(mirrorHandle).reverse()),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
               x: axis === 'x' ? 2 * cx - fh.x : fh.x,
@@ -759,5 +1150,5 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, selectedToolIds: [], history: [], historyIndex: -1 }),
+  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, selectedToolIds: [], selectedHoleIdx: null, history: [], historyIndex: -1 }),
 }))

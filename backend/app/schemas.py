@@ -24,6 +24,30 @@ class FingerHole(BaseModel):
     depth_mm: float | None = None  # None = use bin pocket depth
 
 
+# Handle type for a vertex in a bezier path.
+# "auto" = no explicit handles, use Catmull-Rom smoothing (backward compatible)
+# "smooth" = handles are collinear (mirrored), smooth curve through vertex
+# "sharp" = handles are independent, corner at vertex
+# "straight" = no handles, straight line segments to/from this vertex
+VertexHandleType = Literal["auto", "smooth", "sharp", "straight"]
+
+
+class VertexHandle(BaseModel):
+    """Bezier control handles for a single vertex in a path.
+
+    cp_in is the control point BEFORE this vertex (incoming curve).
+    cp_out is the control point AFTER this vertex (outgoing curve).
+    type controls how the handles behave:
+      - auto: handles are not used; Catmull-Rom smoothing applies
+      - smooth: cp_in and cp_out are mirrored across the vertex (smooth curve)
+      - sharp: cp_in and cp_out are independent (corner)
+      - straight: no curve at this vertex (straight lines)
+    """
+    cp_in: Point | None = None
+    cp_out: Point | None = None
+    type: VertexHandleType = "auto"
+
+
 class ToolOutline(BaseModel):
     """A single traced tool, coordinates in millimetres relative to the paper origin."""
 
@@ -31,6 +55,10 @@ class ToolOutline(BaseModel):
     outer: list[Point] = Field(description="Outer boundary polygon, ordered, in mm")
     holes: list[list[Point]] = Field(default_factory=list, description="Confirmed solid-island polygons inside the pocket, in mm")
     hole_candidates: list[list[Point]] = Field(default_factory=list, description="Unconfirmed detected interior regions that remain included in the pocket")
+    # Per-vertex bezier handles, parallel to outer[] and holes[][]. When absent
+    # or when a handle has type "auto", Catmull-Rom smoothing is used instead.
+    outer_handles: list[VertexHandle] = Field(default_factory=list, description="Bezier handles for outer path vertices")
+    holes_handles: list[list[VertexHandle]] = Field(default_factory=list, description="Bezier handles for hole path vertices")
     label: str = ""
     # Per-tool overrides (None = use bin defaults)
     margin_mm: float | None = None

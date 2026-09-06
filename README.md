@@ -31,18 +31,64 @@ Place your tools on a sheet of **US Letter (8.5×11")** or **A4** paper and take
 
 **Don't have a photo ready?** You can also start with an empty tray and build entirely from your saved tool library, or jump straight to the Baseplate Designer.
 
-### 2. Auto-Trace
-OpenCV detects the paper boundary (for scale) and traces each tool's outline. The pipeline uses multiple strategies — bright-region thresholding, Canny edges, adaptive thresholding, Otsu, floodfill, and GrabCut — and picks the best result. Tool outlines are smoothed with Gaussian blur + Chaikin corner-cutting for professional-looking curves.
+### 2. Calibrate and Auto-Trace
+OpenCV detects all four paper corners, corrects perspective, preserves the paper's portrait or landscape aspect ratio, and establishes an accurate millimetres-per-pixel scale. A **4× zoom magnifier** appears while dragging paper corners for precise manual correction.
 
-A **4× zoom magnifier** appears when dragging paper corners, helping you position them precisely on the paper edge.
+Choose a tracing engine before uploading or re-run another engine from the trace-review screen:
+
+| Engine | Best For | Behavior |
+|---|---|---|
+| **Auto** | Recommended default | Uses FastSAM when available and falls back to Hybrid OpenCV if model inference is unavailable. |
+| **Hybrid OpenCV** | Fast local tracing and high-contrast photographs | Uses Otsu thresholding, component merging, GrabCut, morphology, and contour cleanup. It requires no model but can include strong cast shadows. |
+| **FastSAM** | Reflective, multi-material, or difficult tools | Combines multiple model segments so handles, shafts, blades, and barrels become one tool. The approximately 23MB model downloads on first use and is then cached in the data directory. |
+
+Auto/FastSAM does not blindly replace the OpenCV result. It uses the OpenCV outline as a tool candidate, assembles all compatible AI segments, constrains them to the candidate area, removes narrow spurs, and falls back safely when the AI mask is incomplete.
+
+### 2.5 Review and Correct Every Trace
+The trace-review screen is the manufacturing checkpoint between image detection and tray design. Do not continue until each colored boundary represents the physical tool silhouette you want cut into the tray.
+
+**Outer boundary (purple/green):**
+- Click a tool in the image or tool list to select it.
+- Drag a visible path point to move that part of the boundary.
+- **Double-click an edge** to insert a new point where more local control is needed.
+- **Double-click a point** to remove it.
+- Use the **Smooth** control to reduce small contour jitter. Smoothing rounds an existing path; it does not repair a boundary that is in the wrong place.
+- Use **Re-trace** to compare Auto, Hybrid OpenCV, and FastSAM without uploading the photo again.
+- Ctrl/Cmd-click multiple fragmented detections and choose **Merge selected paths**.
+- Select one incorrectly joined path and choose **Split with a cut line**, then click across the desired separation.
+- Use **+ Add Tool**, then click a missed tool in the rectified photograph.
+
+**Interior regions and solid islands:**
+
+A tool pocket is cut from the complete outer silhouette. An interior polygon has the opposite effect: it preserves a **solid island of tray material** inside that pocket. This is useful for a real opening through a tool, such as a scissors finger opening, but wrong for a reflection, translucent insert, printed label, or screwdriver grip detail.
+
+- **Dashed amber region** — an automatically detected but unconfirmed interior. It remains included in the tool pocket by default, so it cannot accidentally leave a black/solid center.
+- **Preserve island** — confirm that the tool has a real physical opening and leave tray material inside it.
+- **Include in pocket** — dismiss a reflection, label, transparent plastic region, or other false interior and cut that area with the rest of the pocket.
+- **Solid island / red inner path** — a confirmed island. Select it to edit its points, or choose **Remove island** to make the pocket continuous again.
+- **Add solid island** — manually create an island when a real opening was not detected.
+
+For example, a bright stripe inside a screwdriver handle should normally remain **included in the pocket**. A genuine opening through scissors can be marked **Preserve island**. These decisions remain available later in **Tool Properties → Interior Regions**.
 
 ### 3. Customize
 Fine-tune everything in the built-in SVG editor with full undo/redo support:
 
 **Tool Editing:**
 - **Drag vertices** to adjust outlines
-- **Double-click** a vertex to delete it
-- **Click an edge** to add a vertex
+- **Double-click a vertex** to cycle its handle type (auto → smooth → sharp → straight)
+- **Right-click a vertex** to delete it
+- **Double-click an edge** to add a vertex
+- **Bezier control handles** — Inkscape-style per-vertex control points for smooth and sharp curves. Drag the blue handle circles to shape the curve on either side of a vertex.
+- **Handle types:**
+  - **Auto** (purple) — Catmull-Rom smoothing applies (default, no explicit handles)
+  - **Smooth** (cyan) — handles are mirrored across the vertex for a smooth curve
+  - **Sharp** (amber) — handles are independent, creating a corner with curved approaches
+  - **Straight** (gray) — no curve at this vertex, straight line segments only
+- **Handles ON/OFF** toggle in the toolbar to show or hide bezier handle circles
+- **Edit interior regions** (solid islands) the same way as outer paths — select an island in Tool Properties or click it in the canvas, then drag vertices, add, delete, and adjust bezier handles
+- **Add Solid Island** button in Tool Properties creates a new island you can shape
+- **Draw Island** pen tool — click to place points and create a custom island from scratch
+- Review, preserve, dismiss, or remove interior regions from **Tool Properties**
 - **Simplify button** removes clustered vertices (< 1.5mm apart)
 - Clustered vertices shown in **red** with hover tooltips
 - **Mirror X / Mirror Y** for symmetrical tools
@@ -53,6 +99,13 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support:
 - **Duplicate** tools to place multiple copies
 - **Array tools** — create grids, linear, circular, or hex patterns
 - **Per-tool overrides**: custom margins, pocket depths, labels, visibility
+
+**Pen Tool — Draw from Scratch:**
+- **✏ Pen Tool** — click to place points one by one, then click the first point (or double-click, or press Enter) to close the path and create a new tool outline
+- **✏ Draw Island** — same as Pen Tool but creates a solid island inside the currently selected tool
+- Useful when auto-tracing doesn't work well and you need to draw a tool or island manually
+- Press **Escape** to cancel drawing at any time
+- The first point is highlighted with a cyan ring — click inside it to close the path
 
 **Arrow Key Nudging:**
 - Select any tool and use **arrow keys** for precise positioning
@@ -74,10 +127,14 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support:
 - Adjustable radius per hole
 - Auto finger scoops cut from the **top surface** downward
 
-**Pocket Shapes:**
-- **Flat** — standard flat-bottom pocket
-- **Spherical** — bowl-shaped pocket bottom for easy tool removal
-- **Cylindrical** — lathe-revolution cutout along the tool's principal axis
+**Pocket Geometry:**
+- The reviewed outer path defines the tool pocket silhouette.
+- Clearance is applied later with the global or per-tool **margin**; do not intentionally trace outside the tool to create clearance.
+- Confirmed inner paths preserve solid tray islands. Unconfirmed interior candidates do not alter the pocket.
+- **Flat** — standard flat-bottom pocket.
+- **Spherical** — bowl-shaped pocket bottom for easy tool removal.
+- **Cylindrical** — lathe-revolution cutout along the tool's principal axis.
+- Pocket shape, depth, margin, bottom radius, and smoothing can be configured per tool.
 
 **Text Labels:**
 - Place **multiple movable text labels** on the bin surface
@@ -196,8 +253,31 @@ Save individual tool outlines to a persistent library and reuse them across desi
 Skip the photo upload entirely:
 - Start with an empty tray (blank bin generator)
 - Add tools from your library or the shape dialog
+- Use the **Pen Tool** to draw custom tool outlines point by point
+- Use **Draw Island** to create custom solid islands inside tools
 - Customize bin parameters
 - Export when ready
+
+### Recommended Workflow for Difficult Tools
+
+Some tools are hard to trace automatically — reflective surfaces, cast shadows, transparent plastic, and multi-material tools can confuse any detection system. Here's how to get good results:
+
+1. **Start with Auto** — it picks the best available engine.
+2. **Compare engines** — if Auto gives incomplete results, try Hybrid OpenCV and FastSAM separately using the Re-trace button. One may handle reflections better; the other may handle shadows better.
+3. **Correct outer boundaries first** — drag vertices, add points where needed, or use the Pen Tool to redraw the outline from scratch.
+4. **Use bezier handles for curves** — double-click a vertex to switch it to "smooth" mode, then drag the blue handle circles to shape the curve. This is much faster than adding dozens of vertices.
+5. **Dismiss false interior candidates** — reflections, labels, and transparent regions should be "Included in pocket," not preserved as islands.
+6. **Preserve only real openings** — scissors finger holes and similar through-holes should be marked "Preserve island."
+7. **Draw missing islands** — if a real opening wasn't detected, use "Add Solid Island" or the "Draw Island" pen tool to create it manually.
+8. **Configure pocket geometry per tool** — set pocket shape (flat/spherical/cylindrical), depth, and margin before exporting.
+
+### Known Limitations
+
+- **Cast shadows** can expand Hybrid OpenCV boundaries inward from the tool edge. Use FastSAM or manual correction when this happens.
+- **Bright reflections** on metal tools can create uncertain interior regions. These appear as amber dashed candidates and should usually be included in the pocket.
+- **FastSAM** can fail when masks are incomplete or merge unrelated regions. The system falls back to Hybrid OpenCV, but the result may need manual correction.
+- **Large boundary corrections** are easier with the Pen Tool (draw from scratch) than with vertex dragging alone.
+- **Manual review remains necessary** for manufacturing accuracy. Automatic detection is a starting point, not a final result.
 
 ## Quick Start
 
@@ -408,9 +488,11 @@ tracefinity/
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/health` | GET | Health check |
-| `/api/trace` | POST | Upload image, get tool outlines |
+| `/api/trace` | POST | Upload image, detect paper, rectify, and trace tool outlines. Accepts `engine` (auto/hybrid/fastsam) and `smoothing` parameters. |
+| `/api/trace-engines` | GET | List available tracing engines with availability and readiness status |
+| `/api/trace/retrace` | POST | Re-trace the rectified image with a different engine without re-uploading |
 | `/api/rectify` | POST | Re-rectify with manual corners |
-| `/api/detect-at-point` | POST | Detect tool at a clicked point |
+| `/api/detect-at-point` | POST | Detect a single tool at a clicked point (accepts `engine` parameter) |
 | `/api/auto-rotate` | POST | Auto-align tool to axes |
 | `/api/preview` | POST | Generate preview image |
 | `/api/export` | POST | Export design (SVG/DXF/STL/Flat STL/Lid STL/3MF/STEP) |
