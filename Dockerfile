@@ -18,9 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps
+# Install Python deps — CPU-only torch to avoid 2GB+ of CUDA libraries
+# (the app uses device="cpu" for FastSAM inference, no GPU code)
+# Split into two layers so torch caching is independent of app deps
 COPY backend/pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev]" || pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir .
 
 # Copy backend source
 COPY backend/app/ ./app/
