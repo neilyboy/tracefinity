@@ -19,7 +19,12 @@ export default function TraceView() {
   const [splitStart, setSplitStart] = useState<Point | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showLoupe, setShowLoupe] = useState(true)
+  const [loupePos, setLoupePos] = useState<{ px: number; py: number } | null>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  const magnifierRef = useRef<HTMLCanvasElement>(null)
+  const LOUPE_ZOOM = 4
+  const LOUPE_SIZE = 200
 
   const handleContinue = () => {
     // Auto-suggest bin grid size from detected tools.
@@ -51,6 +56,51 @@ export default function TraceView() {
       x: (clientX - rect.left) * design.rectified_w_px / rect.width,
       y: (clientY - rect.top) * design.rectified_h_px / rect.height,
     }
+  }
+
+  // Magnifier loupe: draw zoomed-in image region around the cursor
+  useEffect(() => {
+    if (!showLoupe || !loupePos || !imgRef.current || !magnifierRef.current) return
+    const canvas = magnifierRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const img = imgRef.current
+    const srcSize = LOUPE_SIZE / LOUPE_ZOOM
+    const sx = loupePos.px - srcSize / 2
+    const sy = loupePos.py - srcSize / 2
+    ctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE)
+    ctx.imageSmoothingEnabled = false
+    try {
+      ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, LOUPE_SIZE, LOUPE_SIZE)
+    } catch {
+      return
+    }
+    // Crosshair
+    ctx.strokeStyle = '#a78bfa'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(LOUPE_SIZE / 2 - 12, LOUPE_SIZE / 2)
+    ctx.lineTo(LOUPE_SIZE / 2 + 12, LOUPE_SIZE / 2)
+    ctx.moveTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 - 12)
+    ctx.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 + 12)
+    ctx.stroke()
+    // Center circle
+    ctx.strokeStyle = '#22d3ee'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(LOUPE_SIZE / 2, LOUPE_SIZE / 2, 8, 0, Math.PI * 2)
+    ctx.stroke()
+  }, [showLoupe, loupePos, design.rectified_w_px, design.rectified_h_px])
+
+  const handleImgMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!imgRef.current) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const scaleX = design.rectified_w_px / rect.width
+    const scaleY = design.rectified_h_px / rect.height
+    setLoupePos({
+      px: (e.clientX - rect.left) * scaleX,
+      py: (e.clientY - rect.top) * scaleY,
+    })
   }
 
   const replacePath = (toolId: string, hole: number | null, points: Point[]) => {
@@ -255,6 +305,13 @@ export default function TraceView() {
             {smoothing.toFixed(2)}
           </label>
           <button onClick={handleRetrace} disabled={detecting} style={btnStyle}>Re-trace</button>
+          <button
+            onClick={() => setShowLoupe(!showLoupe)}
+            style={{ ...btnStyle, background: showLoupe ? '#3b0764' : '#27272a', color: showLoupe ? '#a78bfa' : '#e4e4e7', border: showLoupe ? '1px solid #7c3aed' : '1px solid #3f3f46' }}
+            title="Toggle magnifier loupe (4× zoom of cursor area)"
+          >
+            {showLoupe ? '🔍 Loupe ON' : '🔍 Loupe OFF'}
+          </button>
           <button onClick={() => setView('calibrate')} style={btnStyle}>← Back</button>
           <button
             onClick={handleAddToolClick}
@@ -310,6 +367,8 @@ export default function TraceView() {
               src={design.image_filename ? `/data/images/${design.image_filename}` : ''}
               alt="rectified"
               onClick={handleImageClick}
+              onMouseMove={handleImgMouseMove}
+              onMouseLeave={() => setLoupePos(null)}
               style={{
                 display: 'block', maxWidth: '100%',
                 cursor: addingTool || splitting ? 'crosshair' : 'default',
@@ -591,6 +650,31 @@ export default function TraceView() {
       <div style={{ fontSize: 12, color: '#52525b' }}>
         Paper: {paperWmm}×{paperHmm}mm · Image: {design.rectified_w_px}×{design.rectified_h_px}px
       </div>
+
+      {/* Magnifier loupe — zoomed-in view of the area around the cursor */}
+      {showLoupe && loupePos && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24,
+          width: LOUPE_SIZE, height: LOUPE_SIZE,
+          border: '3px solid #a78bfa', borderRadius: 8,
+          overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          background: '#18181b', zIndex: 100, pointerEvents: 'none',
+        }}>
+          <canvas
+            ref={magnifierRef}
+            width={LOUPE_SIZE}
+            height={LOUPE_SIZE}
+            style={{ display: 'block' }}
+          />
+          <div style={{
+            position: 'absolute', top: 4, left: 8, color: '#a78bfa',
+            fontSize: 11, textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+            pointerEvents: 'none',
+          }}>
+            {LOUPE_ZOOM}× zoom
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import AddShapeDialog from './AddShapeDialog'
 
 export default function SvgEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const {
     design, selectedToolId, selectedToolIds, selectTool, toggleToolSelection, selectTools,
     selectedHoleIdx, selectHole,
@@ -53,6 +54,20 @@ export default function SvgEditor() {
   const [penMode, setPenMode] = useState<'none' | 'tool' | 'hole'>('none')
   const [penPoints, setPenPoints] = useState<Point[]>([])
   const [showHandles, setShowHandles] = useState(true)  // toggle bezier handle visibility
+  // Magnifier loupe: shows a zoomed-in view of the area around the cursor
+  const [loupePos, setLoupePos] = useState<Point | null>(null)  // mm coords in workspace
+  const [showLoupe, setShowLoupe] = useState(true)  // toggle loupe visibility
+  const LOUPE_ZOOM = 4  // magnification factor
+  const LOUPE_SIZE = 200  // pixels
+  const LOUPE_VIEW_MM = 40  // mm of workspace visible in the loupe
+  // Panning: space+drag or middle-mouse drag
+  const [panning, setPanning] = useState(false)
+  const [panStart, setPanStart] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null)
+  const spacePressedRef = useRef(false)
+  // Help panel
+  const [showHelp, setShowHelp] = useState(false)
+  // Mouse position in mm (for coordinate readout)
+  const [mouseMm, setMouseMm] = useState<Point | null>(null)
 
   const p = design.params
   const binW = p.grid_w * GRID_UNIT_MM
@@ -66,6 +81,78 @@ export default function SvgEditor() {
     const pt = clientToSvgMm(svgRef.current, clientX, clientY)
     return { x: pt.x - pad, y: pt.y - pad }
   }, [])
+
+  // --- Scroll-to-zoom (mouse wheel) ---
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.15 : 0.15
+      setZoom((z) => Math.max(0.15, Math.min(8, z + delta)))
+    } else if (e.shiftKey) {
+      // Shift+wheel = horizontal scroll
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollLeft += e.deltaY
+      }
+    }
+  }, [])
+
+  // --- Space+drag panning ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (e.code === 'Space') {
+        spacePressedRef.current = true
+        e.preventDefault()
+      }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        spacePressedRef.current = false
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  const handlePanStart = (e: React.PointerEvent) => {
+    if (!scrollContainerRef.current) return
+    // Pan with space+drag or middle mouse
+    const shouldPan = spacePressedRef.current || e.button === 1
+    if (!shouldPan) return
+    e.preventDefault()
+    e.stopPropagation()
+    setPanning(true)
+    setPanStart({
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: scrollContainerRef.current.scrollLeft,
+      scrollTop: scrollContainerRef.current.scrollTop,
+    })
+  }
+
+  const handlePanMove = (e: React.PointerEvent) => {
+    if (!panning || !panStart || !scrollContainerRef.current) return
+    const dx = e.clientX - panStart.x
+    const dy = e.clientY - panStart.y
+    scrollContainerRef.current.scrollLeft = panStart.scrollLeft - dx
+    scrollContainerRef.current.scrollTop = panStart.scrollTop - dy
+  }
+
+  const handlePanEnd = () => {
+    setPanning(false)
+    setPanStart(null)
+  }
+
+  // --- Mouse position tracking for coordinate readout and loupe ---
+  const handleMouseMove = (e: React.PointerEvent) => {
+    const mm = toMm(e.clientX, e.clientY)
+    setMouseMm(mm)
+    setLoupePos(mm)
+  }
 
   const handleVertexPointerDown = (e: React.PointerEvent, toolId: string, vertexIdx: number) => {
     e.stopPropagation()
@@ -461,10 +548,44 @@ export default function SvgEditor() {
     // to avoid double-firing (React onKeyDown + window listener both fire).
   }
 
-  // Global keydown listener for arrow key nudging (works without focus)
+  // Global keydown listener for arrow key nudging and shortcuts (works without focus)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      // ? key toggles help
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        setShowHelp((h) => !h)
+        return
+      }
+      // F = fit
+      if (e.key === 'f' || e.key === 'F') {
+        setZoom(0.5)
+        return
+      }
+      // 0 = tray 100%
+      if (e.key === '0') {
+        setZoom(1)
+        return
+      }
+      // += zoom in, -= zoom out
+      if (e.key === '=' || e.key === '+') {
+        setZoom((z) => Math.min(8, z + 0.2))
+        return
+      }
+      if (e.key === '-') {
+        setZoom((z) => Math.max(0.15, z - 0.2))
+        return
+      }
+      // H = toggle handles
+      if (e.key === 'h' || e.key === 'H') {
+        setShowHandles((s) => !s)
+        return
+      }
+      // L = toggle loupe
+      if (e.key === 'l' || e.key === 'L') {
+        setShowLoupe((s) => !s)
+        return
+      }
       if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
       const state = useEditor.getState()
       const ids = state.selectedToolIds.length > 0 ? state.selectedToolIds : (state.selectedToolId ? [state.selectedToolId] : [])
@@ -720,6 +841,20 @@ export default function SvgEditor() {
         <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Zoom to tray (100%)">Tray</button>
         <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
         <button onClick={() => setZoom((z) => Math.min(8, z + 0.2))} style={toolBtn(false)}>+</button>
+        <button
+          onClick={() => setShowLoupe(!showLoupe)}
+          style={toolBtn(showLoupe)}
+          title="Toggle magnifier loupe (4× zoom of cursor area)"
+        >
+          {showLoupe ? '🔍 Loupe ON' : '🔍 Loupe OFF'}
+        </button>
+        <button
+          onClick={() => setShowHelp(true)}
+          style={toolBtn(false)}
+          title="Show help and keyboard shortcuts"
+        >
+          ? Help
+        </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#52525b' }}>
           {penMode !== 'none'
@@ -739,14 +874,25 @@ export default function SvgEditor() {
       </div>
 
       {/* SVG Canvas */}
-      <div style={{ flex: 1, overflow: 'auto', background: '#0f1115', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12 }}>
+      <div
+        ref={scrollContainerRef}
+        style={{
+          flex: 1, overflow: 'auto', background: '#0f1115',
+          display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12,
+          cursor: panning ? 'grabbing' : (spacePressedRef.current ? 'grab' : undefined),
+        }}
+        onWheel={handleWheel}
+        onPointerDown={handlePanStart}
+        onPointerMove={(e) => { handlePanMove(e); handleMouseMove(e) }}
+        onPointerUp={handlePanEnd}
+      >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${viewW} ${viewH}`}
           preserveAspectRatio="xMidYMin meet"
           style={{
             width: '100%', height: '100%', maxWidth: viewW * zoom * 8, maxHeight: viewH * zoom * 8,
-            cursor: penMode !== 'none' ? 'crosshair' : (placingFingerHole ? 'crosshair' : (marquee ? 'crosshair' : 'default')),
+            cursor: panning ? 'grabbing' : (penMode !== 'none' ? 'crosshair' : (placingFingerHole ? 'crosshair' : (marquee ? 'crosshair' : (spacePressedRef.current ? 'grab' : 'default')))),
           }}
           onPointerDown={(e) => {
             if (placingFingerHole) return
@@ -1359,6 +1505,210 @@ export default function SvgEditor() {
         </svg>
       </div>
 
+      {/* Magnifier loupe — zoomed-in view of the area around the cursor */}
+      {showLoupe && loupePos && !panning && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24,
+          width: LOUPE_SIZE, height: LOUPE_SIZE,
+          border: '3px solid #a78bfa', borderRadius: 8,
+          overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+          background: '#0a0b0e', zIndex: 100, pointerEvents: 'none',
+        }}>
+          <svg
+            width={LOUPE_SIZE}
+            height={LOUPE_SIZE}
+            viewBox={`${pad + loupePos.x - LOUPE_VIEW_MM / 2} ${pad + loupePos.y - LOUPE_VIEW_MM / 2} ${LOUPE_VIEW_MM} ${LOUPE_VIEW_MM}`}
+            preserveAspectRatio="xMidYMid meet"
+            style={{ display: 'block' }}
+          >
+            {/* Workspace background */}
+            <rect x={0} y={0} width={viewW} height={viewH} fill="#0a0b0e" />
+            {/* Workspace grid (10mm) */}
+            <g stroke="#151618" strokeWidth={0.15}>
+              {Array.from({ length: Math.ceil(viewW / 10) + 1 }, (_, i) => (
+                <line key={`lx${i}`} x1={i * 10} y1={0} x2={i * 10} y2={viewH} />
+              ))}
+              {Array.from({ length: Math.ceil(viewH / 10) + 1 }, (_, i) => (
+                <line key={`ly${i}`} x1={0} y1={i * 10} x2={viewW} y2={i * 10} />
+              ))}
+            </g>
+            {/* Workspace grid (50mm major) */}
+            <g stroke="#1c1e22" strokeWidth={0.25}>
+              {Array.from({ length: Math.ceil(viewW / 50) + 1 }, (_, i) => (
+                <line key={`lX${i}`} x1={i * 50} y1={0} x2={i * 50} y2={viewH} />
+              ))}
+              {Array.from({ length: Math.ceil(viewH / 50) + 1 }, (_, i) => (
+                <line key={`lY${i}`} x1={0} y1={i * 50} x2={viewW} y2={i * 50} />
+              ))}
+            </g>
+            {/* Tray area */}
+            <rect x={pad} y={pad} width={binW} height={binL} fill="#18181b" stroke="#52525b" strokeWidth={0.6} rx={3.75} ry={3.75} />
+            {/* Tool outlines (simplified — just paths, no handles) */}
+            {design.outlines.map((tool) => {
+              if (!tool.visible) return null
+              const isSelected = selectedToolIds.includes(tool.id)
+              const cx = tool.outer.reduce((a, b) => a + b.x, 0) / tool.outer.length
+              const cy = tool.outer.reduce((a, b) => a + b.y, 0) / tool.outer.length
+              const rot = tool.rotation_deg ?? 0
+              const transform = rot !== 0 ? `rotate(${rot} ${cx + pad} ${cy + pad})` : undefined
+              const outerD = smoothClosedPath(tool.outer.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3, (tool.outer_handles ?? []).map(h => ({ ...h, cp_in: h.cp_in ? { x: h.cp_in.x + pad, y: h.cp_in.y + pad } : null, cp_out: h.cp_out ? { x: h.cp_out.x + pad, y: h.cp_out.y + pad } : null })))
+              return (
+                <g key={tool.id} transform={transform}>
+                  <path d={outerD} fill={isSelected ? 'rgba(124,58,237,0.15)' : 'rgba(63,63,70,0.1)'} stroke="none" />
+                  <path d={outerD} fill="none" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.4} />
+                  {tool.holes.map((hole, hi) => {
+                    const holeHandles = (tool.holes_handles ?? [])[hi]
+                    const hd = smoothClosedPath(hole.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3, holeHandles ? holeHandles.map(h => ({ ...h, cp_in: h.cp_in ? { x: h.cp_in.x + pad, y: h.cp_in.y + pad } : null, cp_out: h.cp_out ? { x: h.cp_out.x + pad, y: h.cp_out.y + pad } : null })) : undefined)
+                    return <path key={hi} d={hd} fill="#0f1115" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.3} />
+                  })}
+                  {/* Vertices for selected tool */}
+                  {isSelected && tool.outer.map((pt, vi) => (
+                    <circle key={vi} cx={pad + pt.x} cy={pad + pt.y} r={0.8} fill="#a78bfa" />
+                  ))}
+                  {/* Selected hole vertices */}
+                  {isSelected && selectedHoleIdx !== null && tool.holes[selectedHoleIdx]?.map((pt, vi) => (
+                    <circle key={`hv${vi}`} cx={pad + pt.x} cy={pad + pt.y} r={0.8} fill="#f97316" />
+                  ))}
+                </g>
+              )
+            })}
+            {/* Crosshair at cursor position */}
+            <line
+              x1={pad + loupePos.x - 3} y1={pad + loupePos.y}
+              x2={pad + loupePos.x + 3} y2={pad + loupePos.y}
+              stroke="#22d3ee" strokeWidth={0.3}
+            />
+            <line
+              x1={pad + loupePos.x} y1={pad + loupePos.y - 3}
+              x2={pad + loupePos.x} y2={pad + loupePos.y + 3}
+              stroke="#22d3ee" strokeWidth={0.3}
+            />
+            <circle cx={pad + loupePos.x} cy={pad + loupePos.y} r={1.5} fill="none" stroke="#22d3ee" strokeWidth={0.3} />
+          </svg>
+          {/* Loupe label */}
+          <div style={{
+            position: 'absolute', top: 4, left: 8, color: '#a78bfa',
+            fontSize: 10, textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+          }}>
+            {LOUPE_ZOOM}× · {loupePos.x.toFixed(1)}, {loupePos.y.toFixed(1)}mm
+          </div>
+        </div>
+      )}
+
+      {/* Coordinate readout (bottom-left) */}
+      {mouseMm && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: 24,
+          background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6,
+          padding: '4px 10px', fontSize: 11, color: '#71717a',
+          zIndex: 90, pointerEvents: 'none', fontFamily: 'monospace',
+        }}>
+          {mouseMm.x.toFixed(1)}, {mouseMm.y.toFixed(1)} mm
+          {selectedToolId && (() => {
+            const tool = design.outlines.find(o => o.id === selectedToolId)
+            if (!tool) return null
+            const xs = tool.outer.map(p => p.x)
+            const ys = tool.outer.map(p => p.y)
+            const minX = Math.min(...xs), maxX = Math.max(...xs)
+            const minY = Math.min(...ys), maxY = Math.max(...ys)
+            return <span style={{ color: '#52525b' }}> · tool: {(maxX - minX).toFixed(1)}×{(maxY - minY).toFixed(1)}mm</span>
+          })()}
+        </div>
+      )}
+
+      {/* Help panel */}
+      {showHelp && (
+        <div
+          onClick={() => setShowHelp(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8,
+              padding: 24, maxWidth: 600, maxHeight: '80vh', overflow: 'auto',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 18, color: '#e4e4e7' }}>Editor Help</h2>
+              <button onClick={() => setShowHelp(false)} style={{ ...toolBtn(false), fontSize: 16 }}>✕</button>
+            </div>
+
+            <HelpSection title="Navigation">
+              <HelpItem keys="Ctrl+Wheel" desc="Zoom in/out" />
+              <HelpItem keys="Space+Drag" desc="Pan the canvas" />
+              <HelpItem keys="Middle-mouse Drag" desc="Pan the canvas" />
+              <HelpItem keys="Shift+Wheel" desc="Horizontal scroll" />
+              <HelpItem keys="Fit button" desc="Zoom to fit workspace" />
+              <HelpItem keys="Tray button" desc="Zoom to 100% tray size" />
+              <HelpItem keys="+ / − buttons" desc="Zoom in/out by 20%" />
+            </HelpSection>
+
+            <HelpSection title="Tool Selection & Movement">
+              <HelpItem keys="Click tool" desc="Select a tool" />
+              <HelpItem keys="Ctrl+Click" desc="Add/remove from multi-select" />
+              <HelpItem keys="Drag box" desc="Marquee select multiple tools" />
+              <HelpItem keys="Drag tool" desc="Move tool (or all selected tools)" />
+              <HelpItem keys="Arrow keys" desc="Nudge selected tool(s)" />
+              <HelpItem keys="Shift+Arrow" desc="Nudge 10× step size" />
+              <HelpItem keys="Delete / Backspace" desc="Delete selected tool(s)" />
+            </HelpSection>
+
+            <HelpSection title="Vertex Editing (Outer Path & Islands)">
+              <HelpItem keys="Drag vertex" desc="Move a vertex" />
+              <HelpItem keys="Double-click vertex" desc="Cycle handle type: auto→smooth→sharp→straight" />
+              <HelpItem keys="Right-click vertex" desc="Delete vertex" />
+              <HelpItem keys="Double-click edge" desc="Insert a new vertex" />
+              <HelpItem keys="Click island" desc="Select island for vertex editing" />
+            </HelpSection>
+
+            <HelpSection title="Bezier Handles (Inkscape-style)">
+              <HelpItem keys="Auto (purple)" desc="Catmull-Rom smoothing — no explicit handles" />
+              <HelpItem keys="Smooth (cyan)" desc="Mirrored handles — smooth curve through vertex" />
+              <HelpItem keys="Sharp (amber)" desc="Independent handles — corner with curved approaches" />
+              <HelpItem keys="Straight (gray)" desc="No curve — straight line segments" />
+              <HelpItem keys="Drag blue circle" desc="Shape the curve on that side of the vertex" />
+              <HelpItem keys="Handles ON/OFF" desc="Toggle handle visibility in toolbar" />
+            </HelpSection>
+
+            <HelpSection title="Pen Tool — Draw from Scratch">
+              <HelpItem keys="✏ Pen Tool" desc="Click to place points, close to create a new tool" />
+              <HelpItem keys="✏ Draw Island" desc="Draw a custom solid island inside selected tool" />
+              <HelpItem keys="Click first point" desc="Close the path (when ≥ 3 points placed)" />
+              <HelpItem keys="Double-click" desc="Close the path" />
+              <HelpItem keys="Enter" desc="Close the path" />
+              <HelpItem keys="Escape" desc="Cancel drawing" />
+            </HelpSection>
+
+            <HelpSection title="Symmetry">
+              <HelpItem keys="Sym X / Sym Y" desc="Toggle symmetry axis" />
+              <HelpItem keys="Live mode" desc="Dragging a vertex mirrors its partner in real-time" />
+              <HelpItem keys="Copy→ / ←Copy" desc="Copy one half to the other" />
+              <HelpItem keys="Symmetrize" desc="Average both sides for perfect symmetry" />
+            </HelpSection>
+
+            <HelpSection title="Other Tools">
+              <HelpItem keys="◯ Finger Hole" desc="Click on a tool to place a finger hole" />
+              <HelpItem keys="✂ Simplify" desc="Remove vertices closer than 1.5mm" />
+              <HelpItem keys="＋ Add Shape" desc="Add preset shapes (rect, circle, hex, etc.)" />
+              <HelpItem keys="🏷 Add Label" desc="Add text labels to the bin surface" />
+              <HelpItem keys="🧲 Snap" desc="Toggle grid snapping" />
+              <HelpItem keys="◐ Handles" desc="Toggle bezier handle visibility" />
+              <HelpItem keys="🔍 Loupe" desc="Toggle magnifier loupe" />
+            </HelpSection>
+
+            <HelpSection title="Interior Regions (Islands)">
+              <HelpItem keys="Amber dashed" desc="Unconfirmed candidate — included in pocket by default" />
+              <HelpItem keys="Preserve island" desc="Confirm a real opening (e.g. scissors finger hole)" />
+              <HelpItem keys="Include in pocket" desc="Dismiss a false candidate (reflection, label)" />
+              <HelpItem keys="Add Solid Island" desc="Create a new island to shape manually" />
+              <HelpItem keys="Draw Island" desc="Draw a custom island with the pen tool" />
+            </HelpSection>
+          </div>
+        </div>
+      )}
+
       <AddShapeDialog
         open={showAddTool}
         onClose={() => setShowAddTool(false)}
@@ -1376,4 +1726,22 @@ function toolBtn(active: boolean): React.CSSProperties {
     background: active ? '#3b0764' : '#27272a', color: active ? '#a78bfa' : '#a1a1aa',
     cursor: 'pointer', fontSize: 12,
   }
+}
+
+function HelpSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h3 style={{ fontSize: 13, color: '#a78bfa', margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: 0.5 }}>{title}</h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>{children}</div>
+    </div>
+  )
+}
+
+function HelpItem({ keys, desc }: { keys: string; desc: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 12, fontSize: 12, lineHeight: 1.5 }}>
+      <span style={{ minWidth: 160, color: '#e4e4e7', fontFamily: 'monospace', fontSize: 11 }}>{keys}</span>
+      <span style={{ color: '#a1a1aa', flex: 1 }}>{desc}</span>
+    </div>
+  )
 }

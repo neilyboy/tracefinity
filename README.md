@@ -57,6 +57,7 @@ The trace-review screen is the manufacturing checkpoint between image detection 
 - Ctrl/Cmd-click multiple fragmented detections and choose **Merge selected paths**.
 - Select one incorrectly joined path and choose **Split with a cut line**, then click across the desired separation.
 - Use **+ Add Tool**, then click a missed tool in the rectified photograph.
+- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor for precise vertex placement. Toggle with the Loupe button.
 
 **Interior regions and solid islands:**
 
@@ -72,6 +73,37 @@ For example, a bright stripe inside a screwdriver handle should normally remain 
 
 ### 3. Customize
 Fine-tune everything in the built-in SVG editor with full undo/redo support:
+
+**Navigation & Zoom:**
+- **Ctrl+Mouse Wheel** — zoom in/out smoothly
+- **Space+Drag** or **Middle-mouse Drag** — pan the canvas
+- **Shift+Wheel** — horizontal scroll
+- **Fit button** — zoom to fit the entire workspace
+- **Tray button** — zoom to 100% tray size
+- **+/− buttons** — zoom in/out by 20%
+- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor, showing a close-up of the area around the mouse. Toggle with the Loupe button or `L` key. Essential for precise vertex and handle placement.
+- **Coordinate Readout** — the bottom-left corner shows the current mouse position in millimetres, plus the selected tool's bounding box dimensions
+- **Help Panel** — click the `? Help` button or press `?` to see a complete reference of all tools, keyboard shortcuts, and handle types
+
+**Keyboard Shortcuts:**
+
+| Key | Action |
+|---|---|
+| `Ctrl+Wheel` | Zoom in/out |
+| `Space+Drag` | Pan canvas |
+| `Middle-mouse Drag` | Pan canvas |
+| `Shift+Wheel` | Horizontal scroll |
+| `+` / `=` | Zoom in |
+| `−` | Zoom out |
+| `F` | Fit workspace to screen |
+| `0` | Zoom to 100% (tray size) |
+| `Arrow keys` | Nudge selected tool(s) |
+| `Shift+Arrow` | Nudge 10× step size |
+| `Delete` / `Backspace` | Delete selected tool(s) |
+| `H` | Toggle bezier handle visibility |
+| `L` | Toggle magnifier loupe |
+| `?` | Toggle help panel |
+| `Escape` | Cancel pen tool / deselect |
 
 **Tool Editing:**
 - **Drag vertices** to adjust outlines
