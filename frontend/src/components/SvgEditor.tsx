@@ -54,6 +54,9 @@ export default function SvgEditor() {
   const [penMode, setPenMode] = useState<'none' | 'tool' | 'hole'>('none')
   const [penPoints, setPenPoints] = useState<Point[]>([])
   const [showHandles, setShowHandles] = useState(true)  // toggle bezier handle visibility
+  // Background image layer (for last-minute fine tuning against the photo)
+  const [showImage, setShowImage] = useState(false)
+  const [imageOpacity, setImageOpacity] = useState(0.25)
   // Magnifier loupe: shows a zoomed-in view of the area around the cursor
   const [loupePos, setLoupePos] = useState<Point | null>(null)  // mm coords in workspace
   const [showLoupe, setShowLoupe] = useState(true)  // toggle loupe visibility
@@ -848,6 +851,29 @@ export default function SvgEditor() {
         >
           {showLoupe ? '🔍 Loupe ON' : '🔍 Loupe OFF'}
         </button>
+        {/* Background image layer controls */}
+        {design.image_filename && (
+          <>
+            <button
+              onClick={() => setShowImage(!showImage)}
+              style={toolBtn(showImage)}
+              title="Show/hide the original photo as a background layer for fine-tuning tool positions"
+            >
+              {showImage ? '🖼 Photo ON' : '🖼 Photo OFF'}
+            </button>
+            {showImage && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#a1a1aa' }} title="Adjust background photo opacity">
+                Opacity
+                <input
+                  type="range" min={0} max={1} step={0.05} value={imageOpacity}
+                  onChange={(e) => setImageOpacity(Number(e.target.value))}
+                  style={{ width: 60 }}
+                />
+                <span style={{ minWidth: 28 }}>{Math.round(imageOpacity * 100)}%</span>
+              </label>
+            )}
+          </>
+        )}
         <button
           onClick={() => setShowHelp(true)}
           style={toolBtn(false)}
@@ -939,6 +965,19 @@ export default function SvgEditor() {
         >
           {/* Workspace background (entire SVG area) */}
           <rect x={0} y={0} width={viewW} height={viewH} fill="#0a0b0e" />
+
+          {/* Background image layer (aligned with tool coordinates) */}
+          {showImage && design.image_filename && (
+            <image
+              href={`/data/images/${design.image_filename}`}
+              x={pad} y={pad}
+              width={design.rectified_w_px * design.scale_mm_per_px}
+              height={design.rectified_h_px * design.scale_mm_per_px}
+              opacity={imageOpacity}
+              preserveAspectRatio="none"
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
 
           {/* Workspace grid (10mm fine grid, very subtle) */}
           <g stroke="#151618" strokeWidth={0.15}>

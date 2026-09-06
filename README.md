@@ -109,7 +109,12 @@ A tool pocket is cut from the complete outer silhouette. An interior polygon has
 For example, a bright stripe inside a screwdriver handle should normally remain **included in the pocket**. A genuine opening through scissors can be marked **Preserve island**. These decisions remain available later in **Tool Properties → Interior Regions**.
 
 ### 3. Customize
-Fine-tune everything in the built-in SVG editor with full undo/redo support:
+Fine-tune everything in the built-in SVG editor with full undo/redo support. The editor includes the same vector editing tools as the trace-review screen — drag vertices, double-click to cycle handle types, right-click to delete, double-click edges to add points, and use the pen tool to draw new paths.
+
+**Background Photo Layer:**
+- **🖼 Photo ON/OFF** — toggle the original rectified photo as a background layer behind your tool outlines. Useful for last-minute fine-tuning of tool positions and shapes before exporting.
+- **Opacity slider** — adjust the photo's transparency from 0% to 100%. Starts at 25% so you can see both the photo and your tool outlines clearly.
+- The photo is aligned exactly with the tool coordinates, so you can verify that each tool outline matches the physical tool.
 
 **Navigation & Zoom:**
 - **Ctrl+Mouse Wheel** — zoom in/out smoothly
