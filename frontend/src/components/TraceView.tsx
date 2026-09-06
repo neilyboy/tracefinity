@@ -31,7 +31,7 @@ export default function TraceView() {
   const [smoothing, setSmoothing] = useState(0.3)
 
   // --- Drag state ---
-  const [dragVertex, setDragVertex] = useState<{ toolId: string; hole: number | null; vertex: number; startMm: Point; startPoints: Point[]; startHandle?: VertexHandle } | null>(null)
+  const [dragVertex, setDragVertex] = useState<{ toolId: string; hole: number | null; vertex: number; startMm: Point; startPoints: Point[]; startHandles: VertexHandle[] } | null>(null)
   const [dragHandle, setDragHandle] = useState<{ toolId: string; hole: number | null; vertex: number; end: 'cp_in' | 'cp_out'; startMm: Point; startHandle: VertexHandle } | null>(null)
 
   // --- Pen tool ---
@@ -139,7 +139,8 @@ export default function TraceView() {
     const path = hole === null ? tool.outer : tool.holes[hole]
     if (!path) return
     pushHistory()
-    setDragVertex({ toolId, hole, vertex, startMm: pt, startPoints: path.map((p) => ({ ...p })) })
+    const startHandles = (hole === null ? (tool.outer_handles ?? []) : ((tool.holes_handles ?? [])[hole] ?? [])).map((h) => ({ ...h, cp_in: h.cp_in ? { ...h.cp_in } : null, cp_out: h.cp_out ? { ...h.cp_out } : null }))
+    setDragVertex({ toolId, hole, vertex, startMm: pt, startPoints: path.map((p) => ({ ...p })), startHandles })
     ;(e.target as Element).setPointerCapture(e.pointerId)
   }
 
@@ -168,21 +169,18 @@ export default function TraceView() {
         i === dragVertex.vertex ? { x: p.x + dx, y: p.y + dy } : p
       )
       replacePath(dragVertex.toolId, dragVertex.hole, newPoints)
-      // Move handles with the vertex
-      const tool = useEditor.getState().design.outlines.find((t) => t.id === dragVertex.toolId)
-      if (tool) {
-        const handles = dragVertex.hole === null ? (tool.outer_handles ?? []) : ((tool.holes_handles ?? [])[dragVertex.hole] ?? [])
-        if (handles.length === newPoints.length) {
-          const newHandles = handles.map((h, i) => {
-            if (i !== dragVertex.vertex) return h
-            return {
-              ...h,
-              cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
-              cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
-            }
-          })
-          replaceHandles(dragVertex.toolId, dragVertex.hole, newHandles)
-        }
+      // Move handles with the vertex — use startHandles (captured at drag start)
+      // to avoid compounding the delta on already-moved handles
+      if (dragVertex.startHandles.length === newPoints.length) {
+        const newHandles = dragVertex.startHandles.map((h, i) => {
+          if (i !== dragVertex.vertex) return h
+          return {
+            ...h,
+            cp_in: h.cp_in ? { x: h.cp_in.x + dx, y: h.cp_in.y + dy } : null,
+            cp_out: h.cp_out ? { x: h.cp_out.x + dx, y: h.cp_out.y + dy } : null,
+          }
+        })
+        replaceHandles(dragVertex.toolId, dragVertex.hole, newHandles)
       }
     } else if (dragHandle) {
       const newPos = { x: pt.x, y: pt.y }
