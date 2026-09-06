@@ -11,6 +11,7 @@ export default function TraceView() {
     selectTools: selectEditorTools,
     updateVertexHandle, updateHoleVertexHandle, setVertexHandleType, setHoleVertexHandleType,
     addHole, removeHole,
+    undo, redo, history, historyIndex,
   } = useEditor()
 
   // --- Selection state (local to TraceView) ---
@@ -510,6 +511,11 @@ export default function TraceView() {
         display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap',
         background: '#18181b', borderRadius: 8, padding: '6px 10px', border: '1px solid #3f3f46',
       }}>
+        {/* Undo / Redo */}
+        <ToolButton active={false} onClick={undo} icon="↩" label="Undo" title="Undo last action" disabled={historyIndex <= 0} />
+        <ToolButton active={false} onClick={redo} icon="↪" label="Redo" title="Redo last undone action" disabled={historyIndex >= history.length - 1} />
+        <Divider />
+
         {/* Selection tool */}
         <ToolButton active={penMode === 'none' && !addingTool && !splitting} onClick={() => { cancelPen(); setAddingTool(false); setSplitting(false) }} icon="🖱" label="Select" title="Select and edit existing paths (default)" />
         <Divider />
@@ -764,7 +770,7 @@ export default function TraceView() {
           </div>
         </div>
 
-        {/* Side panel: tool list + interior regions */}
+        {/* Side panel: tool list + interior regions + docked loupe */}
         <div style={{ width: 280, background: '#18181b', borderRadius: 8, padding: 12, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <h3 style={{ fontSize: 14, color: '#a1a1aa', margin: 0 }}>Tools</h3>
           <div style={{ color: '#71717a', fontSize: 11 }}>Ctrl/Cmd-click to multi-select for merge.</div>
@@ -834,6 +840,30 @@ export default function TraceView() {
               • Use <strong>✏ Draw Island</strong> to add a custom solid island
             </div>
           )}
+
+          {/* Docked magnifier loupe — stays at the bottom of the side panel */}
+          {showLoupe && (
+            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>🔍 Magnifier ({LOUPE_ZOOM}×)</span>
+                <span style={{ fontSize: 10, color: '#52525b' }}>
+                  {loupePos ? `${loupePos.px.toFixed(0)}, ${loupePos.py.toFixed(0)}px` : 'hover image'}
+                </span>
+              </div>
+              <div style={{
+                width: '100%', aspectRatio: '1 / 1',
+                border: '2px solid #a78bfa', borderRadius: 8, overflow: 'hidden',
+                background: '#0a0b0e', position: 'relative',
+              }}>
+                <canvas ref={magnifierRef} width={LOUPE_SIZE} height={LOUPE_SIZE} style={{ width: '100%', height: '100%', display: 'block' }} />
+                {!loupePos && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b', fontSize: 12 }}>
+                    Move cursor over image
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -841,16 +871,6 @@ export default function TraceView() {
       <div style={{ fontSize: 12, color: '#52525b' }}>
         Paper: {paperWmm}×{paperHmm}mm · Image: {design.rectified_w_px}×{design.rectified_h_px}px · Scale: {scale.toFixed(3)} mm/px
       </div>
-
-      {/* Magnifier loupe */}
-      {showLoupe && loupePos && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, width: LOUPE_SIZE, height: LOUPE_SIZE, border: '3px solid #a78bfa', borderRadius: 8, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.6)', background: '#18181b', zIndex: 100, pointerEvents: 'none' }}>
-          <canvas ref={magnifierRef} width={LOUPE_SIZE} height={LOUPE_SIZE} style={{ display: 'block' }} />
-          <div style={{ position: 'absolute', top: 4, left: 8, color: '#a78bfa', fontSize: 11, textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
-            {LOUPE_ZOOM}× zoom
-          </div>
-        </div>
-      )}
 
       {/* Help panel */}
       {showHelp && (
@@ -867,7 +887,7 @@ export default function TraceView() {
               <HelpItem icon="✏" name="Draw Island" desc="Draw a custom solid island inside the selected tool" />
               <HelpItem icon="🔍" name="Auto-Detect" desc="Click on a tool in the image to auto-trace it" />
               <HelpItem icon="◐" name="Handles" desc="Show/hide bezier control handle circles" />
-              <HelpItem icon="🔍" name="Loupe" desc="Toggle the 4× magnifier in the lower-right corner" />
+              <HelpItem icon="🔍" name="Loupe" desc="Toggle the 4× magnifier docked in the side panel" />
               <HelpItem icon="✂" name="Split" desc="Split a path with a cut line (click both sides)" />
               <HelpItem icon="🗑" name="Delete" desc="Delete the entire tool" />
             </HelpSection>
