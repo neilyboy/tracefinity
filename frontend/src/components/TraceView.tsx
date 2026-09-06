@@ -92,17 +92,6 @@ export default function TraceView() {
     ctx.stroke()
   }, [showLoupe, loupePos, design.rectified_w_px, design.rectified_h_px])
 
-  const handleImgMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!imgRef.current) return
-    const rect = imgRef.current.getBoundingClientRect()
-    const scaleX = design.rectified_w_px / rect.width
-    const scaleY = design.rectified_h_px / rect.height
-    setLoupePos({
-      px: (e.clientX - rect.left) * scaleX,
-      py: (e.clientY - rect.top) * scaleY,
-    })
-  }
-
   const replacePath = (toolId: string, hole: number | null, points: Point[]) => {
     useEditor.setState((state) => ({
       design: {
@@ -357,6 +346,19 @@ export default function TraceView() {
           <div
             style={{ position: 'relative' }}
             onPointerMove={handleVertexMove}
+            onMouseMove={(e) => {
+              // Track mouse position for the loupe — on the container div so it
+              // works even when the mouse is over SVG path overlays
+              if (!imgRef.current) return
+              const rect = imgRef.current.getBoundingClientRect()
+              const scaleX = design.rectified_w_px / rect.width
+              const scaleY = design.rectified_h_px / rect.height
+              setLoupePos({
+                px: (e.clientX - rect.left) * scaleX,
+                py: (e.clientY - rect.top) * scaleY,
+              })
+            }}
+            onMouseLeave={() => setLoupePos(null)}
             onPointerUp={() => {
               if (dragVertex) pushHistory()
               setDragVertex(null)
@@ -367,8 +369,6 @@ export default function TraceView() {
               src={design.image_filename ? `/data/images/${design.image_filename}` : ''}
               alt="rectified"
               onClick={handleImageClick}
-              onMouseMove={handleImgMouseMove}
-              onMouseLeave={() => setLoupePos(null)}
               style={{
                 display: 'block', maxWidth: '100%',
                 cursor: addingTool || splitting ? 'crosshair' : 'default',
@@ -391,6 +391,7 @@ export default function TraceView() {
             <svg
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
               viewBox={`0 0 ${design.rectified_w_px} ${design.rectified_h_px}`}
+              preserveAspectRatio="xMidYMid meet"
             >
               {splitStart && (
                 <circle
@@ -409,6 +410,21 @@ export default function TraceView() {
                 const paths = [tool.outer, ...tool.holes]
                 return (
                   <g key={tool.id}>
+                    {/* Hole candidates rendered BEFORE outer path so the outer
+                        path stroke is clearly visible on top. This prevents
+                        the dashed amber regions from visually obscuring the
+                        actual tool boundary. */}
+                    {(tool.hole_candidates ?? []).map((candidate, candidateIndex) => (
+                      <path
+                        key={`candidate-${candidateIndex}`}
+                        d={smoothClosedPath(candidate.map((point) => ({ x: point.x / scale, y: point.y / scale })), tool.smoothing)}
+                        fill="rgba(249,115,22,0.10)"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    ))}
                     <path
                       d={smoothClosedPath(outerPx, tool.smoothing)}
                       fill={tool.visible ? (selected ? 'rgba(34,197,94,0.18)' : 'rgba(124,58,237,0.2)') : 'none'}
@@ -431,17 +447,6 @@ export default function TraceView() {
                         updateTool(tool.id, { outer: [...tool.outer.slice(0, best + 1), added, ...tool.outer.slice(best + 1)] })
                       }}
                     />
-                    {(tool.hole_candidates ?? []).map((candidate, candidateIndex) => (
-                      <path
-                        key={`candidate-${candidateIndex}`}
-                        d={smoothClosedPath(candidate.map((point) => ({ x: point.x / scale, y: point.y / scale })), tool.smoothing)}
-                        fill="rgba(249,115,22,0.12)"
-                        stroke="#f59e0b"
-                        strokeWidth={3}
-                        strokeDasharray="8 5"
-                        style={{ pointerEvents: 'none' }}
-                      />
-                    ))}
                     {tool.holes.map((hole, holeIndex) => (
                       <path
                         key={`hole-${holeIndex}`}

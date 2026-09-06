@@ -901,6 +901,11 @@ export default function SvgEditor() {
           onPointerMove={(e) => {
             handlePointerMove(e)
             handleSvgPointerMove(e)
+            // Also update loupe/mouse position — events from SVG child elements
+            // (tool paths, vertices) may not always bubble to the container div
+            const mm = toMm(e.clientX, e.clientY)
+            setMouseMm(mm)
+            setLoupePos(mm)
           }}
           onPointerUp={(e) => {
             handlePointerUp(e)
