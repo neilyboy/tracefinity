@@ -342,9 +342,9 @@ export default function TraceView() {
 
       <div style={{ display: 'flex', gap: 16, flex: 1, overflow: 'hidden' }}>
         {/* Rectified image with outline overlays */}
-        <div style={{ flex: 1, background: '#18181b', borderRadius: 8, overflow: 'auto', display: 'flex', justifyContent: 'center', padding: 12 }}>
+        <div style={{ flex: 1, background: '#18181b', borderRadius: 8, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12 }}>
           <div
-            style={{ position: 'relative' }}
+            style={{ position: 'relative', display: 'inline-block' }}
             onPointerMove={handleVertexMove}
             onMouseMove={(e) => {
               // Track mouse position for the loupe — on the container div so it
@@ -391,7 +391,7 @@ export default function TraceView() {
             <svg
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
               viewBox={`0 0 ${design.rectified_w_px} ${design.rectified_h_px}`}
-              preserveAspectRatio="xMidYMid meet"
+              preserveAspectRatio="none"
             >
               {splitStart && (
                 <circle
