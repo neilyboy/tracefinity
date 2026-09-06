@@ -413,6 +413,51 @@ export default function ToolPropsPanel() {
       </Field>
 
       <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Interior Regions
+      </div>
+      {(tool.hole_candidates ?? []).length === 0 && tool.holes.length === 0 && (
+        <div style={{ fontSize: 11, color: '#52525b', marginBottom: 8 }}>This pocket is fully solid inside.</div>
+      )}
+      {(tool.hole_candidates ?? []).map((candidate, i) => (
+        <div key={`candidate-${i}`} style={{ padding: 7, border: '1px solid #92400e', borderRadius: 5, marginBottom: 5, background: '#2b1706' }}>
+          <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 5 }}>Unconfirmed region {i + 1} · included in pocket</div>
+          <div style={{ display: 'flex', gap: 5 }}>
+            <button
+              onClick={() => updateTool(tool.id, {
+                holes: [...tool.holes, candidate],
+                hole_candidates: (tool.hole_candidates ?? []).filter((_, index) => index !== i),
+              })}
+              style={smallBtn}
+            >
+              Preserve island
+            </button>
+            <button
+              onClick={() => updateTool(tool.id, {
+                hole_candidates: (tool.hole_candidates ?? []).filter((_, index) => index !== i),
+              })}
+              style={smallBtn}
+            >
+              Include in pocket
+            </button>
+          </div>
+        </div>
+      ))}
+      {tool.holes.map((hole, i) => (
+        <div key={`void-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+          <span style={{ flex: 1, fontSize: 11, color: '#fca5a5' }}>Solid island {i + 1} · tray material remains here</span>
+          <button
+            onClick={() => updateTool(tool.id, {
+              holes: tool.holes.filter((_, index) => index !== i),
+              hole_candidates: [...(tool.hole_candidates ?? []), hole],
+            })}
+            style={smallBtn}
+          >
+            Remove island
+          </button>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 12, marginBottom: 8, fontSize: 11, color: '#71717a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Finger Holes
       </div>
       {(tool.finger_holes ?? []).length === 0 && (
@@ -674,6 +719,8 @@ export default function ToolPropsPanel() {
 
       <div style={{ marginTop: 16, fontSize: 11, color: '#52525b' }}>
         <div>Vertices: {tool.outer.length}</div>
+        <div>Solid islands: {tool.holes.length}</div>
+        <div>Unconfirmed interiors: {(tool.hole_candidates ?? []).length}</div>
         <div>Finger holes: {(tool.finger_holes ?? []).length}</div>
       </div>
     </div>

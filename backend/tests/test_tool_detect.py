@@ -27,6 +27,7 @@ def test_detect_tools_finds_shapes(rectified_paper_with_tools):
     for o in outlines:
         assert len(o.outer) >= 3
         assert o.id  # has an id
+        assert o.holes == []
 
 
 def test_detect_tools_coordinates_in_mm(rectified_paper_with_tools):

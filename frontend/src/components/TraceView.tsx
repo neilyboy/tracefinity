@@ -372,6 +372,17 @@ export default function TraceView() {
                         updateTool(tool.id, { outer: [...tool.outer.slice(0, best + 1), added, ...tool.outer.slice(best + 1)] })
                       }}
                     />
+                    {(tool.hole_candidates ?? []).map((candidate, candidateIndex) => (
+                      <path
+                        key={`candidate-${candidateIndex}`}
+                        d={smoothClosedPath(candidate.map((point) => ({ x: point.x / scale, y: point.y / scale })), tool.smoothing)}
+                        fill="rgba(249,115,22,0.12)"
+                        stroke="#f59e0b"
+                        strokeWidth={3}
+                        strokeDasharray="8 5"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    ))}
                     {tool.holes.map((hole, holeIndex) => (
                       <path
                         key={`hole-${holeIndex}`}
@@ -454,7 +465,9 @@ export default function TraceView() {
                 border: `1px solid ${selectedToolIds.includes(tool.id) ? '#22c55e' : tool.visible ? '#3f3f46' : '#27272a'}`,
               }}
             >
-              <span style={{ fontSize: 13 }}>Tool {i + 1}</span>
+              <span style={{ fontSize: 13 }}>
+                Tool {i + 1}{(tool.hole_candidates ?? []).length > 0 ? ` · ${(tool.hole_candidates ?? []).length} interior` : ''}
+              </span>
               <button
                 onClick={(e) => { e.stopPropagation(); toggleToolVisible(tool.id) }}
                 style={{ background: 'none', border: 'none', color: tool.visible ? '#a78bfa' : '#52525b', cursor: 'pointer', fontSize: 16 }}
@@ -474,6 +487,36 @@ export default function TraceView() {
             if (!tool) return null
             return (
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #3f3f46', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(tool.hole_candidates ?? []).length > 0 && (
+                  <div style={{ padding: 10, border: '1px solid #92400e', borderRadius: 6, background: '#2b1706', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <strong style={{ color: '#fbbf24', fontSize: 12 }}>Review interior regions</strong>
+                    <div style={{ color: '#d6d3d1', fontSize: 11, lineHeight: 1.4 }}>
+                      Dashed amber regions are included in the pocket by default. Preserve an island only when the tool has a real opening, such as a scissors finger opening.
+                    </div>
+                    {(tool.hole_candidates ?? []).map((candidate, index) => (
+                      <div key={index} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ flex: 1, color: '#fcd34d', fontSize: 11 }}>Region {index + 1}</span>
+                        <button
+                          onClick={() => updateTool(tool.id, {
+                            holes: [...tool.holes, candidate],
+                            hole_candidates: (tool.hole_candidates ?? []).filter((_, candidateIndex) => candidateIndex !== index),
+                          })}
+                          style={smallBtnStyle}
+                        >
+                          Preserve island
+                        </button>
+                        <button
+                          onClick={() => updateTool(tool.id, {
+                            hole_candidates: (tool.hole_candidates ?? []).filter((_, candidateIndex) => candidateIndex !== index),
+                          })}
+                          style={smallBtnStyle}
+                        >
+                          Include in pocket
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <strong style={{ fontSize: 13 }}>Path editing</strong>
                 <div style={{ color: '#a1a1aa', fontSize: 12 }}>
                   Drag points to adjust the path. Double-click a point to remove it or double-click the selected outer or hole edge to add one.
@@ -484,7 +527,7 @@ export default function TraceView() {
                   style={selectStyle}
                 >
                   <option value="outer">Outer boundary</option>
-                  {tool.holes.map((_, index) => <option key={index} value={index}>Hole {index + 1}</option>)}
+                  {tool.holes.map((_, index) => <option key={index} value={index}>Solid island {index + 1}</option>)}
                 </select>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#a1a1aa', fontSize: 12 }}>
                   Curve
@@ -509,7 +552,7 @@ export default function TraceView() {
                   {tool.smoothing.toFixed(2)}
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                  <button onClick={handleAddHole} style={btnStyle}>Add hole</button>
+                  <button onClick={handleAddHole} style={btnStyle}>Add solid island</button>
                   <button
                     onClick={() => {
                       if (selectedHole === null) return
@@ -519,7 +562,7 @@ export default function TraceView() {
                     disabled={selectedHole === null}
                     style={{ ...btnStyle, opacity: selectedHole === null ? 0.45 : 1 }}
                   >
-                    Remove hole
+                    Remove island
                   </button>
                 </div>
                 <button
@@ -555,6 +598,10 @@ export default function TraceView() {
 const btnStyle: React.CSSProperties = {
   padding: '8px 20px', borderRadius: 6, border: '1px solid #3f3f46',
   background: '#27272a', color: '#e4e4e7', cursor: 'pointer', fontSize: 14,
+}
+const smallBtnStyle: React.CSSProperties = {
+  padding: '4px 7px', borderRadius: 4, border: '1px solid #92400e',
+  background: '#422006', color: '#fde68a', cursor: 'pointer', fontSize: 10,
 }
 const selectStyle: React.CSSProperties = {
   padding: '7px 10px', borderRadius: 6, border: '1px solid #3f3f46',

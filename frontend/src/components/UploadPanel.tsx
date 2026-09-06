@@ -7,7 +7,7 @@ import ProjectBrowser from './ProjectBrowser'
 export default function UploadPanel({ onSwitchToBaseplate }: { onSwitchToBaseplate?: () => void }) {
   const { setLoading, setError, setDesign, setView, setPaperSize, reset } = useEditor()
   const [paperSize, setPaper] = useState<PaperSize>('letter')
-  const [traceEngine, setTraceEngine] = useState<TraceEngine>('hybrid')
+  const [traceEngine, setTraceEngine] = useState<TraceEngine>('auto')
   const [traceEngines, setTraceEngines] = useState<TraceEngineInfo[]>([])
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)

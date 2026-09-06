@@ -76,7 +76,7 @@ const emptyDesign: Design = {
   labels: [],
   params: { ...DEFAULT_PARAMS },
   image_filename: null,
-  trace_engine: 'hybrid',
+  trace_engine: 'auto',
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -158,6 +158,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       id: newId,
       outer: tool.outer.map((p) => ({ x: p.x + offset, y: p.y + offset })),
       holes: tool.holes.map((h) => h.map((p) => ({ x: p.x + offset, y: p.y + offset }))),
+      hole_candidates: (tool.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + offset, y: p.y + offset }))),
       finger_holes: (tool.finger_holes ?? []).map((fh) => ({
         ...fh,
         x: fh.x + offset,
@@ -189,6 +190,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         label: tool.label,
         outer: tool.outer.map((p) => ({ x: p.x + offsetX * i, y: p.y })),
         holes: tool.holes.map((hp) => hp.map((p) => ({ x: p.x + offsetX * i, y: p.y }))),
+        hole_candidates: (tool.hole_candidates ?? []).map((hp) => hp.map((p) => ({ x: p.x + offsetX * i, y: p.y }))),
         finger_holes: (tool.finger_holes ?? []).map((fh) => ({
           ...fh,
           x: fh.x + offsetX * i,
@@ -233,6 +235,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           label: tool.label,
           outer: tool.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
           holes: tool.holes.map((hp) => hp.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+          hole_candidates: (tool.hole_candidates ?? []).map((hp) => hp.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
           finger_holes: (tool.finger_holes ?? []).map((fh) => ({
             ...fh,
             x: fh.x + dx,
@@ -256,6 +259,7 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...o,
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
                 holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                hole_candidates: (o.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
                 finger_holes: (o.finger_holes ?? []).map((fh) => ({
                   ...fh,
                   x: fh.x + dx,
@@ -279,6 +283,7 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...o,
                 outer: o.outer.map((p) => ({ x: p.x + dx, y: p.y + dy })),
                 holes: o.holes.map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+                hole_candidates: (o.hole_candidates ?? []).map((h) => h.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
                 finger_holes: (o.finger_holes ?? []).map((fh) => ({
                   ...fh,
                   x: fh.x + dx,
@@ -323,6 +328,7 @@ export const useEditor = create<EditorState>((set, get) => ({
             ...o,
             outer: o.outer.map(rotatePt),
             holes: o.holes.map((h) => h.map(rotatePt)),
+            hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(rotatePt)),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
               x: groupCx + (fh.x - groupCx) * cos - (fh.y - groupCy) * sin,
@@ -380,6 +386,7 @@ export const useEditor = create<EditorState>((set, get) => ({
             ...o,
             outer: o.outer.map(movePt),
             holes: o.holes.map((h) => h.map(movePt)),
+            hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(movePt)),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({ ...fh, x: fh.x + off.dx, y: fh.y + off.dy })),
           }
         }),
@@ -432,6 +439,7 @@ export const useEditor = create<EditorState>((set, get) => ({
             ...o,
             outer: o.outer.map(movePt),
             holes: o.holes.map((h) => h.map(movePt)),
+            hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(movePt)),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({ ...fh, x: fh.x + off.dx, y: fh.y + off.dy })),
           }
         }),
@@ -551,6 +559,12 @@ export const useEditor = create<EditorState>((set, get) => ({
                 y: cy + (p.y - cy) * scaleFactor,
               })),
             ),
+            hole_candidates: (o.hole_candidates ?? []).map((h) =>
+              h.map((p) => ({
+                x: cx + (p.x - cx) * scaleFactor,
+                y: cy + (p.y - cy) * scaleFactor,
+              })),
+            ),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
               x: cx + (fh.x - cx) * scaleFactor,
@@ -582,6 +596,7 @@ export const useEditor = create<EditorState>((set, get) => ({
             ...o,
             outer: mirroredOuter,
             holes: o.holes.map((h) => h.map(mirror).reverse()),
+            hole_candidates: (o.hole_candidates ?? []).map((h) => h.map(mirror).reverse()),
             finger_holes: (o.finger_holes ?? []).map((fh) => ({
               ...fh,
               x: axis === 'x' ? 2 * cx - fh.x : fh.x,

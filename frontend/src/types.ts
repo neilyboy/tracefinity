@@ -44,6 +44,7 @@ export interface ToolOutline {
   id: string
   outer: Point[]
   holes: Point[][]
+  hole_candidates?: Point[][]
   label: string
   margin_mm: number | null
   pocket_depth_mm: number | null

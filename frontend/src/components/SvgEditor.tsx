@@ -697,6 +697,10 @@ export default function SvgEditor() {
                   const hd = smoothClosedPath(hole.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3)
                   return <path key={hi} d={hd} fill="#0f1115" stroke={isSelected ? '#a78bfa' : '#71717a'} strokeWidth={0.3} />
                 })}
+                {(tool.hole_candidates ?? []).map((candidate, hi) => {
+                  const hd = smoothClosedPath(candidate.map(pt => ({ x: pt.x + pad, y: pt.y + pad })), tool.smoothing ?? 0.3)
+                  return <path key={`candidate-${hi}`} d={hd} fill="none" stroke="#f59e0b" strokeWidth={0.35} strokeDasharray="1.5 1" />
+                })}
 
                 {/* Label */}
                 {tool.label && (

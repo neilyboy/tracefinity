@@ -39,7 +39,7 @@ def trace_engine_status() -> list[dict[str, str | bool]]:
     fastsam_importable = _fastsam_importable()
     fastsam_ready = fastsam_importable and _find_fastsam_weights() is not None
     return [
-        {"id": "auto", "name": "Auto", "available": True, "ready": True, "description": "Uses FastSAM when its weights are installed, otherwise Hybrid OpenCV."},
+        {"id": "auto", "name": "Auto", "available": True, "ready": True, "description": "Uses FastSAM when available and falls back to Hybrid OpenCV if needed."},
         {"id": "hybrid", "name": "Hybrid OpenCV", "available": True, "ready": True, "description": "Fast local tracing with thresholding, component merging, and GrabCut."},
         {"id": "fastsam", "name": "FastSAM", "available": fastsam_importable, "ready": fastsam_ready, "description": "AI-assisted segmentation for reflective tools and difficult boundaries."},
     ]
@@ -49,7 +49,7 @@ def resolve_trace_engine(engine: TraceEngine) -> Literal["hybrid", "fastsam"]:
     if engine not in {"auto", "hybrid", "fastsam"}:
         raise ValueError(f"Unknown trace engine: {engine}")
     if engine == "auto":
-        return "fastsam" if _find_fastsam_weights() is not None and _fastsam_importable() else "hybrid"
+        return "fastsam" if _fastsam_importable() else "hybrid"
     return engine
 
 
@@ -62,7 +62,12 @@ def detect_tools(
     resolved = resolve_trace_engine(engine)
     if resolved == "hybrid":
         return _detect_tools_hybrid(rectified, scale_mm_per_px, smoothing)
-    return _detect_tools_fastsam(rectified, scale_mm_per_px, smoothing)
+    try:
+        return _detect_tools_fastsam(rectified, scale_mm_per_px, smoothing)
+    except RuntimeError:
+        if engine == "auto":
+            return _detect_tools_hybrid(rectified, scale_mm_per_px, smoothing)
+        raise
 
 
 def _detect_tools_hybrid(rectified: np.ndarray, scale_mm_per_px: float, smoothing: float = 0.3) -> list[ToolOutline]:
@@ -156,7 +161,8 @@ def _detect_tools_hybrid(rectified: np.ndarray, scale_mm_per_px: float, smoothin
             ToolOutline(
                 id=str(uuid.uuid4())[:8],
                 outer=outer_mm,
-                holes=holes_mm,
+                holes=[],
+                hole_candidates=holes_mm,
                 smoothing=smoothing,
             )
         )
@@ -260,39 +266,68 @@ def _detect_tools_fastsam(
     for outline in hybrid:
         base_mask = _outline_mask(outline, scale_mm_per_px, (h, w))
         base_area = max(1, cv2.countNonZero(base_mask))
-        best_idx = -1
-        best_score = 0.0
+        eligible = []
         for idx, mask in enumerate(candidates):
             if idx in used:
                 continue
+            mask_area = max(1, cv2.countNonZero(mask))
             intersection = cv2.countNonZero(cv2.bitwise_and(base_mask, mask))
-            if intersection / base_area < 0.25:
+            coverage = intersection / base_area
+            purity = intersection / mask_area
+            if coverage >= 0.025 and purity >= 0.65 and mask_area / base_area <= 1.6:
+                eligible.append((coverage, purity, idx))
+        eligible.sort(reverse=True)
+
+        assembled = np.zeros((h, w), dtype=np.uint8)
+        selected: list[int] = []
+        covered = 0
+        for _, _, idx in eligible:
+            proposed = cv2.bitwise_or(assembled, candidates[idx])
+            proposed_covered = cv2.countNonZero(cv2.bitwise_and(proposed, base_mask))
+            if proposed_covered - covered < base_area * 0.012:
                 continue
-            union = cv2.countNonZero(cv2.bitwise_or(base_mask, mask))
-            score = intersection / max(1, union)
-            if score > best_score:
-                best_score = score
-                best_idx = idx
-        if best_idx < 0:
+            assembled = proposed
+            covered = proposed_covered
+            selected.append(idx)
+
+        if covered / base_area < 0.65:
             refined.append(outline)
             continue
-        growth = max(3, round(6.0 / scale_mm_per_px))
+        growth = max(3, round(4.0 / scale_mm_per_px))
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (growth * 2 + 1, growth * 2 + 1))
         search_region = cv2.dilate(base_mask, kernel, iterations=1)
-        candidate_mask = cv2.bitwise_and(candidates[best_idx], search_region)
+        candidate_mask = cv2.bitwise_and(assembled, search_region)
+        join = max(3, round(1.5 / scale_mm_per_px))
+        if join % 2 == 0:
+            join += 1
+        candidate_mask = cv2.morphologyEx(
+            candidate_mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (join, join)),
+            iterations=1,
+        )
+        cleanup = max(3, round(2.0 / scale_mm_per_px))
+        if cleanup % 2 == 0:
+            cleanup += 1
+        candidate_mask = cv2.morphologyEx(
+            candidate_mask,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cleanup, cleanup)),
+            iterations=1,
+        )
         candidate = _tool_outline_from_mask(
             candidate_mask, rectified, scale_mm_per_px, smoothing, outline.id
         )
         if candidate is None:
             refined.append(outline)
             continue
-        combined_holes = list(candidate.holes)
+        combined_holes = list(candidate.hole_candidates)
         candidate_outer = np.array([[point.x, point.y] for point in candidate.outer], dtype=np.float32)
         existing_centers = [
             np.mean(np.array([[point.x, point.y] for point in hole]), axis=0)
             for hole in combined_holes
         ]
-        for hole in outline.holes:
+        for hole in outline.hole_candidates:
             center = np.mean(np.array([[point.x, point.y] for point in hole]), axis=0)
             if cv2.pointPolygonTest(candidate_outer, (float(center[0]), float(center[1])), False) < 0:
                 continue
@@ -300,8 +335,8 @@ def _detect_tools_fastsam(
                 continue
             combined_holes.append(hole)
             existing_centers.append(center)
-        candidate = candidate.model_copy(update={"holes": combined_holes})
-        used.add(best_idx)
+        candidate = candidate.model_copy(update={"hole_candidates": _deduplicate_inner_regions(combined_holes)})
+        used.update(selected)
         refined.append(candidate)
 
     refined.sort(
@@ -311,6 +346,28 @@ def _detect_tools_fastsam(
     return refined
 
 
+def _deduplicate_inner_regions(regions: list[list[Point]]) -> list[list[Point]]:
+    ordered = sorted(
+        (region for region in regions if len(region) >= 3),
+        key=lambda region: abs(polygon_area(np.array([[point.x, point.y] for point in region]))),
+        reverse=True,
+    )
+    kept: list[list[Point]] = []
+    for region in ordered:
+        center = np.mean(np.array([[point.x, point.y] for point in region]), axis=0)
+        if any(
+            cv2.pointPolygonTest(
+                np.array([[point.x, point.y] for point in existing], dtype=np.float32),
+                (float(center[0]), float(center[1])),
+                False,
+            ) >= 0
+            for existing in kept
+        ):
+            continue
+        kept.append(region)
+    return kept
+
+
 def _outline_mask(outline: ToolOutline, scale_mm_per_px: float, shape: tuple[int, int]) -> np.ndarray:
     mask = np.zeros(shape, dtype=np.uint8)
     outer = np.array(
@@ -318,7 +375,7 @@ def _outline_mask(outline: ToolOutline, scale_mm_per_px: float, shape: tuple[int
         dtype=np.int32,
     )
     cv2.fillPoly(mask, [outer], 255)
-    for hole in outline.holes:
+    for hole in [*outline.holes, *outline.hole_candidates]:
         points = np.array(
             [[round(p.x / scale_mm_per_px), round(p.y / scale_mm_per_px)] for p in hole],
             dtype=np.int32,
@@ -359,7 +416,7 @@ def _tool_outline_from_mask(
         hole = _smooth_contour(contours[idx], scale_mm_per_px, smoothing)
         if len(hole) >= 3:
             holes.append(hole)
-    return ToolOutline(id=outline_id, outer=outer, holes=holes, smoothing=smoothing)
+    return ToolOutline(id=outline_id, outer=outer, holes=[], hole_candidates=holes, smoothing=smoothing)
 
 
 def detect_tool_at_point(
@@ -450,7 +507,8 @@ def detect_tool_at_point(
     return ToolOutline(
         id=str(uuid.uuid4())[:8],
         outer=outer_mm,
-        holes=holes_mm,
+        holes=[],
+        hole_candidates=holes_mm,
         smoothing=smoothing,
     )
 
@@ -735,8 +793,14 @@ def merge_tool_outlines(outlines: list[ToolOutline]) -> ToolOutline:
         for index, item in enumerate(hierarchy)
         if item[3] == outer_index and cv2.contourArea(contours[index]) > 25
     ]
+    candidates = [candidate for outline in outlines for candidate in outline.hole_candidates]
     return outlines[0].model_copy(
-        update={"id": str(uuid.uuid4())[:8], "outer": points(contours[outer_index]), "holes": holes}
+        update={
+            "id": str(uuid.uuid4())[:8],
+            "outer": points(contours[outer_index]),
+            "holes": holes,
+            "hole_candidates": candidates,
+        }
     )
 
 
@@ -794,10 +858,20 @@ def split_tool_outline(
             for index, item in enumerate(hierarchy)
             if item[3] == outer_index and cv2.contourArea(contours[index]) > 25
         ]
+        candidates = []
+        for candidate in outline.hole_candidates:
+            if len(candidate) < 3:
+                continue
+            center_x = sum(point.x for point in candidate) / len(candidate)
+            center_y = sum(point.y for point in candidate) / len(candidate)
+            center = ((center_x - min_x) * resolution, (center_y - min_y) * resolution)
+            if cv2.pointPolygonTest(contours[outer_index], center, False) >= 0:
+                candidates.append(candidate)
         result.append(outline.model_copy(update={
             "id": str(uuid.uuid4())[:8],
             "outer": points(contours[outer_index]),
             "holes": holes,
+            "hole_candidates": candidates,
         }))
     result.sort(key=lambda item: abs(polygon_area(np.array([[p.x, p.y] for p in item.outer]))), reverse=True)
     return result

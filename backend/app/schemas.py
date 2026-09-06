@@ -29,7 +29,8 @@ class ToolOutline(BaseModel):
 
     id: str
     outer: list[Point] = Field(description="Outer boundary polygon, ordered, in mm")
-    holes: list[list[Point]] = Field(default_factory=list, description="Inner hole polygons in mm")
+    holes: list[list[Point]] = Field(default_factory=list, description="Confirmed solid-island polygons inside the pocket, in mm")
+    hole_candidates: list[list[Point]] = Field(default_factory=list, description="Unconfirmed detected interior regions that remain included in the pocket")
     label: str = ""
     # Per-tool overrides (None = use bin defaults)
     margin_mm: float | None = None
