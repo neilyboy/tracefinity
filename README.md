@@ -109,12 +109,20 @@ A tool pocket is cut from the complete outer silhouette. An interior polygon has
 For example, a bright stripe inside a screwdriver handle should normally remain **included in the pocket**. A genuine opening through scissors can be marked **Preserve island**. These decisions remain available later in **Tool Properties → Interior Regions**.
 
 ### 3. Customize
-Fine-tune everything in the built-in SVG editor with full undo/redo support. The editor includes the same vector editing tools as the trace-review screen — drag vertices, double-click to cycle handle types, right-click to delete, double-click edges to add points, and use the pen tool to draw new paths.
+Arrange tools in the tray and configure pocket settings in the built-in SVG editor with full undo/redo support. This is a **layout-only** editor — tool geometry (paths, vertices, bezier handles, islands) is defined on the Detected Tools screen where the background photo is available.
 
-**Background Photo Layer:**
-- **🖼 Photo ON/OFF** — toggle the original rectified photo as a background layer behind your tool outlines. Useful for last-minute fine-tuning of tool positions and shapes before exporting.
-- **Opacity slider** — adjust the photo's transparency from 0% to 100%. Starts at 25% so you can see both the photo and your tool outlines clearly.
-- The photo is aligned exactly with the tool coordinates, so you can verify that each tool outline matches the physical tool.
+**What you can do here:**
+- Select and move tools around the tray
+- Multi-select with Ctrl+click or drag-box
+- Nudge with arrow keys (Shift = 10× step)
+- Delete tools
+- Add finger holes for easy tool removal
+- Add preset shapes (rect, circle, hex, etc.)
+- Add text labels to the bin surface
+- Adjust smoothing per tool
+- Configure pocket shape, depth, and margin per tool
+- Zoom, pan, and use the magnifier loupe for precise placement
+- Export to STL/3MF/STEP/DXF/SVG
 
 **Navigation & Zoom:**
 - **Ctrl+Mouse Wheel** — zoom in/out smoothly
@@ -123,9 +131,9 @@ Fine-tune everything in the built-in SVG editor with full undo/redo support. The
 - **Fit button** — zoom to fit the entire workspace
 - **Tray button** — zoom to 100% tray size
 - **+/− buttons** — zoom in/out by 20%
-- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor, showing a close-up of the area around the mouse. Toggle with the Loupe button or `L` key. Essential for precise vertex and handle placement.
+- **🔍 Magnifier Loupe** — a 4× zoom window in the lower-right corner follows your cursor, showing a close-up of the area around the mouse. Toggle with the Loupe button or `L` key.
 - **Coordinate Readout** — the bottom-left corner shows the current mouse position in millimetres, plus the selected tool's bounding box dimensions
-- **Help Panel** — click the `? Help` button or press `?` to see a complete reference of all tools, keyboard shortcuts, and handle types
+- **Help Panel** — click the `? Help` button or press `?` to see a complete reference of all tools and keyboard shortcuts
 
 **Keyboard Shortcuts:**
 
