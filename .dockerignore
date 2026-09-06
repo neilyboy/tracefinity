@@ -1,0 +1,11 @@
+# Don't send local build artifacts, caches, or data to the Docker builder
+frontend/node_modules
+frontend/dist
+backend/app/static/assets
+data/
+.git/
+*.md
+.venv/
+__pycache__/
+*.pyc
+.env

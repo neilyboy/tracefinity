@@ -26,6 +26,8 @@ RUN pip install --no-cache-dir -e ".[dev]" || pip install --no-cache-dir -e .
 COPY backend/app/ ./app/
 
 # Copy built frontend into static dir served by FastAPI
+# (rm first to remove any stale files from the backend copy step)
+RUN rm -rf ./app/static/assets
 COPY --from=frontend-build /frontend/dist ./app/static
 
 ENV TRACEFINITY_DATA_DIR=/data
