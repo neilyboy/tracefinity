@@ -987,10 +987,10 @@ export default function SvgEditor() {
         </div>
       )}
 
-      {/* Coordinate readout (top-left) */}
+      {/* Coordinate readout (bottom-right) */}
       {mouseMm && (
         <div style={{
-          position: 'fixed', top: 60, left: 24,
+          position: 'fixed', bottom: 24, right: 24,
           background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6,
           padding: '4px 10px', fontSize: 11, color: '#71717a',
           zIndex: 90, pointerEvents: 'none', fontFamily: 'monospace',

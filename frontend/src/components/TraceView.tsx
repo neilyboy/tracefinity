@@ -135,6 +135,7 @@ export default function TraceView() {
   // --- Vertex dragging ---
   const handleVertexPointerDown = (e: React.PointerEvent, toolId: string, hole: number | null, vertex: number) => {
     e.stopPropagation()
+    e.preventDefault()
     const pt = imagePointMm(e.clientX, e.clientY)
     if (!pt) return
     const tool = design.outlines.find((t) => t.id === toolId)
@@ -149,6 +150,7 @@ export default function TraceView() {
 
   const handleHandlePointerDown = (e: React.PointerEvent, toolId: string, hole: number | null, vertex: number, end: 'cp_in' | 'cp_out') => {
     e.stopPropagation()
+    e.preventDefault()
     const pt = imagePointMm(e.clientX, e.clientY)
     if (!pt) return
     const tool = design.outlines.find((t) => t.id === toolId)
@@ -164,6 +166,10 @@ export default function TraceView() {
   const handlePointerMove = (e: React.PointerEvent) => {
     const pt = imagePointMm(e.clientX, e.clientY)
     if (!pt) return
+
+    if (dragVertex || dragHandle) {
+      e.preventDefault()
+    }
 
     if (dragVertex) {
       const dx = pt.x - dragVertex.startMm.x
@@ -402,6 +408,7 @@ export default function TraceView() {
       currentType === 'sharp' ? 'straight' : 'auto'
 
     // When switching to smooth/sharp, initialize handles from Catmull-Rom if not present
+    // Use 3x the auto handle length so they're long enough to grab easily
     if (nextType === 'smooth' || nextType === 'sharp') {
       const path = hole === null ? tool.outer : tool.holes[hole]
       if (!path) return
@@ -410,9 +417,12 @@ export default function TraceView() {
       const curr = path[vertex]
       const next = path[(vertex + 1) % n]
       const { cp_in, cp_out } = computeAutoHandles(prev, curr, next, tool.smoothing ?? 0.3)
+      // Scale handles 3x away from vertex for easier grabbing
+      const scaledCpIn = { x: curr.x + (cp_in.x - curr.x) * 3, y: curr.y + (cp_in.y - curr.y) * 3 }
+      const scaledCpOut = { x: curr.x + (cp_out.x - curr.x) * 3, y: curr.y + (cp_out.y - curr.y) * 3 }
       const newHandle: VertexHandle = {
-        cp_in: nextType === 'smooth' ? cp_in : (h?.cp_in ?? cp_in),
-        cp_out: nextType === 'smooth' ? cp_out : (h?.cp_out ?? cp_out),
+        cp_in: nextType === 'smooth' ? scaledCpIn : (h?.cp_in ?? scaledCpIn),
+        cp_out: nextType === 'smooth' ? scaledCpOut : (h?.cp_out ?? scaledCpOut),
         type: nextType,
       }
       if (hole === null) {
@@ -625,7 +635,7 @@ export default function TraceView() {
         {/* Image with SVG overlays */}
         <div style={{ flex: 1, background: '#18181b', borderRadius: 8, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12 }}>
           <div
-            style={{ position: 'relative', display: 'inline-block' }}
+            style={{ position: 'relative', display: 'inline-block', touchAction: 'none' }}
             onPointerMove={(e) => { handlePointerMove(e); /* update loupe */ if (!imgRef.current) return; const rect = imgRef.current.getBoundingClientRect(); setLoupePos({ px: (e.clientX - rect.left) * design.rectified_w_px / rect.width, py: (e.clientY - rect.top) * design.rectified_h_px / rect.height }) }}
             onMouseLeave={() => setLoupePos(null)}
             onPointerUp={handlePointerUp}
@@ -652,7 +662,7 @@ export default function TraceView() {
               </div>
             )}
             <svg
-              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', touchAction: 'none' }}
               viewBox={`0 0 ${design.rectified_w_px} ${design.rectified_h_px}`}
               preserveAspectRatio="none"
             >
@@ -723,28 +733,28 @@ export default function TraceView() {
                             {/* Bezier handle lines and circles */}
                             {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && cpInPx && (
                               <>
-                                <line x1={ptPx.x} y1={ptPx.y} x2={cpInPx.x} y2={cpInPx.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
-                                <circle cx={cpInPx.x} cy={cpInPx.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
-                                  style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab' }}
+                                <line x1={ptPx.x} y1={ptPx.y} x2={cpInPx.x} y2={cpInPx.y} stroke="#3b82f6" strokeWidth={2} strokeDasharray="4,3" style={{ pointerEvents: 'none' }} />
+                                <circle cx={cpInPx.x} cy={cpInPx.y} r={8} fill="#3b82f6" stroke="#0f1115" strokeWidth={2}
+                                  style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab', touchAction: 'none' }}
                                   onPointerDown={(e) => handleHandlePointerDown(e, tool.id, selectedHole, vi, 'cp_in')}
                                 />
                               </>
                             )}
                             {showHandles && h && h.type !== 'auto' && h.type !== 'straight' && cpOutPx && (
                               <>
-                                <line x1={ptPx.x} y1={ptPx.y} x2={cpOutPx.x} y2={cpOutPx.y} stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3,2" style={{ pointerEvents: 'none' }} />
-                                <circle cx={cpOutPx.x} cy={cpOutPx.y} r={5} fill="#3b82f6" stroke="#0f1115" strokeWidth={1.5}
-                                  style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab' }}
+                                <line x1={ptPx.x} y1={ptPx.y} x2={cpOutPx.x} y2={cpOutPx.y} stroke="#3b82f6" strokeWidth={2} strokeDasharray="4,3" style={{ pointerEvents: 'none' }} />
+                                <circle cx={cpOutPx.x} cy={cpOutPx.y} r={8} fill="#3b82f6" stroke="#0f1115" strokeWidth={2}
+                                  style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab', touchAction: 'none' }}
                                   onPointerDown={(e) => handleHandlePointerDown(e, tool.id, selectedHole, vi, 'cp_out')}
                                 />
                               </>
                             )}
                             {/* Vertex circle */}
                             <circle
-                              cx={ptPx.x} cy={ptPx.y} r={6}
+                              cx={ptPx.x} cy={ptPx.y} r={7}
                               fill={handleType === 'smooth' ? '#22d3ee' : handleType === 'sharp' ? '#fbbf24' : handleType === 'straight' ? '#71717a' : (selectedHole === null ? '#22c55e' : '#f97316')}
-                              stroke="#ffffff" strokeWidth={2}
-                              style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab' }}
+                              stroke="#ffffff" strokeWidth={2.5}
+                              style={{ pointerEvents: penMode !== 'none' || addingTool || splitting ? 'none' : 'all', cursor: 'grab', touchAction: 'none' }}
                               onPointerDown={(e) => handleVertexPointerDown(e, tool.id, selectedHole, vi)}
                               onDoubleClick={(e) => { e.stopPropagation(); cycleHandleType(tool.id, selectedHole, vi) }}
                               onContextMenu={(e) => { e.stopPropagation(); e.preventDefault(); deleteVertex(tool.id, selectedHole, vi) }}
