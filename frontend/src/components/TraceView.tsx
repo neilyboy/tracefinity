@@ -2,10 +2,88 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useEditor } from '../editor/useEditorState'
 import { suggestGridSize } from '../editor/gridSnap'
 import { smoothClosedPath, computeAutoHandles, mirrorHandle } from '../utils/smoothPath'
+import type { Pt } from '../utils/smoothPath'
 import { detectToolAtPoint, listTraceEngines, mergeOutlines, retraceImage, splitOutline } from '../api/client'
 import type { Point, TraceEngine, TraceEngineInfo, ToolOutline, VertexHandle, VertexHandleType } from '../types'
 
 export default function TraceView() {
+  // Draw a smooth closed bezier path on a canvas context, mirroring the SVG path logic.
+  // pts: points in canvas pixel coordinates, handles: bezier handles (in same coordinate space),
+  // tension: smoothing tension.
+  function drawSmoothPathOnCanvas(ctx: CanvasRenderingContext2D, pts: Pt[], tension: number, handles?: VertexHandle[]) {
+    const n = pts.length
+    if (n < 3) {
+      ctx.beginPath()
+      pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y) })
+      ctx.closePath()
+      return
+    }
+    const hasHandles = handles && handles.length === n && handles.some((h) => h && h.type !== 'auto')
+    ctx.beginPath()
+    ctx.moveTo(pts[0].x, pts[0].y)
+    if (!hasHandles && tension <= 0.001) {
+      pts.forEach((p, i) => { if (i > 0) ctx.lineTo(p.x, p.y) })
+      ctx.closePath()
+      return
+    }
+    if (!hasHandles) {
+      // Pure Catmull-Rom
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[(i - 1 + n) % n]
+        const p1 = pts[i]
+        const p2 = pts[(i + 1) % n]
+        const p3 = pts[(i + 2) % n]
+        const cp1x = p1.x + (p2.x - p0.x) * tension / 3
+        const cp1y = p1.y + (p2.y - p0.y) * tension / 3
+        const cp2x = p2.x - (p3.x - p1.x) * tension / 3
+        const cp2y = p2.y - (p3.y - p1.y) * tension / 3
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
+      }
+      ctx.closePath()
+      return
+    }
+    // Mixed bezier with explicit handles
+    for (let i = 0; i < n; i++) {
+      const p1 = pts[i]
+      const p2 = pts[(i + 1) % n]
+      const h1 = handles![i]
+      const h2 = handles![(i + 1) % n]
+      const h1Straight = h1 && h1.type === 'straight'
+      const h1Auto = !h1 || h1.type === 'auto'
+      const h2Auto = !h2 || h2.type === 'auto'
+      if (h1Straight) {
+        ctx.lineTo(p2.x, p2.y)
+        continue
+      }
+      if (!h1Auto && h1.cp_out && !h2Auto && h2.cp_in) {
+        ctx.bezierCurveTo(h1.cp_out.x, h1.cp_out.y, h2.cp_in.x, h2.cp_in.y, p2.x, p2.y)
+        continue
+      }
+      if (!h1Auto && h1.cp_out && h2Auto) {
+        const p3 = pts[(i + 2) % n]
+        const cp2x = p2.x - (p3.x - p1.x) * tension / 3
+        const cp2y = p2.y - (p3.y - p1.y) * tension / 3
+        ctx.bezierCurveTo(h1.cp_out.x, h1.cp_out.y, cp2x, cp2y, p2.x, p2.y)
+        continue
+      }
+      if (h1Auto && !h2Auto && h2.cp_in) {
+        const p0 = pts[(i - 1 + n) % n]
+        const cp1x = p1.x + (p2.x - p0.x) * tension / 3
+        const cp1y = p1.y + (p2.y - p0.y) * tension / 3
+        ctx.bezierCurveTo(cp1x, cp1y, h2.cp_in.x, h2.cp_in.y, p2.x, p2.y)
+        continue
+      }
+      // Both auto
+      const p0 = pts[(i - 1 + n) % n]
+      const p3 = pts[(i + 2) % n]
+      const cp1x = p1.x + (p2.x - p0.x) * tension / 3
+      const cp1y = p1.y + (p2.y - p0.y) * tension / 3
+      const cp2x = p2.x - (p3.x - p1.x) * tension / 3
+      const cp2y = p2.y - (p3.y - p1.y) * tension / 3
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
+    }
+    ctx.closePath()
+  }
   const {
     design, setView, toggleToolVisible, setParams, addTool, deleteTool, updateTool, pushHistory,
     selectTools: selectEditorTools,
@@ -97,39 +175,37 @@ export default function TraceView() {
     const toLoupeX = (px: number) => (px - sx) * LOUPE_ZOOM
     const toLoupeY = (py: number) => (py - sy) * LOUPE_ZOOM
 
-    // Draw tool paths on top of the image
+    // Draw tool paths on top of the image (using smooth bezier curves)
     const scale = design.scale_mm_per_px
     for (const tool of design.outlines) {
       if (!tool.visible) continue
       const isSelected = selectedToolIds.includes(tool.id)
       const outerPx = tool.outer.map((p) => ({ x: p.x / scale, y: p.y / scale }))
+      const outerHandlesPx = (tool.outer_handles ?? []).map(h => ({
+        ...h,
+        cp_in: h.cp_in ? { x: h.cp_in.x / scale, y: h.cp_in.y / scale } : null,
+        cp_out: h.cp_out ? { x: h.cp_out.x / scale, y: h.cp_out.y / scale } : null,
+      }))
 
-      // Outer path
+      // Outer path — smooth bezier, not straight lines
       ctx.strokeStyle = isSelected ? '#a78bfa' : '#71717a'
       ctx.lineWidth = 1.5
-      ctx.beginPath()
-      for (let i = 0; i < outerPx.length; i++) {
-        const lx = toLoupeX(outerPx[i].x)
-        const ly = toLoupeY(outerPx[i].y)
-        if (i === 0) ctx.moveTo(lx, ly)
-        else ctx.lineTo(lx, ly)
-      }
-      ctx.closePath()
+      drawSmoothPathOnCanvas(ctx, outerPx.map(p => ({ x: toLoupeX(p.x), y: toLoupeY(p.y) })), tool.smoothing, outerHandlesPx)
       ctx.stroke()
 
-      // Holes
-      for (const hole of tool.holes) {
+      // Holes — smooth bezier
+      for (let hi = 0; hi < tool.holes.length; hi++) {
+        const hole = tool.holes[hi]
         const hPx = hole.map((p) => ({ x: p.x / scale, y: p.y / scale }))
+        const holeHandles = tool.holes_handles?.[hi] ?? []
+        const holeHandlesPx = holeHandles.map(h => ({
+          ...h,
+          cp_in: h.cp_in ? { x: h.cp_in.x / scale, y: h.cp_in.y / scale } : null,
+          cp_out: h.cp_out ? { x: h.cp_out.x / scale, y: h.cp_out.y / scale } : null,
+        }))
         ctx.strokeStyle = '#ef4444'
         ctx.lineWidth = 1
-        ctx.beginPath()
-        for (let i = 0; i < hPx.length; i++) {
-          const lx = toLoupeX(hPx[i].x)
-          const ly = toLoupeY(hPx[i].y)
-          if (i === 0) ctx.moveTo(lx, ly)
-          else ctx.lineTo(lx, ly)
-        }
-        ctx.closePath()
+        drawSmoothPathOnCanvas(ctx, hPx.map(p => ({ x: toLoupeX(p.x), y: toLoupeY(p.y) })), tool.smoothing, holeHandlesPx)
         ctx.stroke()
       }
 
