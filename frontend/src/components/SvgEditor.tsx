@@ -900,7 +900,7 @@ export default function SvgEditor() {
       {/* Magnifier loupe — zoomed-in view of the area around the cursor */}
       {showLoupe && loupePos && !panning && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24,
+          position: 'fixed', bottom: 24, left: 24,
           width: LOUPE_SIZE, height: LOUPE_SIZE,
           border: '3px solid #a78bfa', borderRadius: 8,
           overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
@@ -987,10 +987,10 @@ export default function SvgEditor() {
         </div>
       )}
 
-      {/* Coordinate readout (bottom-left) */}
+      {/* Coordinate readout (top-left) */}
       {mouseMm && (
         <div style={{
-          position: 'fixed', bottom: 24, left: 24,
+          position: 'fixed', top: 60, left: 24,
           background: '#18181b', border: '1px solid #3f3f46', borderRadius: 6,
           padding: '4px 10px', fontSize: 11, color: '#71717a',
           zIndex: 90, pointerEvents: 'none', fontFamily: 'monospace',

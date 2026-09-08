@@ -581,17 +581,21 @@ export default function TraceView() {
             {/* Delete tool */}
             <ToolButton active={false} onClick={() => { deleteTool(selectedTool.id); setSelectedToolId(null); setSelectedToolIds([]); setSelectedHole(null) }} icon="🗑" label="Delete" title="Delete the entire tool" />
             <Divider />
-            {/* Symmetry controls */}
-            <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="Sym X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
-            <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Sym Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
-            {symmetryAxis && (
-              <>
-                <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Manual'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
-                <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Symmetrize" title="Average both sides for perfect symmetry" />
-              </>
-            )}
+            {/* Symmetry controls — grouped in a compact bordered section */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 6px', borderRadius: 6, border: `1px solid ${symmetryAxis ? '#34d399' : '#3f3f46'}`, background: symmetryAxis ? 'rgba(52,211,153,0.08)' : 'transparent' }}>
+              <span style={{ fontSize: 10, color: symmetryAxis ? '#34d399' : '#71717a', marginRight: 4, fontWeight: 600 }}>SYM</span>
+              <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
+              <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
+              {symmetryAxis && (
+                <>
+                  <span style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
+                  <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Man'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
+                  <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                  <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                  <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Avg" title="Average both sides for perfect symmetry" />
+                </>
+              )}
+            </div>
           </>
         )}
         <span style={{ flex: 1 }} />
