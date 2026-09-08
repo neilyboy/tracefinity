@@ -48,6 +48,7 @@ export default function TraceView() {
   const [loupePos, setLoupePos] = useState<{ px: number; py: number } | null>(null)
   const [imageZoom, setImageZoom] = useState(1)  // zoom level for the image (1 = fit to width)
   const [imgNaturalSize, setImgNaturalSize] = useState<{ w: number; h: number } | null>(null)
+  const [symmetryAngle, setSymmetryAngle] = useState(0)  // degrees, 0 = aligned with axis, auto-detected from tool shape
   const imgRef = useRef<HTMLImageElement>(null)
   const magnifierRef = useRef<HTMLCanvasElement>(null)
   const LOUPE_ZOOM = 4
@@ -591,6 +592,38 @@ export default function TraceView() {
   // Helper to convert mm to px for rendering
   const mmToPx = (pt: Point) => ({ x: pt.x / scale, y: pt.y / scale })
 
+  // Compute the principal axis angle (in degrees) of a tool's outer path using PCA.
+  // Returns the angle of the longest dimension — 0 = horizontal, 90 = vertical.
+  // This is used to align the symmetry axis with the tool's actual orientation.
+  const computePrincipalAngle = (points: Point[]): number => {
+    if (points.length < 2) return 0
+    const cx = points.reduce((a, p) => a + p.x, 0) / points.length
+    const cy = points.reduce((a, p) => a + p.y, 0) / points.length
+    // PCA: compute covariance matrix and find principal eigenvector
+    let sxx = 0, syy = 0, sxy = 0
+    for (const p of points) {
+      const dx = p.x - cx
+      const dy = p.y - cy
+      sxx += dx * dx
+      syy += dy * dy
+      sxy += dx * dy
+    }
+    sxx /= points.length
+    syy /= points.length
+    sxy /= points.length
+    // Angle of principal axis: tan(2θ) = 2*sxy / (sxx - syy)
+    const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy)
+    return angle * 180 / Math.PI
+  }
+
+  // Auto-detect symmetry angle when a tool is selected and symmetry is toggled on
+  useEffect(() => {
+    if (symmetryAxis && selectedTool) {
+      const detected = computePrincipalAngle(selectedTool.outer)
+      setSymmetryAngle(detected)
+    }
+  }, [symmetryAxis, selectedToolId])  // eslint-disable-line react-hooks/exhaustive-deps
+
   // Get the currently selected path and handles
   const selectedTool = selectedToolId ? design.outlines.find((t) => t.id === selectedToolId) : null
   const activePath = selectedTool ? (selectedHole === null ? selectedTool.outer : selectedTool.holes[selectedHole]) : null
@@ -701,15 +734,24 @@ export default function TraceView() {
             {/* Symmetry controls — grouped in a compact bordered section */}
             <ToolGroup label="Symmetry" accent={symmetryAxis ? '#34d399' : undefined}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 1, padding: '2px 4px', borderRadius: 5, border: `1px solid ${symmetryAxis ? '#34d399' : 'transparent'}`, background: symmetryAxis ? 'rgba(52,211,153,0.08)' : 'transparent' }}>
-                <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
-                <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
+                <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇄" label="X" title="Mirror left↔right across vertical line through tool center" disabled={!selectedToolId} />
+                <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇅" label="Y" title="Mirror top↔bottom across horizontal line through tool center" disabled={!selectedToolId} />
                 {symmetryAxis && (
                   <>
                     <span style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 1px' }} />
                     <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Man'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
-                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                    <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Avg" title="Average both sides for perfect symmetry" />
+                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top', symmetryAngle)} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis at ${symmetryAngle.toFixed(0)}°)`} />
+                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom', symmetryAngle)} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis at ${symmetryAngle.toFixed(0)}°)`} />
+                    <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis, symmetryAngle)} icon="⚖" label="Avg" title="Average both sides for perfect symmetry" />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 3, color: '#34d399', fontSize: 10, paddingLeft: 4 }} title="Symmetry axis angle — auto-detected from tool shape, drag to fine-tune">
+                      ∠
+                      <input
+                        type="range" min={-90} max={90} step={1} value={symmetryAngle}
+                        onChange={(e) => setSymmetryAngle(Number(e.target.value))}
+                        style={{ width: 60 }}
+                      />
+                      {symmetryAngle.toFixed(0)}°
+                    </label>
                   </>
                 )}
               </div>
@@ -893,7 +935,7 @@ export default function TraceView() {
                 )
               })}
 
-              {/* Symmetry axis line for selected tool */}
+              {/* Symmetry axis line for selected tool — drawn at the symmetry angle */}
               {selectedTool && symmetryAxis && (() => {
                 const tool = selectedTool
                 const cx = tool.outer.reduce((a, p) => a + p.x, 0) / tool.outer.length
@@ -903,11 +945,31 @@ export default function TraceView() {
                 const minX = Math.min(...xs), maxX = Math.max(...xs)
                 const minY = Math.min(...ys), maxY = Math.max(...ys)
                 const lineLen = Math.max(maxX - minX, maxY - minY) + 20
-                if (symmetryAxis === 'x') {
-                  return <line x1={cx / scale} y1={(cy - lineLen / 2) / scale} x2={cx / scale} y2={(cy + lineLen / 2) / scale} stroke="#34d399" strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: 'none' }} />
-                } else {
-                  return <line x1={(cx - lineLen / 2) / scale} y1={cy / scale} x2={(cx + lineLen / 2) / scale} y2={cy / scale} stroke="#34d399" strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: 'none' }} />
-                }
+                // The symmetry line is perpendicular to the mirror direction.
+                // For X axis (mirror left↔right): the line is vertical, rotated by angle.
+                // For Y axis (mirror top↔bottom): the line is horizontal, rotated by angle.
+                const rad = (symmetryAngle * Math.PI) / 180
+                // X axis: base direction is vertical (0,1), Y axis: base is horizontal (1,0)
+                const baseAngle = symmetryAxis === 'x' ? Math.PI / 2 : 0
+                const totalAngle = baseAngle + rad
+                const dx = Math.cos(totalAngle) * lineLen / 2
+                const dy = Math.sin(totalAngle) * lineLen / 2
+                return (
+                  <>
+                    <line
+                      x1={(cx - dx) / scale} y1={(cy - dy) / scale}
+                      x2={(cx + dx) / scale} y2={(cy + dy) / scale}
+                      stroke="#34d399" strokeWidth={2} strokeDasharray="6,4"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                    <text
+                      x={(cx + dx) / scale + 4} y={(cy + dy) / scale}
+                      fill="#34d399" fontSize={10} style={{ pointerEvents: 'none' }}
+                    >
+                      {symmetryAngle.toFixed(0)}°
+                    </text>
+                  </>
+                )
               })()}
 
               {/* Pen tool preview */}
@@ -1061,8 +1123,8 @@ export default function TraceView() {
             </HelpSection>
 
             <HelpSection title="Symmetry">
-              <HelpItem icon="⇅" name="Sym X" desc="Toggle X-axis symmetry (vertical line through tool center)" />
-              <HelpItem icon="⇄" name="Sym Y" desc="Toggle Y-axis symmetry (horizontal line through tool center)" />
+              <HelpItem icon="⇄" name="Sym X" desc="Mirror left↔right across vertical line through tool center" />
+              <HelpItem icon="⇅" name="Sym Y" desc="Mirror top↔bottom across horizontal line through tool center" />
               <HelpItem icon="🔗" name="Live" desc="Live mirror: dragging a vertex mirrors its partner in real-time" />
               <HelpItem icon="✋" name="Manual" desc="Manual mode: use copy buttons to mirror one half to the other" />
               <HelpItem icon="⬅" name="Copy→" desc="Copy left/top half to right/bottom (mirror across active axis)" />

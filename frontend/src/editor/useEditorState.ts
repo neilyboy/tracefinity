@@ -69,8 +69,8 @@ interface EditorState {
   // Symmetry actions
   setSymmetryAxis: (axis: 'x' | 'y' | null) => void
   setSymmetryMode: (mode: 'live' | 'manual') => void
-  mirrorHalf: (toolId: string, axis: 'x' | 'y', source: 'left' | 'right' | 'top' | 'bottom') => void
-  symmetrize: (toolId: string, axis: 'x' | 'y') => void
+  mirrorHalf: (toolId: string, axis: 'x' | 'y', source: 'left' | 'right' | 'top' | 'bottom', angle?: number) => void
+  symmetrize: (toolId: string, axis: 'x' | 'y', angle?: number) => void
   // Labels
   addLabel: (label: TextLabel) => void
   updateLabel: (id: string, updates: Partial<TextLabel>) => void
@@ -1002,39 +1002,55 @@ export const useEditor = create<EditorState>((set, get) => ({
   setSymmetryAxis: (axis) => set({ symmetryAxis: axis }),
   setSymmetryMode: (mode) => set({ symmetryMode: mode }),
 
-  mirrorHalf: (id, axis, source) => {
+  mirrorHalf: (id, axis, source, angle = 0) => {
     // Copy geometry from one side of the symmetry axis to the other.
     // source: 'left'/'right' for X axis, 'top'/'bottom' for Y axis.
+    // angle: rotation of the symmetry axis in degrees (0 = straight, auto-detected from tool shape).
     // The "source" side is kept; the other side is replaced with mirrored copies.
     const tool = get().design.outlines.find((o) => o.id === id)
     if (!tool) return
     get().pushHistory()
     const cx = tool.outer.reduce((a, p) => a + p.x, 0) / tool.outer.length
     const cy = tool.outer.reduce((a, p) => a + p.y, 0) / tool.outer.length
+    // For X axis: the mirror line is vertical (at angle). For Y axis: horizontal (at angle).
+    // The base mirror direction: X axis mirrors across a vertical line, Y axis across horizontal.
+    // With angle rotation: rotate points by -angle, mirror across the base axis, rotate back.
+    const rad = (angle * Math.PI) / 180
+    const cos = Math.cos(rad), sin = Math.sin(rad)
+    // Rotate a point into the axis-aligned frame
+    const toLocal = (p: Point): Point => ({
+      x: (p.x - cx) * cos + (p.y - cy) * sin,
+      y: -(p.x - cx) * sin + (p.y - cy) * cos,
+    })
+    // Rotate a point back from the axis-aligned frame
+    const toWorld = (p: Point): Point => ({
+      x: cx + p.x * cos - p.y * sin,
+      y: cy + p.x * sin + p.y * cos,
+    })
+    // Mirror a local point across the base axis
+    const mirrorLocal = (p: Point): Point =>
+      axis === 'x' ? { x: -p.x, y: p.y } : { x: p.x, y: -p.y }
+
     set((s) => ({
       design: {
         ...s.design,
         outlines: s.design.outlines.map((o) => {
           if (o.id !== id) return o
-          // Split vertices into source side and target side
+          // Split vertices into source side and target side (in local frame)
           const sourcePts: Point[] = []
-          const targetPts: Point[] = []
           for (const p of o.outer) {
+            const lp = toLocal(p)
             if (axis === 'x') {
-              if (source === 'left' ? p.x <= cx : p.x >= cx) sourcePts.push(p)
-              else targetPts.push(p)
+              if (source === 'left' ? lp.x <= 0 : lp.x >= 0) sourcePts.push(p)
             } else {
-              if (source === 'top' ? p.y <= cy : p.y >= cy) sourcePts.push(p)
-              else targetPts.push(p)
+              if (source === 'top' ? lp.y <= 0 : lp.y >= 0) sourcePts.push(p)
             }
           }
           // Mirror the source points to create the new target side
-          const mirroredSource = sourcePts.map((p) =>
-            axis === 'x' ? { x: 2 * cx - p.x, y: p.y } : { x: p.x, y: 2 * cy - p.y },
-          )
+          const mirroredSource = sourcePts.map((p) => toWorld(mirrorLocal(toLocal(p))))
           // Combine: source points + mirrored source points
-          // Sort by angle around centroid to maintain polygon order
           const allPts = [...sourcePts, ...mirroredSource]
+          // Sort by angle around centroid to maintain polygon order
           const finalCx = allPts.reduce((a, p) => a + p.x, 0) / allPts.length
           const finalCy = allPts.reduce((a, p) => a + p.y, 0) / allPts.length
           allPts.sort((a, b) => {
@@ -1048,14 +1064,27 @@ export const useEditor = create<EditorState>((set, get) => ({
     }))
   },
 
-  symmetrize: (id, axis) => {
+  symmetrize: (id, axis, angle = 0) => {
     // Average both sides for perfect symmetry.
-    // For each vertex, find its mirror partner and average both positions.
+    // For each vertex, find its mirror partner (across the angled axis) and average both positions.
     const tool = get().design.outlines.find((o) => o.id === id)
     if (!tool) return
     get().pushHistory()
     const cx = tool.outer.reduce((a, p) => a + p.x, 0) / tool.outer.length
     const cy = tool.outer.reduce((a, p) => a + p.y, 0) / tool.outer.length
+    const rad = (angle * Math.PI) / 180
+    const cos = Math.cos(rad), sin = Math.sin(rad)
+    const toLocal = (p: Point): Point => ({
+      x: (p.x - cx) * cos + (p.y - cy) * sin,
+      y: -(p.x - cx) * sin + (p.y - cy) * cos,
+    })
+    const toWorld = (p: Point): Point => ({
+      x: cx + p.x * cos - p.y * sin,
+      y: cy + p.x * sin + p.y * cos,
+    })
+    const mirrorLocal = (p: Point): Point =>
+      axis === 'x' ? { x: -p.x, y: p.y } : { x: p.x, y: -p.y }
+
     set((s) => ({
       design: {
         ...s.design,
@@ -1064,13 +1093,12 @@ export const useEditor = create<EditorState>((set, get) => ({
           // For each vertex, find the closest vertex to its mirrored position
           // and average the two positions
           const newOuter = o.outer.map((p, i) => {
-            const mirrorX = axis === 'x' ? 2 * cx - p.x : p.x
-            const mirrorY = axis === 'y' ? 2 * cy - p.y : p.y
+            const mirroredWorld = toWorld(mirrorLocal(toLocal(p)))
             let bestDist = Infinity
             let bestIdx = -1
             for (let j = 0; j < o.outer.length; j++) {
               if (j === i) continue
-              const d = Math.hypot(o.outer[j].x - mirrorX, o.outer[j].y - mirrorY)
+              const d = Math.hypot(o.outer[j].x - mirroredWorld.x, o.outer[j].y - mirroredWorld.y)
               if (d < bestDist) {
                 bestDist = d
                 bestIdx = j
@@ -1079,9 +1107,7 @@ export const useEditor = create<EditorState>((set, get) => ({
             if (bestIdx >= 0 && bestDist < 15) {
               // Average: move this vertex and its mirror partner toward the midpoint
               const partner = o.outer[bestIdx]
-              const avgX = axis === 'x' ? (p.x + (2 * cx - partner.x)) / 2 : p.x
-              const avgY = axis === 'y' ? (p.y + (2 * cy - partner.y)) / 2 : p.y
-              return { x: avgX, y: avgY }
+              return { x: (p.x + mirroredWorld.x) / 2, y: (p.y + mirroredWorld.y) / 2 }
             }
             return p
           })
