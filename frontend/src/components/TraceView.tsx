@@ -346,6 +346,15 @@ export default function TraceView() {
     const pt = imagePointMm(e.clientX, e.clientY)
     if (!pt) return
 
+    // Update loupe position during drag (pointer capture routes events here, not to the image div)
+    if ((dragVertex || dragHandle) && imgRef.current) {
+      const rect = imgRef.current.getBoundingClientRect()
+      setLoupePos({
+        px: (e.clientX - rect.left) * design.rectified_w_px / rect.width,
+        py: (e.clientY - rect.top) * design.rectified_h_px / rect.height,
+      })
+    }
+
     if (dragVertex || dragHandle) {
       e.preventDefault()
     }
@@ -596,12 +605,9 @@ export default function TraceView() {
       const curr = path[vertex]
       const next = path[(vertex + 1) % n]
       const { cp_in, cp_out } = computeAutoHandles(prev, curr, next, tool.smoothing ?? 0.3)
-      // Scale handles 3x away from vertex for easier grabbing
-      const scaledCpIn = { x: curr.x + (cp_in.x - curr.x) * 3, y: curr.y + (cp_in.y - curr.y) * 3 }
-      const scaledCpOut = { x: curr.x + (cp_out.x - curr.x) * 3, y: curr.y + (cp_out.y - curr.y) * 3 }
       const newHandle: VertexHandle = {
-        cp_in: nextType === 'smooth' ? scaledCpIn : (h?.cp_in ?? scaledCpIn),
-        cp_out: nextType === 'smooth' ? scaledCpOut : (h?.cp_out ?? scaledCpOut),
+        cp_in: nextType === 'smooth' ? cp_in : (h?.cp_in ?? cp_in),
+        cp_out: nextType === 'smooth' ? cp_out : (h?.cp_out ?? cp_out),
         type: nextType,
       }
       if (hole === null) {
