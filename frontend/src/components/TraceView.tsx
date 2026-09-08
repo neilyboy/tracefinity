@@ -46,6 +46,7 @@ export default function TraceView() {
   const [showHandles, setShowHandles] = useState(true)
   const [showHelp, setShowHelp] = useState(false)
   const [loupePos, setLoupePos] = useState<{ px: number; py: number } | null>(null)
+  const [imageZoom, setImageZoom] = useState(1)  // zoom level for the image (1 = fit to width)
   const imgRef = useRef<HTMLImageElement>(null)
   const magnifierRef = useRef<HTMLCanvasElement>(null)
   const LOUPE_ZOOM = 4
@@ -89,6 +90,106 @@ export default function TraceView() {
     } catch {
       return
     }
+
+    // Helper: convert image px to loupe canvas px
+    const toLoupeX = (px: number) => (px - sx) * LOUPE_ZOOM
+    const toLoupeY = (py: number) => (py - sy) * LOUPE_ZOOM
+
+    // Draw tool paths on top of the image
+    const scale = design.scale_mm_per_px
+    for (const tool of design.outlines) {
+      if (!tool.visible) continue
+      const isSelected = selectedToolIds.includes(tool.id)
+      const outerPx = tool.outer.map((p) => ({ x: p.x / scale, y: p.y / scale }))
+
+      // Outer path
+      ctx.strokeStyle = isSelected ? '#a78bfa' : '#71717a'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      for (let i = 0; i < outerPx.length; i++) {
+        const lx = toLoupeX(outerPx[i].x)
+        const ly = toLoupeY(outerPx[i].y)
+        if (i === 0) ctx.moveTo(lx, ly)
+        else ctx.lineTo(lx, ly)
+      }
+      ctx.closePath()
+      ctx.stroke()
+
+      // Holes
+      for (const hole of tool.holes) {
+        const hPx = hole.map((p) => ({ x: p.x / scale, y: p.y / scale }))
+        ctx.strokeStyle = '#ef4444'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        for (let i = 0; i < hPx.length; i++) {
+          const lx = toLoupeX(hPx[i].x)
+          const ly = toLoupeY(hPx[i].y)
+          if (i === 0) ctx.moveTo(lx, ly)
+          else ctx.lineTo(lx, ly)
+        }
+        ctx.closePath()
+        ctx.stroke()
+      }
+
+      // Vertices for selected tool
+      if (isSelected && showHandles) {
+        const handles = tool.outer_handles ?? []
+        for (let vi = 0; vi < outerPx.length; vi++) {
+          const lx = toLoupeX(outerPx[vi].x)
+          const ly = toLoupeY(outerPx[vi].y)
+          const h = handles[vi]
+          const handleType = h?.type ?? 'auto'
+
+          // Bezier handle lines and circles
+          if (h && h.type !== 'auto' && h.type !== 'straight') {
+            if (h.cp_in) {
+              const cpPx = { x: h.cp_in.x / scale, y: h.cp_in.y / scale }
+              const cpx = toLoupeX(cpPx.x)
+              const cpy = toLoupeY(cpPx.y)
+              ctx.strokeStyle = '#3b82f6'
+              ctx.lineWidth = 1
+              ctx.setLineDash([3, 2])
+              ctx.beginPath()
+              ctx.moveTo(lx, ly)
+              ctx.lineTo(cpx, cpy)
+              ctx.stroke()
+              ctx.setLineDash([])
+              ctx.fillStyle = '#3b82f6'
+              ctx.beginPath()
+              ctx.arc(cpx, cpy, 4, 0, Math.PI * 2)
+              ctx.fill()
+            }
+            if (h.cp_out) {
+              const cpPx = { x: h.cp_out.x / scale, y: h.cp_out.y / scale }
+              const cpx = toLoupeX(cpPx.x)
+              const cpy = toLoupeY(cpPx.y)
+              ctx.strokeStyle = '#3b82f6'
+              ctx.lineWidth = 1
+              ctx.setLineDash([3, 2])
+              ctx.beginPath()
+              ctx.moveTo(lx, ly)
+              ctx.lineTo(cpx, cpy)
+              ctx.stroke()
+              ctx.setLineDash([])
+              ctx.fillStyle = '#3b82f6'
+              ctx.beginPath()
+              ctx.arc(cpx, cpy, 4, 0, Math.PI * 2)
+              ctx.fill()
+            }
+          }
+
+          // Vertex dot
+          ctx.fillStyle = handleType === 'smooth' ? '#22d3ee' : handleType === 'sharp' ? '#fbbf24' : handleType === 'straight' ? '#71717a' : '#22c55e'
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.arc(lx, ly, 3.5, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+        }
+      }
+    }
+
     // Crosshair
     ctx.strokeStyle = '#a78bfa'
     ctx.lineWidth = 1.5
@@ -103,7 +204,7 @@ export default function TraceView() {
     ctx.beginPath()
     ctx.arc(LOUPE_SIZE / 2, LOUPE_SIZE / 2, 8, 0, Math.PI * 2)
     ctx.stroke()
-  }, [showLoupe, loupePos, design.rectified_w_px, design.rectified_h_px])
+  }, [showLoupe, loupePos, design.rectified_w_px, design.rectified_h_px, design.outlines, design.scale_mm_per_px, selectedToolIds, showHandles])
 
   // --- Path update helpers ---
   const replacePath = (toolId: string, hole: number | null, points: Point[]) => {
@@ -608,6 +709,13 @@ export default function TraceView() {
             </div>
           </>
         )}
+        <Divider />
+        {/* Zoom controls */}
+        <ToolButton active={false} onClick={() => setImageZoom((z) => Math.max(0.25, z - 0.25))} icon="−" label="" title="Zoom out" />
+        <span style={{ fontSize: 11, color: '#71717a', minWidth: 36, textAlign: 'center' }}>{Math.round(imageZoom * 100)}%</span>
+        <ToolButton active={false} onClick={() => setImageZoom(1)} icon="⊡" label="Fit" title="Reset zoom to 100% (fit to width)" />
+        <ToolButton active={false} onClick={() => setImageZoom((z) => Math.min(8, z + 0.25))} icon="+" label="" title="Zoom in" />
+        <span style={{ fontSize: 10, color: '#52525b' }}>Ctrl+Wheel</span>
         <span style={{ flex: 1 }} />
         {/* Status text */}
         <span style={{ fontSize: 11, color: '#52525b' }}>
@@ -633,7 +741,16 @@ export default function TraceView() {
       {/* Main area: image + side panel */}
       <div style={{ display: 'flex', gap: 12, flex: 1, overflow: 'hidden' }}>
         {/* Image with SVG overlays */}
-        <div style={{ flex: 1, background: '#18181b', borderRadius: 8, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12 }}>
+        <div
+          style={{ flex: 1, background: '#18181b', borderRadius: 8, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 12 }}
+          onWheel={(e) => {
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault()
+              const delta = -e.deltaY * 0.002
+              setImageZoom((z) => Math.max(0.25, Math.min(8, z + delta * z)))
+            }
+          }}
+        >
           <div
             style={{ position: 'relative', display: 'inline-block', touchAction: 'none' }}
             onPointerMove={(e) => { handlePointerMove(e); /* update loupe */ if (!imgRef.current) return; const rect = imgRef.current.getBoundingClientRect(); setLoupePos({ px: (e.clientX - rect.left) * design.rectified_w_px / rect.width, py: (e.clientY - rect.top) * design.rectified_h_px / rect.height }) }}
@@ -649,7 +766,9 @@ export default function TraceView() {
               onClick={handleImageClick}
               onDoubleClick={penMode !== 'none' ? handlePenDoubleClick : undefined}
               style={{
-                display: 'block', maxWidth: '100%',
+                display: 'block',
+                width: `${imageZoom * 100}%`,
+                maxWidth: 'none',
                 cursor: penMode !== 'none' ? 'crosshair' : (addingTool || splitting ? 'crosshair' : 'default'),
                 opacity: detecting ? 0.5 : 1,
                 userSelect: 'none',
