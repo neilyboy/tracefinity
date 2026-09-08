@@ -460,86 +460,72 @@ export default function SvgEditor() {
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      {/* Toolbar */}
-      <div style={{ display: 'flex', gap: 8, padding: '6px 12px', borderBottom: '1px solid #27272a', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-        <button
-          onClick={undo}
-          disabled={historyIndex <= 0}
-          style={{ ...toolBtn(false), opacity: historyIndex <= 0 ? 0.3 : 1 }}
-          title="Undo"
-        >
-          ↩ Undo
-        </button>
-        <button
-          onClick={redo}
-          disabled={historyIndex >= history.length - 1}
-          style={{ ...toolBtn(false), opacity: historyIndex >= history.length - 1 ? 0.3 : 1 }}
-          title="Redo"
-        >
-          ↪ Redo
-        </button>
-        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
-        <button onClick={() => setSnapEnabled(!snapEnabled)} style={toolBtn(snapEnabled)}>
-          {snapEnabled ? '🧲 Snap ON' : '🧲 Snap OFF'}
-        </button>
-        <button
-          onClick={() => setPlacingFingerHole(!placingFingerHole)}
-          disabled={!selectedToolId}
-          style={toolBtn(placingFingerHole)}
-          title="Click to place a finger hole on the selected tool"
-        >
-          {placingFingerHole ? '👆 Click on tool...' : '◯ Finger Hole'}
-        </button>
-        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
-        <button
-          onClick={() => setShowAddTool(true)}
-          style={toolBtn(false)}
-          title="Add a new shape with custom dimensions"
-        >
-          ＋ Add Shape
-        </button>
-        <button
-          onClick={handleAddLabel}
-          style={toolBtn(false)}
-          title="Add a text label to the bin surface"
-        >
-          🏷 Add Label
-        </button>
-        <span style={{ width: 1, height: 20, background: '#3f3f46' }} />
-        <span style={{ fontSize: 11, color: '#71717a' }}>Nudge:</span>
-        <select
-          value={nudgeStep}
-          onChange={(e) => setNudgeStep(parseFloat(e.target.value))}
-          style={{ ...toolBtn(false), padding: '3px 6px', cursor: 'pointer' }}
-          title="Arrow key movement step size"
-        >
-          <option value={0.1}>0.1mm</option>
-          <option value={1}>1mm</option>
-          <option value={5}>5mm</option>
-          <option value={10}>10mm</option>
-        </select>
-        <span style={{ fontSize: 10, color: '#52525b' }}>Shift+Arrow = 10×</span>
-        <button onClick={() => setZoom((z) => Math.max(0.15, z - 0.2))} style={toolBtn(false)}>−</button>
-        <button onClick={() => setZoom(0.5)} style={toolBtn(false)} title="Fit workspace to screen">Fit</button>
-        <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Zoom to tray (100%)">Tray</button>
-        <span style={{ fontSize: 12, color: '#71717a', minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom((z) => Math.min(8, z + 0.2))} style={toolBtn(false)}>+</button>
-        <button
-          onClick={() => setShowLoupe(!showLoupe)}
-          style={toolBtn(showLoupe)}
-          title="Toggle magnifier loupe (4× zoom of cursor area)"
-        >
-          {showLoupe ? '🔍 Loupe ON' : '🔍 Loupe OFF'}
-        </button>
-        <button
-          onClick={() => setShowHelp(true)}
-          style={toolBtn(false)}
-          title="Show help and keyboard shortcuts"
-        >
-          ? Help
-        </button>
+      {/* Toolbar — grouped into labeled sections */}
+      <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderBottom: '1px solid #27272a', alignItems: 'flex-start', flexWrap: 'wrap', flexShrink: 0 }}>
+        {/* History */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 9, color: '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>History</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={undo} disabled={historyIndex <= 0} style={{ ...toolBtn(false), opacity: historyIndex <= 0 ? 0.3 : 1 }} title="Undo">↩ Undo</button>
+            <button onClick={redo} disabled={historyIndex >= history.length - 1} style={{ ...toolBtn(false), opacity: historyIndex >= history.length - 1 ? 0.3 : 1 }} title="Redo">↪ Redo</button>
+          </div>
+        </div>
+        <span style={{ width: 1, height: 36, background: '#3f3f46', margin: '0 2px' }} />
+
+        {/* Layout */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 9, color: '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>Layout</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => setSnapEnabled(!snapEnabled)} style={toolBtn(snapEnabled)} title="Toggle grid snapping">
+              {snapEnabled ? '🧲 Snap' : '🧲 Snap'}
+            </button>
+            <button onClick={() => setPlacingFingerHole(!placingFingerHole)} disabled={!selectedToolId} style={toolBtn(placingFingerHole)} title="Click to place a finger hole on the selected tool">
+              {placingFingerHole ? '👆 Click...' : '◯ Finger'}
+            </button>
+            <button onClick={() => setShowAddTool(true)} style={toolBtn(false)} title="Add a new shape with custom dimensions">＋ Shape</button>
+            <button onClick={handleAddLabel} style={toolBtn(false)} title="Add a text label to the bin surface">🏷 Label</button>
+          </div>
+        </div>
+        <span style={{ width: 1, height: 36, background: '#3f3f46', margin: '0 2px' }} />
+
+        {/* Nudge */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 9, color: '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>Nudge</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <select
+              value={nudgeStep}
+              onChange={(e) => setNudgeStep(parseFloat(e.target.value))}
+              style={{ ...toolBtn(false), padding: '3px 6px', cursor: 'pointer' }}
+              title="Arrow key movement step size"
+            >
+              <option value={0.1}>0.1mm</option>
+              <option value={1}>1mm</option>
+              <option value={5}>5mm</option>
+              <option value={10}>10mm</option>
+            </select>
+            <span style={{ fontSize: 10, color: '#52525b' }}>Shift=10×</span>
+          </div>
+        </div>
+        <span style={{ width: 1, height: 36, background: '#3f3f46', margin: '0 2px' }} />
+
+        {/* View */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 9, color: '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>View</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => setZoom((z) => Math.max(0.15, z - 0.2))} style={toolBtn(false)} title="Zoom out">−</button>
+            <button onClick={() => setZoom(0.5)} style={toolBtn(false)} title="Fit workspace to screen">Fit</button>
+            <button onClick={() => setZoom(1)} style={toolBtn(false)} title="Zoom to tray (100%)">Tray</button>
+            <span style={{ fontSize: 11, color: '#71717a', minWidth: 32, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom((z) => Math.min(8, z + 0.2))} style={toolBtn(false)} title="Zoom in">+</button>
+            <button onClick={() => setShowLoupe(!showLoupe)} style={toolBtn(showLoupe)} title="Toggle magnifier loupe (4× zoom of cursor area)">
+              {showLoupe ? '🔍 Loupe' : '🔍 Loupe'}
+            </button>
+            <button onClick={() => setShowHelp(true)} style={toolBtn(false)} title="Show help and keyboard shortcuts">? Help</button>
+          </div>
+        </div>
+
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#52525b' }}>
+        <span style={{ fontSize: 12, color: '#52525b', alignSelf: 'flex-end' }}>
           {placingFingerHole
             ? 'Click anywhere on the selected tool to place a finger hole'
             : selectedToolIds.length > 1
@@ -1080,9 +1066,9 @@ export default function SvgEditor() {
 
 function toolBtn(active: boolean): React.CSSProperties {
   return {
-    padding: '4px 10px', borderRadius: 4, border: `1px solid ${active ? '#7c3aed' : '#3f3f46'}`,
-    background: active ? '#3b0764' : '#27272a', color: active ? '#a78bfa' : '#a1a1aa',
-    cursor: 'pointer', fontSize: 12,
+    padding: '4px 9px', borderRadius: 5, border: `1px solid ${active ? '#7c3aed' : 'transparent'}`,
+    background: active ? '#3b0764' : 'transparent', color: active ? '#a78bfa' : '#a1a1aa',
+    cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
   }
 }
 

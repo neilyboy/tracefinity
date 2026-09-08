@@ -620,103 +620,102 @@ export default function TraceView() {
         </div>
       </div>
 
-      {/* Vector editing toolbar */}
+      {/* Vector editing toolbar — grouped into labeled sections */}
       <div style={{
-        display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap',
-        background: '#18181b', borderRadius: 8, padding: '6px 10px', border: '1px solid #3f3f46',
+        display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap',
+        background: '#18181b', borderRadius: 8, padding: '8px 10px', border: '1px solid #3f3f46',
       }}>
-        {/* Undo / Redo */}
-        <ToolButton active={false} onClick={undo} icon="↩" label="Undo" title="Undo last action" disabled={historyIndex <= 0} />
-        <ToolButton active={false} onClick={redo} icon="↪" label="Redo" title="Redo last undone action" disabled={historyIndex >= history.length - 1} />
+        {/* History */}
+        <ToolGroup label="History">
+          <ToolButton active={false} onClick={undo} icon="↩" label="Undo" title="Undo last action" disabled={historyIndex <= 0} />
+          <ToolButton active={false} onClick={redo} icon="↪" label="Redo" title="Redo last undone action" disabled={historyIndex >= history.length - 1} />
+        </ToolGroup>
         <Divider />
 
-        {/* Selection tool */}
-        <ToolButton active={penMode === 'none' && !addingTool && !splitting} onClick={() => { cancelPen(); setAddingTool(false); setSplitting(false) }} icon="🖱" label="Select" title="Select and edit existing paths (default)" />
+        {/* Create */}
+        <ToolGroup label="Create">
+          <ToolButton active={penMode === 'none' && !addingTool && !splitting} onClick={() => { cancelPen(); setAddingTool(false); setSplitting(false) }} icon="🖱" label="Select" title="Select and edit existing paths (default)" />
+          <ToolButton active={penMode === 'tool'} onClick={() => { setPenMode('tool'); setPenPoints([]); setAddingTool(false); setSplitting(false) }} icon="✏" label="Draw Tool" title="Click to place points, close to create a new tool outline" />
+          <ToolButton active={penMode === 'hole'} onClick={() => { if (!selectedToolId) return; setPenMode('hole'); setPenPoints([]); setAddingTool(false); setSplitting(false) }} icon="✏" label="Island" title="Draw a custom solid island inside the selected tool" disabled={!selectedToolId} />
+          <ToolButton active={addingTool} onClick={() => { setAddingTool(!addingTool); cancelPen(); setSplitting(false); setSplitStart(null) }} icon="🔍" label="Auto-Detect" title="Click on a tool in the image to auto-trace it" />
+        </ToolGroup>
         <Divider />
 
-        {/* Pen tools */}
-        <ToolButton active={penMode === 'tool'} onClick={() => { setPenMode('tool'); setPenPoints([]); setAddingTool(false); setSplitting(false) }} icon="✏" label="Draw Tool" title="Click to place points, close to create a new tool outline" />
-        <ToolButton active={penMode === 'hole'} onClick={() => { if (!selectedToolId) return; setPenMode('hole'); setPenPoints([]); setAddingTool(false); setSplitting(false) }} icon="✏" label="Draw Island" title="Draw a custom solid island inside the selected tool" disabled={!selectedToolId} />
+        {/* View */}
+        <ToolGroup label="View">
+          <ToolButton active={showHandles} onClick={() => setShowHandles(!showHandles)} icon="◐" label="Handles" title="Show/hide bezier control handles (H)" />
+          <ToolButton active={showLoupe} onClick={() => setShowLoupe(!showLoupe)} icon="🔍" label="Loupe" title="Toggle magnifier loupe (L)" />
+          <ToolButton active={false} onClick={() => setShowHelp(true)} icon="?" label="Help" title="Show help and keyboard shortcuts (?)" />
+        </ToolGroup>
         <Divider />
 
-        {/* Auto-detect tool */}
-        <ToolButton active={addingTool} onClick={() => { setAddingTool(!addingTool); cancelPen(); setSplitting(false); setSplitStart(null) }} icon="🔍" label="Auto-Detect" title="Click on a tool in the image to auto-trace it" />
-        <Divider />
-
-        {/* Handle visibility */}
-        <ToolButton active={showHandles} onClick={() => setShowHandles(!showHandles)} icon="◐" label="Handles" title="Show/hide bezier control handles (H)" />
-        <ToolButton active={showLoupe} onClick={() => setShowLoupe(!showLoupe)} icon="🔍" label="Loupe" title="Toggle magnifier loupe (L)" />
-        <ToolButton active={false} onClick={() => setShowHelp(true)} icon="?" label="Help" title="Show help and keyboard shortcuts (?)" />
-        <Divider />
+        {/* Zoom */}
+        <ToolGroup label="Zoom">
+          <ToolButton active={false} onClick={() => setImageZoom((z) => Math.max(0.25, z - 0.25))} icon="−" label="" title="Zoom out" />
+          <span style={{ fontSize: 11, color: '#71717a', minWidth: 32, textAlign: 'center', alignSelf: 'center' }}>{Math.round(imageZoom * 100)}%</span>
+          <ToolButton active={false} onClick={() => setImageZoom(1)} icon="⊡" label="Fit" title="Reset zoom to 100% (fit to width)" />
+          <ToolButton active={false} onClick={() => setImageZoom((z) => Math.min(8, z + 0.25))} icon="+" label="" title="Zoom in" />
+        </ToolGroup>
 
         {/* Path editing actions (only when a path is selected) */}
         {selectedTool && activePath && (
           <>
-            <span style={{ fontSize: 11, color: '#71717a', margin: '0 4px' }}>
-              {selectedHole === null ? 'Outer boundary' : `Island ${selectedHole + 1}`} · {activePath.length} pts
-            </span>
             <Divider />
-            {/* Path selector */}
-            <select
-              value={selectedHole === null ? 'outer' : String(selectedHole)}
-              onChange={(e) => setSelectedHole(e.target.value === 'outer' ? null : Number(e.target.value))}
-              style={{ ...selectStyle, padding: '4px 8px', fontSize: 11, width: 'auto' }}
-            >
-              <option value="outer">Outer boundary</option>
-              {selectedTool.holes.map((_, i) => <option key={i} value={i}>Island {i + 1}</option>)}
-            </select>
-            {/* Smoothing slider */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#a1a1aa', fontSize: 11 }}>
-              Curve
-              <input
-                type="range" min={0} max={1} step={0.05} value={selectedTool.smoothing}
-                onPointerDown={pushHistory}
-                onChange={(e) => {
-                  const v = Number(e.target.value)
-                  useEditor.setState((state) => ({
-                    design: { ...state.design, outlines: state.design.outlines.map((t) => t.id === selectedTool.id ? { ...t, smoothing: v } : t) },
-                  }))
-                }}
-                onPointerUp={pushHistory}
-              />
-              {selectedTool.smoothing.toFixed(2)}
-            </label>
-            <Divider />
-            {/* Add solid island */}
-            <ToolButton active={false} onClick={() => { addHole(selectedTool.id); setSelectedHole(selectedTool.holes.length) }} icon="＋" label="Add Island" title="Add a solid island (preserves tray material)" />
-            {selectedHole !== null && (
-              <ToolButton active={false} onClick={() => { removeHole(selectedTool.id, selectedHole); setSelectedHole(null) }} icon="✕" label="Remove Island" title="Remove the selected island" />
-            )}
-            <Divider />
-            {/* Split */}
-            <ToolButton active={splitting} onClick={() => { setSplitting(!splitting); setSplitStart(null); cancelPen(); setAddingTool(false) }} icon="✂" label="Split" title="Split the selected path with a cut line" />
-            {/* Delete tool */}
-            <ToolButton active={false} onClick={() => { deleteTool(selectedTool.id); setSelectedToolId(null); setSelectedToolIds([]); setSelectedHole(null) }} icon="🗑" label="Delete" title="Delete the entire tool" />
-            <Divider />
-            {/* Symmetry controls — grouped in a compact bordered section */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 6px', borderRadius: 6, border: `1px solid ${symmetryAxis ? '#34d399' : '#3f3f46'}`, background: symmetryAxis ? 'rgba(52,211,153,0.08)' : 'transparent' }}>
-              <span style={{ fontSize: 10, color: symmetryAxis ? '#34d399' : '#71717a', marginRight: 4, fontWeight: 600 }}>SYM</span>
-              <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
-              <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
-              {symmetryAxis && (
-                <>
-                  <span style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
-                  <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Man'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
-                  <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                  <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
-                  <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Avg" title="Average both sides for perfect symmetry" />
-                </>
+            <ToolGroup label="Path">
+              <select
+                value={selectedHole === null ? 'outer' : String(selectedHole)}
+                onChange={(e) => setSelectedHole(e.target.value === 'outer' ? null : Number(e.target.value))}
+                style={{ ...selectStyle, padding: '4px 8px', fontSize: 11, width: 'auto' }}
+              >
+                <option value="outer">Outer boundary</option>
+                {selectedTool.holes.map((_, i) => <option key={i} value={i}>Island {i + 1}</option>)}
+              </select>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#a1a1aa', fontSize: 11, paddingLeft: 4 }}>
+                Curve
+                <input
+                  type="range" min={0} max={1} step={0.05} value={selectedTool.smoothing}
+                  onPointerDown={pushHistory}
+                  onChange={(e) => {
+                    const v = Number(e.target.value)
+                    useEditor.setState((state) => ({
+                      design: { ...state.design, outlines: state.design.outlines.map((t) => t.id === selectedTool.id ? { ...t, smoothing: v } : t) },
+                    }))
+                  }}
+                  onPointerUp={pushHistory}
+                />
+                {selectedTool.smoothing.toFixed(2)}
+              </label>
+              <ToolButton active={false} onClick={() => { addHole(selectedTool.id); setSelectedHole(selectedTool.holes.length) }} icon="＋" label="Add Island" title="Add a solid island (preserves tray material)" />
+              {selectedHole !== null && (
+                <ToolButton active={false} onClick={() => { removeHole(selectedTool.id, selectedHole); setSelectedHole(null) }} icon="✕" label="Remove" title="Remove the selected island" />
               )}
-            </div>
+            </ToolGroup>
+            <Divider />
+
+            <ToolGroup label="Edit">
+              <ToolButton active={splitting} onClick={() => { setSplitting(!splitting); setSplitStart(null); cancelPen(); setAddingTool(false) }} icon="✂" label="Split" title="Split the selected path with a cut line" />
+              <ToolButton active={false} onClick={() => { deleteTool(selectedTool.id); setSelectedToolId(null); setSelectedToolIds([]); setSelectedHole(null) }} icon="🗑" label="Delete" title="Delete the entire tool" />
+            </ToolGroup>
+            <Divider />
+
+            {/* Symmetry controls — grouped in a compact bordered section */}
+            <ToolGroup label="Symmetry" accent={symmetryAxis ? '#34d399' : undefined}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 1, padding: '2px 4px', borderRadius: 5, border: `1px solid ${symmetryAxis ? '#34d399' : 'transparent'}`, background: symmetryAxis ? 'rgba(52,211,153,0.08)' : 'transparent' }}>
+                <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
+                <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
+                {symmetryAxis && (
+                  <>
+                    <span style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 1px' }} />
+                    <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Man'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
+                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                    <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                    <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Avg" title="Average both sides for perfect symmetry" />
+                  </>
+                )}
+              </div>
+            </ToolGroup>
           </>
         )}
-        <Divider />
-        {/* Zoom controls */}
-        <ToolButton active={false} onClick={() => setImageZoom((z) => Math.max(0.25, z - 0.25))} icon="−" label="" title="Zoom out" />
-        <span style={{ fontSize: 11, color: '#71717a', minWidth: 36, textAlign: 'center' }}>{Math.round(imageZoom * 100)}%</span>
-        <ToolButton active={false} onClick={() => setImageZoom(1)} icon="⊡" label="Fit" title="Reset zoom to 100% (fit to width)" />
-        <ToolButton active={false} onClick={() => setImageZoom((z) => Math.min(8, z + 0.25))} icon="+" label="" title="Zoom in" />
-        <span style={{ fontSize: 10, color: '#52525b' }}>Ctrl+Wheel</span>
         <span style={{ flex: 1 }} />
         {/* Status text */}
         <span style={{ fontSize: 11, color: '#52525b' }}>
@@ -1126,22 +1125,34 @@ function ToolButton({ active, onClick, icon, label, title, disabled }: {
       title={title}
       style={{
         display: 'flex', alignItems: 'center', gap: 4,
-        padding: '5px 10px', borderRadius: 5,
-        border: `1px solid ${active ? '#7c3aed' : '#3f3f46'}`,
-        background: active ? '#3b0764' : '#27272a',
+        padding: '5px 9px', borderRadius: 5,
+        border: `1px solid ${active ? '#7c3aed' : 'transparent'}`,
+        background: active ? '#3b0764' : 'transparent',
         color: active ? '#a78bfa' : disabled ? '#52525b' : '#a1a1aa',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        fontSize: 12, whiteSpace: 'nowrap', opacity: disabled ? 0.5 : 1,
+        fontSize: 12, whiteSpace: 'nowrap', opacity: disabled ? 0.4 : 1,
+        transition: 'background 0.15s, color 0.15s',
       }}
+      onMouseEnter={(e) => { if (!disabled && !active) { e.currentTarget.style.background = '#27272a'; e.currentTarget.style.color = '#e4e4e7' } }}
+      onMouseLeave={(e) => { if (!disabled && !active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#a1a1aa' } }}
     >
       <span style={{ fontSize: 14 }}>{icon}</span>
-      <span>{label}</span>
+      {label && <span>{label}</span>}
     </button>
   )
 }
 
+function ToolGroup({ label, children, accent }: { label: string; children: React.ReactNode; accent?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 9, color: accent ?? '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>{children}</div>
+    </div>
+  )
+}
+
 function Divider() {
-  return <span style={{ width: 1, height: 22, background: '#3f3f46', margin: '0 2px' }} />
+  return <span style={{ width: 1, height: 36, background: '#3f3f46', margin: '0 4px' }} />
 }
 
 function HelpSection({ title, children }: { title: string; children: React.ReactNode }) {
