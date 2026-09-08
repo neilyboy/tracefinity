@@ -47,6 +47,7 @@ export default function TraceView() {
   const [showHelp, setShowHelp] = useState(false)
   const [loupePos, setLoupePos] = useState<{ px: number; py: number } | null>(null)
   const [imageZoom, setImageZoom] = useState(1)  // zoom level for the image (1 = fit to width)
+  const [imgNaturalSize, setImgNaturalSize] = useState<{ w: number; h: number } | null>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const magnifierRef = useRef<HTMLCanvasElement>(null)
   const LOUPE_ZOOM = 4
@@ -763,11 +764,13 @@ export default function TraceView() {
               alt="rectified"
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
+              onLoad={(e) => setImgNaturalSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
               onClick={handleImageClick}
               onDoubleClick={penMode !== 'none' ? handlePenDoubleClick : undefined}
               style={{
                 display: 'block',
-                width: `${imageZoom * 100}%`,
+                width: imgNaturalSize ? `${imgNaturalSize.w * imageZoom}px` : `${imageZoom * 100}%`,
+                height: imgNaturalSize ? `${imgNaturalSize.h * imageZoom}px` : 'auto',
                 maxWidth: 'none',
                 cursor: penMode !== 'none' ? 'crosshair' : (addingTool || splitting ? 'crosshair' : 'default'),
                 opacity: detecting ? 0.5 : 1,
@@ -785,7 +788,6 @@ export default function TraceView() {
               viewBox={`0 0 ${design.rectified_w_px} ${design.rectified_h_px}`}
               preserveAspectRatio="none"
             >
-              {/* Split start marker */}
               {splitStart && (
                 <circle cx={splitStart.x / scale} cy={splitStart.y / scale} r={7} fill="#f97316" stroke="#fff" strokeWidth={2} />
               )}
