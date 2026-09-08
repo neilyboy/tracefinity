@@ -12,6 +12,8 @@ export default function TraceView() {
     updateVertexHandle, updateHoleVertexHandle, setVertexHandleType, setHoleVertexHandleType,
     addHole, removeHole,
     undo, redo, history, historyIndex,
+    symmetryAxis, symmetryMode, setSymmetryAxis, setSymmetryMode,
+    mirrorHalf, symmetrize,
   } = useEditor()
 
   // --- Selection state (local to TraceView) ---
@@ -578,6 +580,18 @@ export default function TraceView() {
             <ToolButton active={splitting} onClick={() => { setSplitting(!splitting); setSplitStart(null); cancelPen(); setAddingTool(false) }} icon="✂" label="Split" title="Split the selected path with a cut line" />
             {/* Delete tool */}
             <ToolButton active={false} onClick={() => { deleteTool(selectedTool.id); setSelectedToolId(null); setSelectedToolIds([]); setSelectedHole(null) }} icon="🗑" label="Delete" title="Delete the entire tool" />
+            <Divider />
+            {/* Symmetry controls */}
+            <ToolButton active={symmetryAxis === 'x'} onClick={() => setSymmetryAxis(symmetryAxis === 'x' ? null : 'x')} icon="⇅" label="Sym X" title="Toggle X-axis symmetry (vertical line through tool center)" disabled={!selectedToolId} />
+            <ToolButton active={symmetryAxis === 'y'} onClick={() => setSymmetryAxis(symmetryAxis === 'y' ? null : 'y')} icon="⇄" label="Sym Y" title="Toggle Y-axis symmetry (horizontal line through tool center)" disabled={!selectedToolId} />
+            {symmetryAxis && (
+              <>
+                <ToolButton active={symmetryMode === 'live'} onClick={() => setSymmetryMode(symmetryMode === 'live' ? 'manual' : 'live')} icon={symmetryMode === 'live' ? '🔗' : '✋'} label={symmetryMode === 'live' ? 'Live' : 'Manual'} title={symmetryMode === 'live' ? 'Live mirror: dragging a vertex mirrors its partner' : 'Manual mode: use copy buttons'} />
+                <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'left' : 'top')} icon="⬅" label="Copy→" title={`Copy left/top half to right/bottom (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                <ToolButton active={false} onClick={() => selectedToolId && mirrorHalf(selectedToolId, symmetryAxis, symmetryAxis === 'x' ? 'right' : 'bottom')} icon="➡" label="←Copy" title={`Copy right/bottom half to left/top (mirror across ${symmetryAxis.toUpperCase()} axis)`} />
+                <ToolButton active={false} onClick={() => selectedToolId && symmetrize(selectedToolId, symmetryAxis)} icon="⚖" label="Symmetrize" title="Average both sides for perfect symmetry" />
+              </>
+            )}
           </>
         )}
         <span style={{ flex: 1 }} />
@@ -745,6 +759,23 @@ export default function TraceView() {
                 )
               })}
 
+              {/* Symmetry axis line for selected tool */}
+              {selectedTool && symmetryAxis && (() => {
+                const tool = selectedTool
+                const cx = tool.outer.reduce((a, p) => a + p.x, 0) / tool.outer.length
+                const cy = tool.outer.reduce((a, p) => a + p.y, 0) / tool.outer.length
+                const xs = tool.outer.map(p => p.x)
+                const ys = tool.outer.map(p => p.y)
+                const minX = Math.min(...xs), maxX = Math.max(...xs)
+                const minY = Math.min(...ys), maxY = Math.max(...ys)
+                const lineLen = Math.max(maxX - minX, maxY - minY) + 20
+                if (symmetryAxis === 'x') {
+                  return <line x1={cx / scale} y1={(cy - lineLen / 2) / scale} x2={cx / scale} y2={(cy + lineLen / 2) / scale} stroke="#34d399" strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: 'none' }} />
+                } else {
+                  return <line x1={(cx - lineLen / 2) / scale} y1={cy / scale} x2={(cx + lineLen / 2) / scale} y2={cy / scale} stroke="#34d399" strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: 'none' }} />
+                }
+              })()}
+
               {/* Pen tool preview */}
               {penMode !== 'none' && penPoints.length > 0 && (
                 <g pointerEvents="none">
@@ -771,7 +802,8 @@ export default function TraceView() {
         </div>
 
         {/* Side panel: tool list + interior regions + docked loupe */}
-        <div style={{ width: 280, background: '#18181b', borderRadius: 8, padding: 12, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ width: 280, background: '#18181b', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '100%' }}>
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
           <h3 style={{ fontSize: 14, color: '#a1a1aa', margin: 0 }}>Tools</h3>
           <div style={{ color: '#71717a', fontSize: 11 }}>Ctrl/Cmd-click to multi-select for merge.</div>
 
@@ -841,9 +873,11 @@ export default function TraceView() {
             </div>
           )}
 
-          {/* Docked magnifier loupe — stays at the bottom of the side panel */}
+          </div>{/* end scrollable content */}
+
+          {/* Docked magnifier loupe — pinned at the bottom of the side panel */}
           {showLoupe && (
-            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>🔍 Magnifier ({LOUPE_ZOOM}×)</span>
                 <span style={{ fontSize: 10, color: '#52525b' }}>
@@ -890,6 +924,16 @@ export default function TraceView() {
               <HelpItem icon="🔍" name="Loupe" desc="Toggle the 4× magnifier docked in the side panel" />
               <HelpItem icon="✂" name="Split" desc="Split a path with a cut line (click both sides)" />
               <HelpItem icon="🗑" name="Delete" desc="Delete the entire tool" />
+            </HelpSection>
+
+            <HelpSection title="Symmetry">
+              <HelpItem icon="⇅" name="Sym X" desc="Toggle X-axis symmetry (vertical line through tool center)" />
+              <HelpItem icon="⇄" name="Sym Y" desc="Toggle Y-axis symmetry (horizontal line through tool center)" />
+              <HelpItem icon="🔗" name="Live" desc="Live mirror: dragging a vertex mirrors its partner in real-time" />
+              <HelpItem icon="✋" name="Manual" desc="Manual mode: use copy buttons to mirror one half to the other" />
+              <HelpItem icon="⬅" name="Copy→" desc="Copy left/top half to right/bottom (mirror across active axis)" />
+              <HelpItem icon="➡" name="←Copy" desc="Copy right/bottom half to left/top (mirror across active axis)" />
+              <HelpItem icon="⚖" name="Symmetrize" desc="Average both sides for perfect symmetry" />
             </HelpSection>
 
             <HelpSection title="Vertex Editing">
