@@ -282,6 +282,8 @@ export default function AddShapeDialog({ open, onClose, onCreate, binW, binL }: 
   const [pattern, setPattern] = useState<ArrayPattern>('grid')
   const [spacing, setSpacing] = useState(5)
   const [circleRadius, setCircleRadius] = useState(40) // circular pattern radius
+  const [gridRows, setGridRows] = useState(2)
+  const [gridCols, setGridCols] = useState(3)
 
   if (!open) return null
 
@@ -367,20 +369,18 @@ export default function AddShapeDialog({ open, onClose, onCreate, binW, binL }: 
           }
         }
       } else {
-        // Default: grid
-        const cols = Math.ceil(Math.sqrt(count))
-        const rows = Math.ceil(count / cols)
+        // Default: grid — use user-specified rows × cols
+        const cols = gridCols
+        const rows = gridRows
         const stepX = w + spacing
         const stepY = h + spacing
         const startX = cx - ((cols - 1) * stepX) / 2
         const startY = cy - ((rows - 1) * stepY) / 2
-        let created = 0
-        for (let row = 0; row < rows && created < count; row++) {
-          for (let col = 0; col < cols && created < count; col++) {
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
             const tool = createTool(selected, w, h, r, startX + col * stepX, startY + row * stepY, extra)
-            tool.id = `tool_${Date.now()}_${created}_${Math.random().toString(36).slice(2, 6)}`
+            tool.id = `tool_${Date.now()}_${row}_${col}_${Math.random().toString(36).slice(2, 6)}`
             onCreate(tool)
-            created++
           }
         }
       }
@@ -525,7 +525,28 @@ export default function AddShapeDialog({ open, onClose, onCreate, binW, binL }: 
                     <option value="circular">Circular</option>
                   </select>
                 </label>
-                {pattern !== 'circular' && (
+                {pattern === 'grid' && (
+                  <>
+                    <label style={{ flex: '1 1 50px' }}>
+                      <span style={labelStyle}>Rows</span>
+                      <input type="number" value={gridRows} min={1} max={50} step={1}
+                        onChange={(e) => setGridRows(Math.max(1, parseInt(e.target.value) || 1))} style={inputStyle} />
+                    </label>
+                    <label style={{ flex: '1 1 50px' }}>
+                      <span style={labelStyle}>Cols</span>
+                      <input type="number" value={gridCols} min={1} max={50} step={1}
+                        onChange={(e) => setGridCols(Math.max(1, parseInt(e.target.value) || 1))} style={inputStyle} />
+                    </label>
+                  </>
+                )}
+                {pattern !== 'circular' && pattern !== 'grid' && (
+                  <label style={{ flex: '1 1 60px' }}>
+                    <span style={labelStyle}>Gap (mm)</span>
+                    <input type="number" value={spacing} min={0} max={50} step={0.5}
+                      onChange={(e) => setSpacing(parseFloat(e.target.value) || 0)} style={inputStyle} />
+                  </label>
+                )}
+                {pattern === 'grid' && (
                   <label style={{ flex: '1 1 60px' }}>
                     <span style={labelStyle}>Gap (mm)</span>
                     <input type="number" value={spacing} min={0} max={50} step={0.5}
@@ -544,7 +565,7 @@ export default function AddShapeDialog({ open, onClose, onCreate, binW, binL }: 
           </div>
           {count > 1 && (
             <div style={{ fontSize: 10, color: '#71717a' }}>
-              {pattern === 'grid' && `Grid: ${Math.ceil(Math.sqrt(count))}×${Math.ceil(count / Math.ceil(Math.sqrt(count)))} with ${spacing}mm gaps`}
+              {pattern === 'grid' && `Grid: ${gridRows}×${gridCols} = ${gridRows * gridCols} shapes, ${spacing}mm gaps`}
               {pattern === 'hex_grid' && `Hex-packed grid with ${spacing}mm gaps (offset rows)`}
               {pattern === 'linear_x' && `${count} shapes in a horizontal line, ${spacing}mm apart`}
               {pattern === 'linear_y' && `${count} shapes in a vertical line, ${spacing}mm apart`}
