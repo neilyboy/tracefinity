@@ -828,11 +828,17 @@ export default function TraceView() {
                     <label style={{ display: 'flex', alignItems: 'center', gap: 3, color: '#34d399', fontSize: 10, paddingLeft: 4 }} title="Symmetry axis angle — auto-detected from tool shape, drag to fine-tune">
                       ∠
                       <input
-                        type="range" min={-90} max={90} step={1} value={symmetryAngle}
+                        type="range" min={-90} max={90} step={0.1} value={symmetryAngle}
                         onChange={(e) => setSymmetryAngle(Number(e.target.value))}
-                        style={{ width: 60 }}
+                        style={{ width: 140 }}
                       />
-                      {symmetryAngle.toFixed(0)}°
+                      <input
+                        type="number" min={-90} max={90} step={0.1} value={symmetryAngle}
+                        onChange={(e) => setSymmetryAngle(Math.max(-90, Math.min(90, Number(e.target.value))))}
+                        style={{ width: 50, fontSize: 10, padding: '2px 4px', background: '#27272a', border: '1px solid #3f3f46', borderRadius: 3, color: '#34d399' }}
+                        title="Enter exact angle"
+                      />
+                      °
                     </label>
                   </>
                 )}
