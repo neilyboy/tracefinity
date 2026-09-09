@@ -15,7 +15,7 @@ export default function SvgEditor() {
     selectedHoleIdx, selectHole,
     moveTool, moveTools,
     deleteTool, pushHistory, updateTool,
-    undo, redo, history, historyIndex,
+    undo, redo, history, historyIndex, redoStack,
     addLabel, updateLabel, deleteLabel, moveLabel,
     addTool, addTools,
   } = useEditor()
@@ -466,8 +466,8 @@ export default function SvgEditor() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: 9, color: '#52525b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 2 }}>History</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <button onClick={undo} disabled={historyIndex <= 0} style={{ ...toolBtn(false), opacity: historyIndex <= 0 ? 0.3 : 1 }} title="Undo">↩ Undo</button>
-            <button onClick={redo} disabled={historyIndex >= history.length - 1} style={{ ...toolBtn(false), opacity: historyIndex >= history.length - 1 ? 0.3 : 1 }} title="Redo">↪ Redo</button>
+            <button onClick={undo} disabled={historyIndex < 0} style={{ ...toolBtn(false), opacity: historyIndex < 0 ? 0.3 : 1 }} title="Undo">↩ Undo</button>
+            <button onClick={redo} disabled={redoStack.length === 0} style={{ ...toolBtn(false), opacity: redoStack.length === 0 ? 0.3 : 1 }} title="Redo">↪ Redo</button>
           </div>
         </div>
         <span style={{ width: 1, height: 36, background: '#3f3f46', margin: '0 2px' }} />

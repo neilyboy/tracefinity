@@ -23,6 +23,7 @@ interface EditorState {
   // History for undo/redo
   history: Design[]
   historyIndex: number
+  redoStack: Design[]
   // Symmetry editing
   symmetryAxis: 'x' | 'y' | null  // null = symmetry off
   symmetryMode: 'live' | 'manual'  // live = mirror vertex drags in real-time, manual = use buttons
@@ -109,6 +110,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   error: null,
   history: [],
   historyIndex: -1,
+  redoStack: [],
   symmetryAxis: null,
   symmetryMode: 'live',
 
@@ -1159,22 +1161,36 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (historyIndex >= 0 && JSON.stringify(history[historyIndex]) === JSON.stringify(design)) return
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push(design)
-    set({ history: newHistory, historyIndex: newHistory.length - 1 })
+    set({ history: newHistory, historyIndex: newHistory.length - 1, redoStack: [] })
   },
 
   undo: () => {
-    const { history, historyIndex } = get()
-    if (historyIndex > 0) {
-      set({ design: history[historyIndex - 1], historyIndex: historyIndex - 1 })
+    const { history, historyIndex, design, redoStack } = get()
+    if (historyIndex >= 0) {
+      // Save current (post-mutation) design to redo stack
+      set({
+        design: history[historyIndex],
+        historyIndex: historyIndex - 1,
+        redoStack: [...redoStack, design],
+      })
     }
   },
 
   redo: () => {
-    const { history, historyIndex } = get()
-    if (historyIndex < history.length - 1) {
-      set({ design: history[historyIndex + 1], historyIndex: historyIndex + 1 })
+    const { redoStack, history, historyIndex } = get()
+    if (redoStack.length > 0) {
+      const redoState = redoStack[redoStack.length - 1]
+      // Push current design to history for undo
+      const newHistory = history.slice(0, historyIndex + 1)
+      newHistory.push(get().design)
+      set({
+        design: redoState,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+        redoStack: redoStack.slice(0, -1),
+      })
     }
   },
 
-  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, selectedToolIds: [], selectedHoleIdx: null, history: [], historyIndex: -1 }),
+  reset: () => set({ design: { ...emptyDesign }, view: 'upload', selectedToolId: null, selectedToolIds: [], selectedHoleIdx: null, history: [], historyIndex: -1, redoStack: [] }),
 }))

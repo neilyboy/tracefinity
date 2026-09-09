@@ -89,7 +89,7 @@ export default function TraceView() {
     selectTools: selectEditorTools,
     updateVertexHandle, updateHoleVertexHandle, setVertexHandleType, setHoleVertexHandleType,
     addHole, removeHole,
-    undo, redo, history, historyIndex,
+    undo, redo, history, historyIndex, redoStack,
     symmetryAxis, symmetryMode, setSymmetryAxis, setSymmetryMode,
     mirrorHalf, symmetrize,
   } = useEditor()
@@ -742,8 +742,8 @@ export default function TraceView() {
       }}>
         {/* History */}
         <ToolGroup label="History">
-          <ToolButton active={false} onClick={undo} icon="↩" label="Undo" title="Undo last action" disabled={historyIndex <= 0} />
-          <ToolButton active={false} onClick={redo} icon="↪" label="Redo" title="Redo last undone action" disabled={historyIndex >= history.length - 1} />
+          <ToolButton active={false} onClick={undo} icon="↩" label="Undo" title="Undo last action" disabled={historyIndex < 0} />
+          <ToolButton active={false} onClick={redo} icon="↪" label="Redo" title="Redo last undone action" disabled={redoStack.length === 0} />
         </ToolGroup>
         <Divider />
 
