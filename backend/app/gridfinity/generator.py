@@ -182,11 +182,14 @@ def generate_flat_outlines(design: Design) -> Solid:
         # causes self-intersections at sharp curves, producing invalid solids.
         offset_outer = offset_polygon(outer, -margin)
 
-        # Smooth the offset polygon to match SVG editor's smooth curves
-        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=outline.smoothing)
-
-        # Simplify to reduce point count for OCP boolean stability
-        smoothed = _simplify_polygon(smoothed, epsilon=0.2)
+        # Smooth the offset polygon to match SVG editor's smooth curves.
+        # Skip smoothing when tension is 0 — preserves sharp polygon corners.
+        if outline.smoothing > 0.001:
+            smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=outline.smoothing)
+            # Simplify to reduce point count for OCP boolean stability
+            smoothed = _simplify_polygon(smoothed, epsilon=0.2)
+        else:
+            smoothed = offset_outer
 
         # Build the cutout solid.
         # Y-flip: SVG Y-down → build123d Y-up (PrusaSlicer shows Y+ at top).
@@ -207,8 +210,11 @@ def generate_flat_outlines(design: Design) -> Solid:
                         hcy = float(np.mean(hole_np[:, 1]))
                         hole_np = _rotate_points(hole_np, outline.rotation_deg, hcx, hcy)
                     offset_hole = offset_polygon(hole_np, -margin)
-                    smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
-                    smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+                    if outline.smoothing > 0.001:
+                        smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
+                        smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+                    else:
+                        smoothed_hole = offset_hole
                     hole_pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed_hole]
                     try:
                         hole_face = Polygon(hole_pts)

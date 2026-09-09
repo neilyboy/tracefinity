@@ -113,11 +113,15 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     # causes self-intersections at sharp curves, producing invalid solids.
     offset_outer = offset_polygon(outer, -margin)
 
-    # Smooth the offset polygon to match SVG editor's smooth curves
-    smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=outline.smoothing)
-
-    # Simplify for OCP boolean stability
-    smoothed = _simplify_polygon(smoothed, epsilon=0.2)
+    # Smooth the offset polygon to match SVG editor's smooth curves.
+    # Skip smoothing when tension is 0 — preserves sharp polygon corners
+    # (hexagons, rectangles, triangles, etc.) instead of rounding them.
+    if outline.smoothing > 0.001:
+        smoothed = catmull_rom_smooth(offset_outer, samples_per_segment=12, tension=outline.smoothing)
+        # Simplify for OCP boolean stability
+        smoothed = _simplify_polygon(smoothed, epsilon=0.2)
+    else:
+        smoothed = offset_outer
 
     # Build a sketch from the polygon.
     # SVG editor has Y going DOWN; build123d has Y going UP.
@@ -145,8 +149,11 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
                 hole_np = _rotate_points(hole_np, outline.rotation_deg, hcx, hcy)
             # Offset hole inward (negative = smaller hole = tighter fit)
             offset_hole = offset_polygon(hole_np, -margin)
-            smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
-            smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+            if outline.smoothing > 0.001:
+                smoothed_hole = catmull_rom_smooth(offset_hole, samples_per_segment=12, tension=outline.smoothing)
+                smoothed_hole = _simplify_polygon(smoothed_hole, epsilon=0.2)
+            else:
+                smoothed_hole = offset_hole
             hole_pts = [(float(p[0]), grid_l_mm - float(p[1])) for p in smoothed_hole]
             # Holes need CW winding for subtraction (reverse of outer's CCW)
             try:
