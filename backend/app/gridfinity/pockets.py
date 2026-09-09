@@ -315,7 +315,9 @@ def build_pocket(outline: ToolOutline, params: BinParams, bin_w_mm: float, bin_l
     # Apply corner radius to vertical edges (if enabled).
     # These are the edges connecting the top and bottom faces — rounding
     # them gives the pocket rounded vertical corners.
-    if params.pocket_corner_radius_mm > 0:
+    # Skip for sharp polygons (smoothing=0) — rounding hexagon/triangle/etc
+    # corners defeats the purpose of using those shapes.
+    if params.pocket_corner_radius_mm > 0 and outline.smoothing > 0.001:
         try:
             bb = pocket.bounding_box()
             bottom_z = bb.min.Z

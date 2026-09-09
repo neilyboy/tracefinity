@@ -104,7 +104,11 @@ def build_bin(
     bin_solid = Part(base) + Part(floor) + Part(walls)
 
     # --- Stacking lip ---
-    if lip and wall_h > 0:
+    # The lip sits on top of the bin at total_h, regardless of wall height.
+    # It's the stacking mechanism and should always be present when lip=True.
+    # Previously this was gated on wall_h > 0, which skipped the lip when
+    # the floor took all available space (e.g. height=2 with default pocket_depth).
+    if lip:
         lip_outer = Box(
             bin_w + 2 * C.LIP_OVERHANG_MM,
             bin_l + 2 * C.LIP_OVERHANG_MM,
