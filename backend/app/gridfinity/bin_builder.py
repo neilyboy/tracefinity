@@ -108,10 +108,13 @@ def build_bin(
     # It's the stacking mechanism and should always be present when lip=True.
     # Previously this was gated on wall_h > 0, which skipped the lip when
     # the floor took all available space (e.g. height=2 with default pocket_depth).
+    #
+    # The lip is flush with the outside of the bin walls (no external overhang)
+    # so it prints without supports. It creates a small internal step.
     if lip:
         lip_outer = Box(
-            bin_w + 2 * C.LIP_OVERHANG_MM,
-            bin_l + 2 * C.LIP_OVERHANG_MM,
+            bin_w,
+            bin_l,
             C.LIP_HEIGHT_MM,
         )
         lip_z = total_h + C.LIP_HEIGHT_MM / 2
@@ -125,23 +128,28 @@ def build_bin(
         lip_part = lip_outer - lip_inner
         bin_solid = bin_solid + Part(lip_part)
 
-        # --- Flat insert recess ---
-        # When use_flat_insert is enabled, recess the floor top inside the walls
-        # by flat_thickness_mm so the flat insert sits flush with the wall top.
-        # The flat insert fills this recess; its top is at the wall top (total_h),
-        # so the stacking lip sits on top at the correct height.
-        if use_flat_insert and flat_thickness_mm > 0:
-            recess_w = bin_w - 2 * wall_thickness_mm
-            recess_l = bin_l - 2 * wall_thickness_mm
-            # Floor top is at Z = BASE_HEIGHT_MM + floor_h
-            floor_top_z = C.BASE_HEIGHT_MM + floor_h
-            # Recess removes from floor_top - flat_thickness to floor_top + 0.1
-            # (slightly into wall area for clean boolean cut)
-            recess_h = flat_thickness_mm + 0.1
-            recess_z = floor_top_z - flat_thickness_mm / 2 + 0.05
-            recess = Box(recess_w, recess_l, recess_h)
-            recess = recess.moved(Location((0, 0, recess_z)))
-            bin_solid = bin_solid - Part(recess)
+    # --- Flat insert recess ---
+    # When use_flat_insert is enabled, create a recess at the TOP of the walls
+    # (inside the bin) where the flat plate nests. The flat plate is
+    # flat_thickness_mm thick, has the same tool cutouts, and sits flush
+    # with the top of the walls. This enables two-tone printing: tray in
+    # one color, flat insert in another.
+    #
+    # The recess is a step cut into the inside of the walls at the top:
+    # from (total_h - flat_thickness_mm) to (total_h + lip_height + 0.1).
+    # The flat plate drops into this step and sits flush.
+    if use_flat_insert and flat_thickness_mm > 0:
+        recess_w = bin_w - 2 * wall_thickness_mm
+        recess_l = bin_l - 2 * wall_thickness_mm
+        # Recess from below the top of the walls, up through the lip area
+        lip_h = C.LIP_HEIGHT_MM if lip else 0
+        recess_top = total_h + lip_h + 0.1
+        recess_bottom = total_h - flat_thickness_mm
+        recess_h = recess_top - recess_bottom
+        recess_z = (recess_top + recess_bottom) / 2
+        recess = Box(recess_w, recess_l, recess_h)
+        recess = recess.moved(Location((0, 0, recess_z)))
+        bin_solid = bin_solid - Part(recess)
 
     # --- Magnet holes (in each cell corner) ---
     if magnet_holes:
